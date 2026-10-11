@@ -1,59 +1,60 @@
 # Screeps 积木（screeps-blockly-mobile）
 
-一款 **Screeps 风格的开放世界编程游戏** 的安卓版原型：用 Google **Blockly** 积木拼出 creep 的 AI，积木会生成真正的 JavaScript，在每个游戏 tick 里运行。
+**Screeps 风格的开放世界编程游戏**，安卓版。用 Google **Blockly** 积木拼出 creep 的 AI，积木生成真正的 JavaScript，每个 tick 运行一次。支持**局域网多人**。
 
 ## 下载
-到 [Releases](../../releases/latest) 下载最新 `screeps-blockly-v*.apk`，在手机上安装即可（需允许“安装未知来源应用”）。
-应用启动时会自动检查 GitHub Releases，有新版本会提示下载安装（菜单 ⚙ → 检查更新 也可手动检查）。
+[Releases](../../releases/latest) 下载最新 `screeps-blockly-v*.apk` 安装。启动时自动检查新版本（⚙ → 检查更新 也可）。
 
-## v1 功能
-- 持久开放世界：3×3 个房间（每个 25×25 格），平原 / 沼泽 / 墙，房间之间有出口，多个能量源（定时再生）
-- Spawn1、creep（WORK / CARRY / MOVE 身体部件、寿命 1500 tick、疲劳）
-- 采集能量、送回 Spawn、放置工地并建造（extension 扩展容量 / road 道路）
-- 单指拖动平移、双指缩放；点击格子查看 creep / 能量源 / Spawn 信息
-- Blockly 积木编辑器（中文）+ 自定义 Screeps 积木，可切换查看生成的 JS
-- 运行 / 暂停、1x–16x 倍速、日志面板
-- 世界和积木程序自动保存在本地（localStorage）
+> ⚠ v1.0.1 → v1.1.0 更换了签名证书，需**先卸载 v1.0.1 再安装**（之后的版本可直接覆盖升级）。
 
-## 玩家可用 API（Screeps 子集）
-`Game.creeps`、`Game.spawns`、`Game.time`、`Game.createConstructionSite(x,y,type)`、`Memory`、
-`creep.moveTo / harvest / transfer / build / say / drop / suicide`、`creep.store`、`creep.memory`、
-`creep.pos.findClosestByPath(FIND_SOURCES | FIND_CONSTRUCTION_SITES | FIND_MY_SPAWNS)`、
-`spawn.spawnCreep(body, name)`，以及 `OK / ERR_NOT_IN_RANGE / WORK / CARRY / MOVE ...` 常量。
+## v1.1 功能
+- **PixiJS 渲染**（WebGL）：程序生成贴图——带明暗/高度的山体、沼泽、发光能量源、旋转的 Spawn、扩展、道路、工地进度
+- **流畅动画**：creep 在 tick 之间插值移动；采集/运送能量粒子飞行、建造火花、出生光环、死亡烟雾
+- **程序化地图**：种子值噪声地形（墙/沼泽），房间之间的出口由边的哈希决定且两侧一致，每个出口、能量源都会挖通到房间中心（保证连通）
+- **动态扩张**：世界为 S×S 个房间，S = max(2, ⌈√(2×玩家数)⌉)，有人加入就向外长出新房间
+- **公平出生**：新玩家放在离已有玩家最远的空房间中心
+- **局域网联机**：一台手机开房（App 内原生 WebSocket 服务器 + UDP 广播发现），其他手机搜索或输 IP 加入；每人有自己的 Spawn/creep/代码，所有代码在房主上按 tick 运行，状态同步给客户端
+- 默认程序极简（生产 creep + 采集），其余逻辑由你自己拼
 
-## 技术栈与说明（与 Cocos 的偏差）
-原计划用 Cocos Creator。但 Cocos Creator 的构建必须依赖**图形化编辑器本体**（需登录 Cocos 账号下载、官方不提供 Linux 版、
-无官方无头 CI 镜像），在 GitHub Actions 上只能靠 Windows/macOS 运行器+非官方方式安装编辑器，稳定性和授权都不可靠。
-因此 v1 采用：**原生 JavaScript + Canvas 2D 渲染 + Blockly + Capacitor 打包安卓**，全部能在 GitHub Actions Ubuntu 运行器上无头构建。
-引擎层（`www/engine.js`）与渲染层（`www/render.js`）是分开的，以后可以把渲染层迁移到 Cocos Creator（JS/TS）而复用引擎与积木。
+## 怎么联机
+1. 所有手机连同一个 WiFi（或连上房主手机开的热点）
+2. 房主：📡 联机 → 🏠 开房 → 点 ▶ 运行（房主控制运行/速度）
+3. 其他人：📡 联机 → 🔍 搜索局域网房间 → 点击加入；搜不到就输入房主界面显示的 IP
+4. 每个人在 🧩 代码 里拼积木，点“✔ 完成”就会把代码发给房主
+5. 电脑上也能当房主测试：`npm ci && npm run host`，然后浏览器打开 `www/index.html?join=<电脑IP>:8787`
 
-## 目录
+## 玩家 API（Screeps 子集）
+`Game.creeps / spawns / time / getObjectById / createConstructionSite(x,y,type)`、`Memory`、
+`creep.moveTo / harvest / transfer / build / say / drop / suicide`、`creep.store`、`creep.memory`、`creep.my`、
+`pos.findClosestByPath / findClosestByRange / find(FIND_SOURCES | FIND_CONSTRUCTION_SITES | FIND_MY_SPAWNS | FIND_MY_CREEPS | FIND_HOSTILE_CREEPS)`、
+`spawn.spawnCreep(body, name, {memory})`。
+
+## 技术栈（不使用 Cocos）
+原生 JavaScript + **PixiJS 7** + **Blockly 11** + **Capacitor 6**；联机用自写 Capacitor 安卓插件 `plugins/capacitor-lan-server`（NanoHTTPD WebSocket + UDP 广播）。
+
 ```
-www/engine.js   世界生成 + tick 模拟 + Screeps 风格 API + 沙盒
-www/render.js   Canvas 渲染、触摸平移缩放
-www/blocks.js   自定义积木、JS 生成器、默认程序
-www/update.js   GitHub Releases 应用内更新
-www/main.js     UI 与存档
-.github/workflows/android.yml  构建 + 签名 + 发布 Release
+www/worldgen.js  噪声地形、出口、能量源
+www/engine.js    多玩家权威模拟 + Screeps API + 沙盒（可在 Node 运行）
+www/net.js       房主/客户端协议
+www/render.js    PixiJS 渲染与动画（只读视图）
+www/blocks.js    自定义积木与默认程序
+www/main.js      UI、模式切换、存档
+test/lan.test.js Node 下模拟房主+2客户端的自动测试（npm test）
 ```
 
-## 本地开发
+## 构建
 ```bash
-npm ci && ./scripts/prepare.sh
-npx http-server www     # 浏览器里直接玩
-npx cap add android && npx cap sync android && cd android && ./gradlew assembleDebug
+npm ci && npm test
+APP_VERSION=1.1.0 VERSION_CODE=110 ./scripts/build-android.sh
+KEYSTORE=~/keys/release.p12 KEYSTORE_PASS=*** ./scripts/sign.sh out.apk
 ```
 
-## 发布
-推送到 `main` 即触发 Actions：版本号为 `1.0.<运行序号>`，自动构建、签名（签名证书存于仓库 Secrets，保证可覆盖升级）并创建 Release。
-
-## ⚠ 关于 CI 工作流
-当前 gh 授权缺少 `workflow` 权限，工作流文件暂存在 `ci/android.yml`。启用方法：
+## CI
+当前 gh 授权缺 `workflow` 权限，工作流暂存在 `ci/android.yml`。启用：
 ```bash
 gh auth refresh -s workflow
 mkdir -p .github/workflows && git mv ci/android.yml .github/workflows/android.yml && git commit -m "启用 CI" && git push
 ```
-仓库 Secrets `KEYSTORE_B64` / `KEYSTORE_PASS` 已配置。v1.0.1 的 APK 是在同样步骤下本地构建并用同一证书签名上传的。
 
 ## 许可证
 MIT

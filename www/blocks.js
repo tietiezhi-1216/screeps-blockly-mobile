@@ -35,7 +35,7 @@ const G = {
   sc_spawn: b => `Game.spawns['Spawn1'].spawnCreep([${b.getFieldValue('B').split(',').map(x => x.toUpperCase()).join(', ')}], 'creep' + Game.time);\n`,
   sc_spawn_energy: () => [`Game.spawns['Spawn1'].store.energy`, JS.ORDER_MEMBER],
   sc_creep_count: () => [`Object.keys(Game.creeps).length`, JS.ORDER_MEMBER],
-  sc_site_count: () => [`Game.spawns['Spawn1'].pos.findClosestByRange(FIND_CONSTRUCTION_SITES) ? 1 : 0`, JS.ORDER_CONDITIONAL],
+  sc_site_count: () => [`Game.spawns['Spawn1'].pos.find(FIND_CONSTRUCTION_SITES).length`, JS.ORDER_MEMBER],
   sc_site: b => `Game.createConstructionSite(Game.spawns['Spawn1'].pos.x + (${v(b, 'X', 0)}), Game.spawns['Spawn1'].pos.y + (${v(b, 'Y', 0)}), '${b.getFieldValue('T')}');\n`,
   sc_time: () => ['Game.time', JS.ORDER_MEMBER],
   sc_log: b => `console.log(${v(b, 'T', "''")});\n`,
@@ -54,29 +54,6 @@ const TOOLBOX = { kind: 'categoryToolbox', contents: [
   { kind: 'category', name: '函数', categorystyle: 'procedure_category', custom: 'PROCEDURE' },
 ] };
 
-// 默认程序：自动生产 + 采集/送能量/建造的状态机
-const B = (type, o = {}) => ({ block: Object.assign({ type }, o) });
-const cr = () => B('variables_get', { fields: { VAR: { name: 'creep' } } });
-const num = n => B('math_number', { fields: { NUM: n } });
-const cmp = (op, a, b) => B('logic_compare', { fields: { OP: op }, inputs: { A: a, B: b } });
-const seq = (...l) => { for (let i = l.length - 2; i >= 0; i--) l[i].block.next = l[i + 1]; return l[0]; };
-const memSet = val => B('sc_mem_set', { fields: { K: 'working' }, inputs: { C: cr(), V: B('logic_boolean', { fields: { BOOL: val } }) } });
-const creepLogic = seq(
-  B('controls_if', { extraState: { elseIfCount: 1 }, inputs: {
-    IF0: B('sc_is', { fields: { K: 'empty' }, inputs: { C: cr() } }), DO0: memSet('FALSE'),
-    IF1: B('sc_is', { fields: { K: 'full' }, inputs: { C: cr() } }), DO1: memSet('TRUE') } }),
-  B('controls_if', { extraState: { hasElse: true }, inputs: {
-    IF0: B('sc_mem_get', { fields: { K: 'working' }, inputs: { C: cr() } }),
-    DO0: B('controls_if', { extraState: { hasElse: true }, inputs: {
-      IF0: cmp('LT', B('sc_spawn_energy'), num(300)),
-      DO0: B('sc_transfer_spawn', { inputs: { C: cr() } }),
-      ELSE: B('sc_build', { inputs: { C: cr() } }) } }),
-    ELSE: B('sc_harvest', { inputs: { C: cr() } }) } }));
-const main = seq(
-  B('controls_if', { inputs: { IF0: cmp('LT', B('sc_creep_count'), num(5)), DO0: B('sc_spawn', { fields: { B: 'work,carry,move' } }) } }),
-  B('controls_if', { inputs: { IF0: cmp('EQ', B('sc_time'), num(200)), DO0: seq(
-    B('sc_site', { fields: { T: 'extension' }, inputs: { X: num(2), Y: num(0) } }),
-    B('sc_site', { fields: { T: 'extension' }, inputs: { X: num(-2), Y: num(0) } })) } }),
-  B('sc_each_creep', { fields: { VAR: { name: 'creep' } }, inputs: { DO: creepLogic } }));
-main.block.x = 20; main.block.y = 20;
-const DEFAULT_WS = { blocks: { languageVersion: 0, blocks: [main.block] } };
+// 默认程序：故意保持最小——只生产 creep 并让它们采集，剩下的交给玩家
+const DEFAULT_WS = { blocks: { languageVersion: 0, blocks: [{ type: 'sc_spawn', x: 20, y: 20, fields: { B: 'work,carry,move' },
+  next: { block: { type: 'sc_each_creep', fields: { VAR: { name: 'creep' } }, inputs: { DO: { block: { type: 'sc_harvest', inputs: { C: { block: { type: 'variables_get', fields: { VAR: { name: 'creep' } } } } } } } } } } }] } };

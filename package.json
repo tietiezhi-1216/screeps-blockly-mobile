@@ -1,10 +1,11 @@
 {
   "name": "screeps-blockly-mobile",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node test/lan.test.js",
+    "host": "node test/host-server.js"
   },
   "keywords": [],
   "author": "",
@@ -13,9 +14,13 @@
     "@capacitor/android": "^6.2.2",
     "@capacitor/browser": "^6.0.6",
     "@capacitor/core": "^6.2.2",
-    "blockly": "^11.2.2"
+    "blockly": "^11.2.2",
+    "capacitor-lan-server": "file:plugins/capacitor-lan-server",
+    "pixi.js": "^7.4.3"
   },
   "devDependencies": {
-    "@capacitor/cli": "^6.2.2"
+    "@capacitor/cli": "^6.2.2",
+    "puppeteer-core": "^25.13.0",
+    "ws": "^8.22.0"
   }
 }

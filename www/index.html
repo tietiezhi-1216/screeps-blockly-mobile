@@ -3,13 +3,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>Screeps 积木</title><link rel="stylesheet" href="style.css"></head>
 <body>
-<canvas id="world"></canvas>
+<div id="stage"></div>
 <div id="hud"><span id="stats"></span></div>
 <div id="bar">
   <button id="btnRun">▶ 运行</button>
   <button id="btnCode">🧩 代码</button>
   <button id="btnSpeed">1x</button>
   <button id="btnLog">📜 日志</button>
+  <button id="btnNet">📡 联机</button>
   <button id="btnMenu">⚙</button>
 </div>
 <div id="log" class="hidden"></div>
@@ -19,7 +20,17 @@
   <div id="blocklyDiv"></div>
   <pre id="jsView" class="hidden"></pre>
 </div>
-<div id="menu" class="hidden">
+<div id="net" class="hidden panel">
+  <div id="netStatus">当前：单机</div>
+  <input id="nick" placeholder="你的昵称" maxlength="16">
+  <button id="nHost">🏠 开房（本机做房主）</button>
+  <button id="nScan">🔍 搜索局域网房间</button>
+  <div id="hosts"></div>
+  <div style="display:flex;gap:6px"><input id="ip" placeholder="房主 IP，如 192.168.1.5" style="flex:1"><button id="nJoin" style="flex:0 0 auto">加入</button></div>
+  <button id="nSolo">🎮 回到单机</button>
+  <button id="nClose">关闭</button>
+</div>
+<div id="menu" class="hidden panel">
   <button id="mSave">💾 立即保存</button>
   <button id="mReset">🌍 重置世界</button>
   <button id="mResetCode">🧩 恢复默认积木</button>
@@ -32,9 +43,12 @@
 <script src="vendor/blocks_compressed.js"></script>
 <script src="vendor/javascript_compressed.js"></script>
 <script src="vendor/msg-zh.js"></script>
+<script src="vendor/pixi.min.js"></script>
+<script src="worldgen.js"></script>
 <script src="engine.js"></script>
 <script src="render.js"></script>
 <script src="blocks.js"></script>
+<script src="net.js"></script>
 <script src="update.js"></script>
 <script src="main.js"></script>
 </body></html>

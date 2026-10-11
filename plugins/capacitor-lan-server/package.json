@@ -1,0 +1,2 @@
+{ "name": "capacitor-lan-server", "version": "0.1.0", "description": "WebSocket server + UDP discovery for LAN play", "main": "index.js", "license": "MIT",
+  "capacitor": { "android": { "src": "android" } }, "peerDependencies": { "@capacitor/core": "^6.0.0" } }

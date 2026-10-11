@@ -15,32 +15,21 @@ jobs:
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: 17 }
       - name: Version
-        run: echo "APP_VERSION=1.0.$(( ${{ github.run_number }} + 1 ))" >> $GITHUB_ENV
-      - run: npm ci
-      - name: Prepare web assets
-        run: ./scripts/prepare.sh
-      - name: Generate Android project
         run: |
-          npx cap add android
-          npx cap sync android
-          sed -i "s/versionCode 1/versionCode $(( ${{ github.run_number }} + 1 ))/; s/versionName \"1.0\"/versionName \"$APP_VERSION\"/" android/app/build.gradle
-          grep -E "versionCode|versionName" android/app/build.gradle
-      - name: Build release APK
-        working-directory: android
-        run: ./gradlew assembleRelease --no-daemon
+          echo "APP_VERSION=1.1.${{ github.run_number }}" >> $GITHUB_ENV
+          echo "VERSION_CODE=$(( 110 + ${{ github.run_number }} ))" >> $GITHUB_ENV
+      - run: npm ci
+      - run: npm test
+      - name: Build APK
+        run: ./scripts/build-android.sh
       - name: Sign APK
         env:
           KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
           KEYSTORE_PASS: ${{ secrets.KEYSTORE_PASS }}
         run: |
-          BT=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -1)
           echo "$KEYSTORE_B64" | base64 -d > release.p12
-          IN=android/app/build/outputs/apk/release/app-release-unsigned.apk
-          $BT/zipalign -f 4 $IN aligned.apk
-          OUT=screeps-blockly-v$APP_VERSION.apk
-          $BT/apksigner sign --ks release.p12 --ks-type PKCS12 --ks-pass env:KEYSTORE_PASS --out $OUT aligned.apk
-          $BT/apksigner verify $OUT
-          echo "APK=$OUT" >> $GITHUB_ENV
+          KEYSTORE=release.p12 ./scripts/sign.sh screeps-blockly-v$APP_VERSION.apk
+          echo "APK=screeps-blockly-v$APP_VERSION.apk" >> $GITHUB_ENV
       - uses: actions/upload-artifact@v4
         with: { name: apk, path: "${{ env.APK }}" }
       - name: Publish GitHub Release

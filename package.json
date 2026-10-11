@@ -1,0 +1,21 @@
+{
+  "name": "screeps-blockly-mobile",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@capacitor/android": "^6.2.2",
+    "@capacitor/browser": "^6.0.6",
+    "@capacitor/core": "^6.2.2",
+    "blockly": "^11.2.2"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.2.2"
+  }
+}

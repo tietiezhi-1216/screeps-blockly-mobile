@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>Screeps 积木</title><link rel="stylesheet" href="style.css"></head>
+<body>
+<canvas id="world"></canvas>
+<div id="hud"><span id="stats"></span></div>
+<div id="bar">
+  <button id="btnRun">▶ 运行</button>
+  <button id="btnCode">🧩 代码</button>
+  <button id="btnSpeed">1x</button>
+  <button id="btnLog">📜 日志</button>
+  <button id="btnMenu">⚙</button>
+</div>
+<div id="log" class="hidden"></div>
+<div id="inspect" class="hidden"></div>
+<div id="editor" class="hidden">
+  <div id="edTabs"><button data-t="blocks" class="on">积木</button><button data-t="js">生成的 JS</button><span style="flex:1"></span><button id="edClose">✔ 完成</button></div>
+  <div id="blocklyDiv"></div>
+  <pre id="jsView" class="hidden"></pre>
+</div>
+<div id="menu" class="hidden">
+  <button id="mSave">💾 立即保存</button>
+  <button id="mReset">🌍 重置世界</button>
+  <button id="mResetCode">🧩 恢复默认积木</button>
+  <button id="mUpdate">⬆ 检查更新</button>
+  <div id="ver"></div>
+  <button id="mClose">关闭</button>
+</div>
+<script src="version.js"></script>
+<script src="vendor/blockly_compressed.js"></script>
+<script src="vendor/blocks_compressed.js"></script>
+<script src="vendor/javascript_compressed.js"></script>
+<script src="vendor/msg-zh.js"></script>
+<script src="engine.js"></script>
+<script src="render.js"></script>
+<script src="blocks.js"></script>
+<script src="update.js"></script>
+<script src="main.js"></script>
+</body></html>

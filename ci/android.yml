@@ -15,7 +15,7 @@ jobs:
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: 17 }
       - name: Version
-        run: echo "APP_VERSION=1.0.${{ github.run_number }}" >> $GITHUB_ENV
+        run: echo "APP_VERSION=1.0.$(( ${{ github.run_number }} + 1 ))" >> $GITHUB_ENV
       - run: npm ci
       - name: Prepare web assets
         run: ./scripts/prepare.sh
@@ -23,7 +23,7 @@ jobs:
         run: |
           npx cap add android
           npx cap sync android
-          sed -i "s/versionCode 1/versionCode ${{ github.run_number }}/; s/versionName \"1.0\"/versionName \"$APP_VERSION\"/" android/app/build.gradle
+          sed -i "s/versionCode 1/versionCode $(( ${{ github.run_number }} + 1 ))/; s/versionName \"1.0\"/versionName \"$APP_VERSION\"/" android/app/build.gradle
           grep -E "versionCode|versionName" android/app/build.gradle
       - name: Build release APK
         working-directory: android

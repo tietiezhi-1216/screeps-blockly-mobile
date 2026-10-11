@@ -47,5 +47,13 @@ npx cap add android && npx cap sync android && cd android && ./gradlew assembleD
 ## 发布
 推送到 `main` 即触发 Actions：版本号为 `1.0.<运行序号>`，自动构建、签名（签名证书存于仓库 Secrets，保证可覆盖升级）并创建 Release。
 
+## ⚠ 关于 CI 工作流
+当前 gh 授权缺少 `workflow` 权限，工作流文件暂存在 `ci/android.yml`。启用方法：
+```bash
+gh auth refresh -s workflow
+mkdir -p .github/workflows && git mv ci/android.yml .github/workflows/android.yml && git commit -m "启用 CI" && git push
+```
+仓库 Secrets `KEYSTORE_B64` / `KEYSTORE_PASS` 已配置。v1.0.1 的 APK 是在同样步骤下本地构建并用同一证书签名上传的。
+
 ## 许可证
 MIT

@@ -8,7 +8,7 @@ class Renderer {
     this.world = new PIXI.Container(); this.app.stage.addChild(this.world);
     const L = () => { const c = new PIXI.Container(); this.world.addChild(c); return c; };
     this.terrainL = L(); this.roadL = L(); this.siteL = L(); this.objL = L(); this.beamG = new PIXI.Graphics(); this.world.addChild(this.beamG); this.creepL = L(); this.labelL = L(); this.selG = new PIXI.Graphics(); this.world.addChild(this.selG);
-    this.scale = 1.6; this.cx = 37 * TS; this.cy = 37 * TS; this.view = null; this.roomsVer = -1; this.sprites = new Map(); this.tickAt = performance.now(); this.dt = 500;
+    this.scale = 1.6; this.cx = 25 * TS; this.cy = 25 * TS; this.view = null; this.roomsVer = -1; this.sprites = new Map(); this.tickAt = performance.now(); this.dt = 500;
     this.tex = this.makeTextures(); this.creepTex = new Map(); this.rooms = []; this.onTap = null; this.selected = null; this.myPid = null;
     this.fps = 60; this._fpsN = 0; this._fpsT = performance.now();
     this.bindInput(); this.app.ticker.add(() => this.frame());
@@ -73,7 +73,7 @@ class Renderer {
     for (const k in v.rooms) {
       const [rx, ry] = k.split(',').map(Number), r = v.rooms[k], sp = new PIXI.Sprite(this.roomTexture(rx, ry, r.tiles)); sp.x = rx * ROOM * TS; sp.y = ry * ROOM * TS; this.terrainL.addChild(sp);
       const own = r.owner && v.players[r.owner];
-      const tx = new PIXI.Text('R' + rx + '_' + ry + (own ? '  ' + own.name : ''), { fontFamily: 'sans-serif', fontSize: 20, fill: own ? own.color : 0x888888 }); tx.alpha = .6; tx.x = sp.x + 6; tx.y = sp.y + 4; this.labelL.addChild(tx);
+      const tx = new PIXI.Text((r.name || roomNameXY(rx, ry)) + (own ? '  ' + own.name : ''), { fontFamily: 'sans-serif', fontSize: 20, fill: own ? own.color : 0x888888 }); tx.alpha = .6; tx.x = sp.x + 6; tx.y = sp.y + 4; this.labelL.addChild(tx);
       this.rooms.push([sp, tx]);
     }
     this.roomsVer = v.roomsVer;
@@ -100,6 +100,10 @@ class Renderer {
       const g = ent(st.id, () => { const g = new PIXI.Graphics(); this.siteL.addChild(g); return g; });
       if (g._p !== st.progress) { g._p = st.progress; g.clear(); g.lineStyle(1.5, col(st.owner), .8).drawCircle((st.x + .5) * TS, (st.y + .5) * TS, TS * .35); g.lineStyle(0).beginFill(col(st.owner), .7).drawCircle((st.x + .5) * TS, (st.y + .5) * TS, TS * .3 * st.progress / st.total).endFill(); }
     }
+    // 矿物（官方：墙上的圆形，字母标识）、掉落资源（黄色小点）、墓碑
+    for (const m of v.minerals || []) ent(m.id, () => { const c = new PIXI.Container(); const g = new PIXI.Graphics(); g.beginFill(0x222222).lineStyle(1.5, 0xaaaaaa).drawCircle(0, 0, TS * .55).endFill(); const t = new PIXI.Text(m.type, { fontFamily: 'sans-serif', fontSize: 11, fill: 0xdddddd }); t.anchor.set(.5); c.addChild(g, t); c.x = (m.x + .5) * TS; c.y = (m.y + .5) * TS; this.objL.addChild(c); return c; });
+    for (const r of v.resources || []) { const g = ent(r.id, () => { const g = new PIXI.Graphics(); g.x = (r.x + .5) * TS; g.y = (r.y + .5) * TS; this.siteL.addChild(g); return g; }); const rad = Math.min(.45, .12 + Math.sqrt(r.amount) / 60); if (g._r !== rad) { g._r = rad; g.clear(); g.beginFill(r.resourceType === 'energy' ? 0xffe56d : 0xcccccc, .9).drawCircle(0, 0, TS * rad).endFill(); } }
+    for (const t of v.tombstones || []) ent(t.id, () => { const g = new PIXI.Graphics(); g.beginFill(0x444444, .9).lineStyle(1, col(t.owner), .8).drawRoundedRect(-TS * .25, -TS * .35, TS * .5, TS * .7, TS * .2).endFill(); g.x = (t.x + .5) * TS; g.y = (t.y + .5) * TS; this.siteL.addChild(g); return g; });
     for (const so of v.sources) { const s = ent(so.id, () => { const s = new PIXI.Sprite(this.tex.source); s.anchor.set(.5); s.width = s.height = TS * 1.5; s.x = (so.x + .5) * TS; s.y = (so.y + .5) * TS; this.objL.addChild(s); return s; }); s.alpha = .3 + .7 * so.energy / so.cap; }
     for (const sp of v.spawns) {
       const c = ent(sp.id, () => { const c = new PIXI.Container(); const b = new PIXI.Sprite(this.tex.spawn); b.anchor.set(.5); b.width = b.height = TS * 1.6; const e = new PIXI.Sprite(this.tex.disc); e.anchor.set(.5); e.tint = 0xffe56d; const pr = new PIXI.Graphics(); c.addChild(b, e, pr); c.e = e; c.pr = pr; c.x = (sp.x + .5) * TS; c.y = (sp.y + .5) * TS; this.objL.addChild(c); return c; });
@@ -119,7 +123,7 @@ class Renderer {
   }
   select(o) { this.selected = o; this.drawSel(); }
   drawSel() { const g = this.selG; g.clear(); const o = this.selected; if (!o || !this.view) return; const cur = this.find(o); if (!cur) return; if (!o.kind || o.kind !== 'creep') g.lineStyle(1.5, 0xffffff, .9).drawRect(cur.x * TS, cur.y * TS, TS, TS); }
-  find(o) { const v = this.view; if (!v || !o) return null; const L = { creep: v.creeps, spawn: v.spawns, source: v.sources, site: v.sites, controller: v.controllers, structure: v.structures }[o.kind]; return L ? L.find(x => x.id === o.id) : null; }
+  find(o) { const v = this.view; if (!v || !o) return null; const L = { creep: v.creeps, spawn: v.spawns, source: v.sources, site: v.sites, controller: v.controllers, structure: v.structures, mineral: v.minerals || [], resource: v.resources || [], tombstone: v.tombstones || [] }[o.kind]; return L ? L.find(x => x.id === o.id) : null; }
   // ===== 每帧：creep 线性插值 + 镜头 =====
   frame() {
     const now = performance.now(); this._fpsN++; if (now - this._fpsT > 500) { this.fps = this._fpsN * 1000 / (now - this._fpsT); this._fpsN = 0; this._fpsT = now; }

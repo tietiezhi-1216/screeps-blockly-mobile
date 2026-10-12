@@ -1,4 +1,4 @@
-# Screeps 积木（screeps-blockly-mobile）
+# Screeps World（screeps-blockly-mobile）
 
 **Screeps 风格的开放世界编程游戏**，安卓版。用 Google **Blockly** 积木拼出 creep 的 AI，积木生成真正的 JavaScript，每个 tick 运行一次。支持**局域网多人**。
 
@@ -7,22 +7,23 @@
 
 > ⚠ v1.0.1 → v1.1.0 更换了签名证书，需**先卸载 v1.0.1 再安装**（之后的版本可直接覆盖升级）。
 
-## v1.2 功能（对齐 Screeps 规则）
-- **Room Controller**：每个房间一个；`upgradeController` 消耗能量提升 `progress`，满则 RCL+1（1–8）
-- **降级**：一段时间不升级会倒计时降级（`CONTROLLER_DOWNGRADE`，数值对齐官方数量级）
-- **RCL 建造上限**：extension / tower / storage / spawn / road / wall / rampart / container 等按官方表限制；超限或等级不够返回 `ERR_RCL_NOT_ENOUGH`
-- **建筑**：工地 `createConstructionSite` + `build`；extension 提供 spawn 能量容量；tower 可 `attack` / `heal` / `repair`
-- Blockly：升级 Controller、放置工地（多种类型）、防御塔指令、RCL/进度查询
-- 积木分类改为**顶部水平标签**（可折叠），工作区更大；全 UI **扁平纯色**无渐变无阴影
+## 游戏规则（v1.3 起严格对齐官方 Screeps）
+- **常量**：`www/screeps-const.js` 原样取自官方 [screeps/common constants.js](https://github.com/screeps/common/blob/master/lib/constants.js)（ISC），代码里所有数值都从这里读：身体部件价格、`HARVEST_POWER`、`BUILD_POWER`、`REPAIR_POWER`、`UPGRADE_CONTROLLER_POWER`、`CARRY_CAPACITY`、`CONTROLLER_LEVELS / DOWNGRADE / STRUCTURES`、`CONSTRUCTION_COST`、各建筑 hits/容量、塔威力与衰减、返回码、`FIND_* / LOOK_*` 等。
+- **地图**：每个房间 50×50，移植官方 `generateRoom` 算法（元胞自动机墙体 + 沼泽、四边出口两侧对齐、全房间连通检查）。**能量源（1–2 个）和 Controller 都放在墙格上、紧挨可走格**，从旁边采集/升级；每个房间有一个矿物（同样在墙上）。房间名用官方格式 `E0S0`、`E1S0`…
+- **扩容**：世界 S×S 个房间，S = ⌈√(2×玩家数)⌉；世界边缘封墙，新房间出现时恢复原有出口。走到出口格会像官方一样进入相邻房间。
+- **能量源**：已占领/预定的房间 3000，无主 1500，首次被采后 300 tick 回满。
+- **creep**：生产 3 tick/部件、寿命 1500（CLAIM 600）；疲劳 = 非 MOVE 部件（空 CARRY 不算）× 道路 1 / 平原 2 / 沼泽 10，每个 MOVE 每 tick 减 2；死亡留下墓碑（5 tick/部件），携带物与回收能量掉落后每 tick 衰减 ceil(n/1000)。
+- **Spawn**：初始 300 能量；房间可用能量 < 300 时每 tick +1；生产扣 Spawn + Extension 能量（可用 `energyStructures` 指定顺序）。Extension 容量 50（RCL7 100、RCL8 200）。
+- **Controller**：升级 1 进度/WORK/能量，满级进度后升级并把降级计时设为一半；每次升级恢复 100 tick 降级计时；超时降级时进度回 90%。RCL8 每 tick 最多 15。超额建筑按距离 Controller 保留（`isActive`）。
+- **建筑**：`CONTROLLER_STRUCTURES` 数量上限、工地上限 100、边缘与出口旁不能建、道路可修在沼泽（×5）和墙（×150）上；道路每 1000 tick 掉 100 hits 并被踩磨损；Container 每 100 tick（自己房间 500 tick）掉 5000；Rampart 每 100 tick 掉 300、上限随 RCL；塔 600/400/800，5 格外线性衰减到 20 格时 25%，每次 10 能量。
 
-## 早期功能
-- **PixiJS 渲染**（WebGL）：程序生成贴图——带明暗/高度的山体、沼泽、发光能量源、旋转的 Spawn、扩展、道路、工地进度
-- **流畅动画**：creep 在 tick 之间插值移动；采集/运送能量粒子飞行、建造火花、出生光环、死亡烟雾
-- **程序化地图**：种子值噪声地形（墙/沼泽），房间之间的出口由边的哈希决定且两侧一致，每个出口、能量源都会挖通到房间中心（保证连通）
-- **动态扩张**：世界为 S×S 个房间，S = max(2, ⌈√(2×玩家数)⌉)，有人加入就向外长出新房间
-- **公平出生**：新玩家放在离已有玩家最远的空房间中心
-- **局域网联机**：一台手机开房（App 内原生 WebSocket 服务器 + UDP 广播发现），其他手机搜索或输 IP 加入；每人有自己的 Spawn/creep/代码，所有代码在房主上按 tick 运行，状态同步给客户端
-- 默认程序极简（生产 creep + 采集），其余逻辑由你自己拼
+## 玩家 API（官方名称与返回码）
+- 全局：`Game`、`Memory`、`RawMemory`、`RoomPosition`、`Room`（含 `Room.Terrain`）、`PathFinder`（简化）、`console.log`，以及全部官方常量。
+- `Game`：`time creeps spawns structures constructionSites flags rooms`（按视野）`gcl cpu shard getObjectById notify map.{describeExits findRoute findExit getRoomLinearDistance getRoomTerrain getTerrainAt getWorldSize getRoomStatus}`、`market`（空壳）。
+- `Room`：`name controller storage terminal energyAvailable energyCapacityAvailable memory find lookAt lookForAt lookAtArea lookForAtArea createConstructionSite createFlag getTerrain getPositionAt findPath findExitTo`。
+- `RoomPosition`：`getRangeTo inRangeTo isNearTo isEqualTo getDirectionTo findClosestByRange findClosestByPath findInRange findPathTo look lookFor createConstructionSite createFlag`。
+- `Creep`：`move moveTo moveByPath harvest transfer withdraw pickup drop build repair dismantle upgradeController claimController reserveController attackController signController generateSafeMode attack rangedAttack rangedMassAttack heal rangedHeal say suicide cancelOrder notifyWhenAttacked getActiveBodyparts`，属性 `body fatigue hits hitsMax store memory spawning ticksToLive saying my owner`。
+- `StructureSpawn`：`spawnCreep(body, name, {memory, energyStructures, dryRun, directions})`、`spawning.{cancel,setDirections}`、`renewCreep recycleCreep`；`StructureController`：`activateSafeMode unclaim`；`StructureTower`：`attack heal repair`；`StructureLink`：`transferEnergy`；`StructureRampart`：`setPublic`；所有建筑：`destroy isActive notifyWhenAttacked`；`ConstructionSite.remove`、`Flag`、`Source`、`Mineral`、`Resource`、`Tombstone`、`Store.getCapacity/getUsedCapacity/getFreeCapacity`。
 
 ## 怎么联机
 1. 所有手机连同一个 WiFi（或连上房主手机开的热点）
@@ -31,23 +32,19 @@
 4. 每个人在 🧩 代码 里拼积木，点“✔ 完成”就会把代码发给房主
 5. 电脑上也能当房主测试：`npm ci && npm run host`，然后浏览器打开 `www/index.html?join=<电脑IP>:8787`
 
-## 玩家 API（Screeps 子集）
-`Game.creeps / spawns / time / getObjectById / createConstructionSite(x,y,type)`、`Memory`、
-`creep.moveTo / harvest / transfer / build / say / drop / suicide`、`creep.store`、`creep.memory`、`creep.my`、
-`pos.findClosestByPath / findClosestByRange / find(FIND_SOURCES | FIND_CONSTRUCTION_SITES | FIND_MY_SPAWNS | FIND_MY_CREEPS | FIND_HOSTILE_CREEPS)`、
-`spawn.spawnCreep(body, name, {memory})`。
-
 ## 技术栈（不使用 Cocos）
 原生 JavaScript + **PixiJS 7** + **Blockly 11** + **Capacitor 6**；联机用自写 Capacitor 安卓插件 `plugins/capacitor-lan-server`（NanoHTTPD WebSocket + UDP 广播）。
 
 ```
-www/worldgen.js  噪声地形、出口、能量源
+www/screeps-const.js 官方常量（原样）
+www/worldgen.js  官方地图生成算法移植
 www/engine.js    多玩家权威模拟 + Screeps API + 沙盒（可在 Node 运行）
 www/net.js       房主/客户端协议
 www/render.js    PixiJS 渲染与动画（只读视图）
 www/blocks.js    自定义积木与默认程序
 www/main.js      UI、模式切换、存档
 test/lan.test.js Node 下模拟房主+2客户端的自动测试（npm test）
+test/controller.test.js 官方规则对照测试
 ```
 
 ## 构建

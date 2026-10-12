@@ -112,6 +112,7 @@ class Engine {
       }
       if (!best) continue;
       c.r.owner = pid; ctrl.owner = pid; ctrl.level = 1; ctrl.progress = 0; ctrl.downgradeTime = w.time + SC.CONTROLLER_DOWNGRADE[1] + 1; ctrl.safeModeAvailable = 1;
+for (const s of srcs) { s.cap = s.energy = SC.SOURCE_ENERGY_CAPACITY; s.regenAt = null; }
       w.spawns.push(this.makeSpawn(pid, 'Spawn1', best.x, best.y, SC.SPAWN_ENERGY_START)); this._objVer++; return;
     }
     ensureSize(w, w.S + 1); return this.placeSpawn(pid);
@@ -142,12 +143,18 @@ class Engine {
     const H = k => { const x = k % WW, y = (k / WW) | 0; let m = Infinity; for (const t of tos) { const d = Math.max(Math.abs(x - t.x), Math.abs(y - t.y)) - range; if (d < m) m = d; } return Math.max(0, m); };
     const heap = [], push = (k, f) => { heap.push([f, k]); let i = heap.length - 1; while (i) { const p = (i - 1) >> 1; if (heap[p][0] <= heap[i][0]) break; [heap[p], heap[i]] = [heap[i], heap[p]]; i = p; } };
     const pop = () => { const top = heap[0], last = heap.pop(); if (heap.length) { heap[0] = last; let i = 0; for (;;) { const l = 2 * i + 1, r = l + 1; let m = i; if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r; if (m === i) break; [heap[m], heap[i]] = [heap[i], heap[m]]; i = m; } } return top; };
+    if (tos.length === 1 && range <= 1 && dist(from, tos[0]) > range) { // 快速判定：目标周围可站的格子全被占/是墙 → 不必搜索
+      const t = tos[0]; let free = false;
+      for (let dy = -range; dy <= range && !free; dy++) for (let dx = -range; dx <= range && !free; dx++) { const X = t.x + dx, Y = t.y + dy; if (X < 0 || Y < 0 || X >= WW || Y >= WW || (g[Y * WW + X] & 1)) continue; const c = occ.get(Y * WW + X); if (!c || c === me || opts.ignoreCreeps) free = true; }
+      if (!free) return [];
+    }
     let hostileRamp = null; for (const s of this.w.structures) if (s.type === 'rampart' && s.owner !== pid && !s.isPublic) (hostileRamp = hostileRamp || new Set()).add(s.y * WW + s.x);
     const start = from.y * WW + from.x; stamp[start] = st; gs[start] = 0; prev[start] = start; push(start, H(start));
-    let end = -1, ops = 0, maxOps = opts.maxOps || 4000;
+    let end = -1, ops = 0, maxOps = opts.maxOps || 4000, bestK = start, bestH = H(start);
     while (heap.length && ops++ < maxOps) {
-      const [, k] = pop(), x = k % WW, y = (k / WW) | 0;
-      if (H(k) === 0) { end = k; break; }
+      const [, k] = pop(), x = k % WW, y = (k / WW) | 0, hk = H(k);
+      if (hk === 0) { end = k; break; }
+      if (hk < bestH) { bestH = hk; bestK = k; }
       for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
         if (!dx && !dy) continue; const nx = x + dx, ny = y + dy; if (nx < 0 || ny < 0 || nx >= WW || ny >= WW) continue; const nk = ny * WW + nx;
         if (g[nk] & 1) continue;
@@ -159,7 +166,7 @@ class Engine {
         stamp[nk] = st; gs[nk] = ng; prev[nk] = k; push(nk, ng + H(nk) * 1.0001);
       }
     }
-    if (end < 0) return [];
+    if (end < 0) { if (!opts.partial || bestK === start) return []; end = bestK; } // 官方 PathFinder：到不了时返回到最近点的不完整路径
     const path = []; for (let k = end; k !== prev[k]; k = prev[k]) path.push({ x: k % WW, y: (k / WW) | 0 });
     return path.reverse();
   }
@@ -180,7 +187,7 @@ class Engine {
       const lx = c.x % ROOM, ly = c.y % ROOM; let nx = c.x, ny = c.y;
       if (lx === 0) nx--; else if (lx === ROOM - 1) nx++; else if (ly === 0) ny--; else if (ly === ROOM - 1) ny++;
       if ((nx !== c.x || ny !== c.y) && c._arrived !== w.time && !this.blocked(nx, ny, c)) { const o = this._occ(); o.delete(c.y * this.W + c.x); c.x = nx; c.y = ny; c.px = nx; c.py = ny; o.set(c.y * this.W + c.x, c); c._path = null; }
-      c.fatigue = Math.max(0, c.fatigue - activeParts(c, 'move') * SC.MOVE_POWER);
+      c.fatigue = Math.max(0, c.fatigue - activeParts(c, 'move') * 2);
       c.ttl--;
     }
     for (const c of w.creeps.slice()) if (!c.spawning && (c.ttl <= 0 || c.hits <= 0)) this.killCreep(c, SC.CREEP_CORPSE_RATE);
@@ -380,7 +387,7 @@ function buildApi(E, pid) {
     findClosestByPath(t, opts) { // 一次多目标 A*，按实际路径长度取最近
       const list = applyOpts(resolveFind(t, roomKey(this._g.x, this._g.y)), opts).filter(o => sameRoom(this._g, gpos(o))); if (!list.length) return null;
       const near = list.find(o => dist(this._g, gpos(o)) <= 1); if (near) return near;
-      const p = E.findPath(this._g, list.map(gpos), 1, undefined, Object.assign({ maxOps: 4000 }, opts)); if (!p.length) return null;
+      const p = E.findPath(this._g, list.map(gpos), 1, undefined, Object.assign({ maxOps: 4000, ignoreCreeps: true }, opts)); if (!p.length) return null;
       const end = p[p.length - 1]; let b = null, bd = Infinity; for (const o of list) { const d = dist(end, gpos(o)); if (d < bd) { bd = d; b = o; } } return b;
     }
     findPathTo(a, b, c) { const g = this._args(a, b), opts = typeof a === 'number' ? c : b; return g ? E.findPath(this._g, g, (opts && opts.range) || 0, undefined, opts || {}).map((p, i, arr) => { const prev = i ? arr[i - 1] : this._g; return { x: p.x % ROOM, y: p.y % ROOM, dx: p.x - prev.x, dy: p.y - prev.y, direction: dirOf(p.x - prev.x, p.y - prev.y) }; }) : []; }
@@ -388,9 +395,11 @@ function buildApi(E, pid) {
     lookFor(type) { return lookAt(this._g.x, this._g.y).filter(o => o.type === type).map(o => o[type]); }
     createConstructionSite(type, name) { return createSite(this._g.x, this._g.y, type, name); }
     createFlag(name, color, secondaryColor) { return createFlag(this._g, name, color, secondaryColor); }
+    find(t, opts) { return Room_find(this._g, t, opts); } // 兼容 v1.2 积木（非官方）
     toJSON() { return { x: this.x, y: this.y, roomName: this.roomName }; }
     toString() { return `[room ${this.roomName} pos ${this.x},${this.y}]`; }
   }
+  const Room_find = (g, t, opts) => applyOpts(findList(E, pid, t, roomKey(g.x, g.y), wrap), opts);
   const posOf = o => new RoomPosition(o.x % ROOM, o.y % ROOM, roomName(o.x, o.y));
   const TERRAIN_NAME = ['plain', 'wall', 'swamp'];
   function lookAt(x, y) {
@@ -550,7 +559,7 @@ function buildApi(E, pid) {
       const pre = (part) => { if (!mine) return ERR_NOT_OWNER; if (o.spawning) return ERR_BUSY; if (part && !activeParts(o, part)) return ERR_NO_BODYPART; return 0; };
       const used = () => storeSum(o.store);
       v.say = (msg, pub) => { if (!mine) return ERR_NOT_OWNER; if (o.spawning) return ERR_BUSY; o.say = String(msg).slice(0, 10); o.sayT = w.time; o.sayPublic = !!pub; return OK; };
-      v.suicide = () => { const e = pre(); if (e) return e; E.killCreep(o, SC.CREEP_CORPSE_RATE * 0 ); return OK; };
+      v.suicide = () => { const e = pre(); if (e) return e; E.killCreep(o, SC.CREEP_CORPSE_RATE); return OK; };
       v.notifyWhenAttacked = en => { const e = pre(); if (e) return e; return typeof en === 'boolean' ? OK : ERR_INVALID_ARGS; };
       v.cancelOrder = n => { if (!mine) return ERR_NOT_OWNER; if (n === 'move' && o._move) { delete o._move; return OK; } if (o._did[n]) { return OK; } return ERR_NOT_FOUND; };
       v.move = d => {
@@ -572,7 +581,7 @@ function buildApi(E, pid) {
         if (!o._path || !o._path.length || o._pt.x !== g.x || o._pt.y !== g.y || w.time - o._pT > reuse || dist(o, o._path[0]) !== 1 || E.blocked(o._path[0].x, o._path[0].y, o)) {
           if (opts.noPathFinding) return ERR_NOT_FOUND;
           if (o._failT && w.time - o._failT < 3 && o._pt && o._pt.x === g.x && o._pt.y === g.y) return ERR_NO_PATH; // 寻路失败后短暂缓存，省 CPU
-          o._path = E.findPath(o, g, rng, o, opts); o._pt = { x: g.x, y: g.y }; o._pT = w.time;
+          o._path = E.findPath(o, g, rng, o, Object.assign({ partial: true }, opts)); o._pt = { x: g.x, y: g.y }; o._pT = w.time;
           if (!o._path.length) { o._failT = w.time; return ERR_NO_PATH; } o._failT = 0;
         }
         const nx = o._path.shift(); o._move = { x: nx.x, y: nx.y };
@@ -679,7 +688,7 @@ function buildApi(E, pid) {
       v.rangedAttack = t => { const e = pre('ranged_attack'); if (e) return e; const x = tgt(t, 3, ['creep', 'structure', 'spawn']); if (typeof x === 'number') return x; if (x.hits == null) return ERR_INVALID_TARGET;
         E.damage(x, activeParts(o, 'ranged_attack') * SC.RANGED_ATTACK_POWER, pid); ev.push({ t: 'attack', fx: o.x, fy: o.y, x: x.x, y: x.y }); return OK; };
       v.rangedMassAttack = () => { const e = pre('ranged_attack'); if (e) return e; const n = activeParts(o, 'ranged_attack') * SC.RANGED_ATTACK_POWER;
-        for (const x of w.creeps.filter(c => !c.spawning && c.owner !== pid && sameRoom(c, o) && dist(c, o) <= 3).concat(w.structures.concat(w.spawns).filter(s => s.owner && s.owner !== pid && sameRoom(s, o) && dist(s, o) <= 3))) E.damage(x, Math.round(n * SC.RANGED_ATTACK_DISTANCE_RATE[dist(x, o)]), pid);
+        for (const x of w.creeps.filter(c => !c.spawning && c.owner !== pid && sameRoom(c, o) && dist(c, o) <= 3).concat(w.structures.concat(w.spawns).filter(s => s.owner && s.owner !== pid && sameRoom(s, o) && dist(s, o) <= 3))) E.damage(x, Math.round(n * ({ 0: 1, 1: 1, 2: 0.4, 3: 0.1 })[dist(x, o)]), pid);
         return OK; };
       v.heal = t => { const e = pre('heal'); if (e) return e; const x = tgt(t, 1, ['creep']); if (typeof x === 'number') return x; x.hits = Math.min(x.body.length * 100, x.hits + activeParts(o, 'heal') * SC.HEAL_POWER); ev.push({ t: 'heal', fx: o.x, fy: o.y, x: x.x, y: x.y }); return OK; };
       v.rangedHeal = t => { const e = pre('heal'); if (e) return e; const x = tgt(t, 3, ['creep']); if (typeof x === 'number') return x; x.hits = Math.min(x.body.length * 100, x.hits + activeParts(o, 'heal') * SC.RANGED_HEAL_POWER); ev.push({ t: 'heal', fx: o.x, fy: o.y, x: x.x, y: x.y }); return OK; };

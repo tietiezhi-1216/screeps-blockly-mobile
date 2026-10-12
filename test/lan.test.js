@@ -9,16 +9,16 @@ Game.spawns['Spawn1'].spawnCreep([WORK, CARRY, MOVE], 'c' + Game.time);
 for (const n in Game.creeps) { creep = Game.creeps[n];
   if (creep.store.getFreeCapacity() === 0) { const sp = Game.spawns['Spawn1']; if (creep.transfer(sp, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) creep.moveTo(sp); }
   else { const s = creep.pos.findClosestByPath(FIND_SOURCES); if (s && creep.harvest(s) === ERR_NOT_IN_RANGE) creep.moveTo(s); } }`;
-// 地形连通性检查：所有房间中心与能量源互相可达
+// 地形连通性检查：整个世界所有非墙格互相可达；能量源/Controller/矿物都在墙上且旁边有可走格（官方规则）
 function connectivity(e) {
   const W = e.W, seen = new Uint8Array(W * W), sp = e.w.spawns[0]; const q = [[sp.x + 1, sp.y]]; seen[sp.y * W + sp.x + 1] = 1;
   while (q.length) { const [x, y] = q.pop(); for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const X = x + dx, Y = y + dy; if (X < 0 || Y < 0 || X >= W || Y >= W || seen[Y * W + X] || e.tile(X, Y) === T_WALL) continue; seen[Y * W + X] = 1; q.push([X, Y]); } }
-  const centers = Object.keys(e.w.rooms).map(k => k.split(',').map(Number)).map(([rx, ry]) => [rx * ROOM + 12, ry * ROOM + 12]);
-  const srcOk = e.w.sources.every(s => [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]].some(([dx, dy]) => seen[(s.y + dy) * W + s.x + dx]));
-  return centers.every(([x, y]) => seen[y * W + x]) && srcOk;
+  for (let y = 0; y < W; y++) for (let x = 0; x < W; x++) if (e.tile(x, y) !== T_WALL && !seen[y * W + x]) return false;
+  const near = s => [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]].some(([dx, dy]) => seen[(s.y + dy) * W + s.x + dx]);
+  return [...e.w.sources, ...e.w.controllers, ...e.w.minerals].every(o => e.tile(o.x, o.y) === T_WALL && near(o));
 }
 (async () => {
-  for (const seed of [1, 7, 42, 1234, 99999]) { const e = new Engine(newWorld(seed)); for (let i = 0; i < 6; i++) e.addPlayer('p' + i, 'P' + i); assert(connectivity(e), `seed ${seed}: ${e.w.S}x${e.w.S} 房间全部连通、能量源可达`); }
+  for (const seed of [1, 7, 42, 1234, 99999]) { const e = new Engine(newWorld(seed)); for (let i = 0; i < 6; i++) e.addPlayer('p' + i, 'P' + i); assert(connectivity(e), `seed ${seed}: ${e.w.S}x${e.w.S} 房间全部连通，能量源/Controller/矿物都在墙上且可从旁边采集`); }
   const e = new Engine(newWorld(42)); e.addPlayer('host', '房主'); e.setCode('host', HARV);
   assert(e.w.S === 2, '1 名玩家 → 2x2 房间 (S=' + e.w.S + ')');
   const wss = new WebSocketServer({ port: 18787 }); let nid = 1; const socks = new Map();
@@ -35,7 +35,7 @@ function connectivity(e) {
   const v = clients[0].view;
   assert(v && v.time === e.w.time, `客户端收到同步状态 tick=${v && v.time}`);
   assert(Object.keys(clients[0].rooms).length === 9, '客户端收到 9 个房间地形');
-  for (const pid of ['host', 'cliA', 'cliB']) { const n = e.w.creeps.filter(c => c.owner === pid).length, sp = e.w.spawns.find(s => s.owner === pid); assert(n >= 2, `${pid} 的代码在房主上运行：${n} 个 creep，spawn 能量 ${sp.energy}`); }
+  for (const pid of ['host', 'cliA', 'cliB']) { const n = e.w.creeps.filter(c => c.owner === pid).length, sp = e.w.spawns.find(s => s.owner === pid); assert(n >= 2, `${pid} 的代码在房主上运行：${n} 个 creep，spawn 能量 ${sp.store.energy}`); }
   assert(v.events !== undefined, '快照带有动画事件');
   clients[1].sendCode(''); await new Promise(r => setTimeout(r, 200)); assert(e.w.players.cliB.code === '', '客户端可在运行中更新代码');
   // 存档 / 读档

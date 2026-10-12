@@ -1,2 +1,2 @@
-{ "appId": "io.github.tietiezhi.screepsblockly", "appName": "Screeps积木", "webDir": "www",
+{ "appId": "io.github.tietiezhi.screepsblockly", "appName": "Screeps World", "webDir": "www",
   "android": { "allowMixedContent": true } }

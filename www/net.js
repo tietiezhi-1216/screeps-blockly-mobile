@@ -35,7 +35,7 @@ class ClientSession {
     ws.onmessage = ev => { const m = JSON.parse(typeof ev.data === 'string' ? ev.data : ev.data.toString()); this.handle(m); };
   }
   handle(m) {
-    if (m.t === 'rooms') { this.rooms = {}; for (const k in m.rooms) this.rooms[k] = { tiles: Array.from(m.rooms[k].tiles, Number), owner: m.rooms[k].owner }; this.roomsVer = m.roomsVer; }
+    if (m.t === 'rooms') { this.rooms = {}; for (const k in m.rooms) this.rooms[k] = { tiles: Array.from(m.rooms[k].tiles, Number), owner: m.rooms[k].owner, name: m.rooms[k].name }; this.roomsVer = m.roomsVer; }
     else if (m.t === 'tick') { this.view = Object.assign(m, { rooms: this.rooms || {} }); this.onTick && this.onTick(this.view); }
     else if (m.t === 'log') this.onLog && this.onLog(m.s);
   }

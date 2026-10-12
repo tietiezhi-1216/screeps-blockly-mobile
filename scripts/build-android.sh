@@ -6,6 +6,8 @@ set -e
 rm -rf android
 npx cap add android
 npx cap sync android
+# Capacitor CLI 每个包只登记一个插件类，这里补登记同包里的 AppUpdater
+node -e "const f='android/app/src/main/assets/capacitor.plugins.json',j=require('./'+f);if(!j.some(p=>p.classpath.endsWith('AppUpdaterPlugin')))j.push({pkg:'capacitor-lan-server',classpath:'io.github.tietiezhi.lan.AppUpdaterPlugin'});require('fs').writeFileSync(f,JSON.stringify(j,null,2))"
 sed -i "s/versionCode 1$/versionCode $VERSION_CODE/; s/versionName \"1.0\"/versionName \"$APP_VERSION\"/" android/app/build.gradle
 # 局域网 ws:// 明文连接
 sed -i 's/<application/<application android:usesCleartextTraffic="true"/' android/app/src/main/AndroidManifest.xml

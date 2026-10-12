@@ -1,12 +1,13 @@
 {
   "name": "screeps-blockly-mobile",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "",
   "main": "index.js",
   "scripts": {
     "test": "node test/lan.test.js",
     "host": "node test/host-server.js",
-    "test:native": "node test/native-stub.cjs"
+    "test:native": "node test/native-stub.cjs",
+    "test:update": "node test/update-stub.cjs"
   },
   "keywords": [],
   "author": "",

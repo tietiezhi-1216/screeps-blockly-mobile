@@ -107,7 +107,7 @@ class Engine {
   checkSpawnAt(pid, x, y) {
     const w = this.w, rx = Math.floor(x / ROOM), ry = Math.floor(y / ROOM);
     if (!w.players[pid]) return '玩家不存在';
-    if (!w.players[pid].needsSpawn) return '你已经有出生点了';
+    if (!this.needsSpawn(pid)) return '你已经有出生点了';
     const st = roomStatus(w.S, ownedMap(w), rx, ry, pid);
     if (st === 'out') return '超出世界'; if (st === 'highway') return '高速公路房间不能出生'; if (st === 'center') return '扇区中心房间不能出生';
     if (st === 'owned' || st === 'mine') return '房间已被占领'; if (st === 'close') return '离其他玩家太近';
@@ -131,7 +131,8 @@ class Engine {
     ensureNear(w, rx, ry); this._objVer++; w.roomsVer++; maybeExpand(w); this.log(pid, '在', w.rooms[k].name, '放下 Spawn1'); return null;
   }
   // 自动出生：离其他玩家最远的空闲房间，在 Controller 与能量源附近找空地
-  placeSpawn(pid) {
+  placeSpawn(pid, _grew = false) {
+    if (!this.needsSpawn(pid)) return false; // 已经有出生点：不再放（以前会一直失败→扩张世界→递归，死循环）
     const w = this.w, owned = ownedMap(w), own = Object.keys(owned).map(k => k.split(',').map(Number)), cands = [];
     for (let ry = 0; ry < w.S; ry++) for (let rx = 0; rx < w.S; rx++) if (roomStatus(w.S, owned, rx, ry, pid) === 'free')
       cands.push({ rx, ry, d: own.length ? Math.min(...own.map(([ox, oy]) => Math.max(Math.abs(ox - rx), Math.abs(oy - ry)))) : -(Math.abs(rx - 2.5) + Math.abs(ry - 2.5)) });
@@ -147,8 +148,12 @@ class Engine {
       tiles.sort((a, b) => a.sc - b.sc);
       for (const t of tiles.slice(0, 8)) if (this.findPath(t, ctrl, 1).length && !this.placeSpawnAt(pid, t.x, t.y)) return true;
     }
-    ensureSize(w, w.S + 10); return this.placeSpawn(pid);
+    if (_grew) return false; // 扩张一次仍放不下就放弃，绝不无限递归
+    ensureSize(w, w.S + 10); return this.placeSpawn(pid, true);
   }
+  // 需要选出生点：标记为 needsSpawn，或（旧存档）既没有 Spawn 也没有房间
+  needsSpawn(pid) { const w = this.w, p = w.players[pid]; if (!p) return false; if (p.needsSpawn) return true;
+    if (!w.spawns.some(s => s.owner === pid) && !Object.values(w.rooms).some(r => r.owner === pid)) { p.needsSpawn = true; return true; } return false; }
   // 重新出生（官方 respawn）：清除该玩家的一切，回到选点状态
   respawn(pid) {
     const w = this.w, mine = o => o.owner === pid; if (!w.players[pid]) return;

@@ -43,6 +43,14 @@ function connectivity(e) {
   for (const pid of ['host', 'cliA', 'cliB']) { const n = e.w.creeps.filter(c => c.owner === pid).length, sp = e.w.spawns.find(s => s.owner === pid); assert(n >= 2, `${pid} 的代码在房主上运行：${n} 个 creep，spawn 能量 ${sp.store.energy}`); }
   assert(v.events !== undefined, '快照带有动画事件');
   clients[1].sendCode(''); await new Promise(r => setTimeout(r, 200)); assert(e.w.players.cliB.code === '', '客户端可在运行中更新代码');
+  // 回归：已有出生点时再次 placeSpawn 不能无限递归；重新出生两次；读档后重新出生
+  { const r = new Engine(newWorld(5)); r.addPlayer('q', 'Q'); const S0 = r.w.S;
+    assert(r.placeSpawn('q') === false && r.w.S === S0 && r.w.spawns.filter(s => s.owner === 'q').length === 1, '已有 Spawn 时 placeSpawn 直接返回 false，不扩张世界');
+    for (let i = 0; i < 2; i++) { r.respawn('q'); assert(r.placeSpawn('q') === true && r.w.spawns.filter(s => s.owner === 'q').length === 1 && !r.w.players.q.needsSpawn, `第 ${i + 1} 次重新出生后正常放下 Spawn`); }
+    const r2 = new Engine(JSON.parse(r.saveData())); assert(r2.placeSpawn('q') === false, '读档后已有出生点，placeSpawn 不递归');
+    r2.respawn('q'); assert(r2.placeSpawn('q') === true && r2.w.spawns.filter(s => s.owner === 'q').length === 1, '读档后重新出生正常');
+    const old = JSON.parse(r.saveData()); old.spawns = old.spawns.filter(s => s.owner !== 'q'); for (const k in old.rooms) if (old.rooms[k].owner === 'q') old.rooms[k].owner = null; delete old.players.q.needsSpawn;
+    const r3 = new Engine(old); assert(r3.needsSpawn('q') && r3.placeSpawn('q') === true, '旧存档（无 needsSpawn 字段且没有 Spawn）可以重新放置'); }
   // 存档 / 读档
   const e2 = new Engine(JSON.parse(e.saveData())); assert(e2.w.creeps.length === e.w.creeps.length && e2.w.controllers.length === e.w.controllers.length, '存档往返正常');
   clients.forEach(c => c.close()); wss.close(); console.log('ALL PASS'); process.exit(0);

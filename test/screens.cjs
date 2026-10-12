@@ -4,8 +4,8 @@ const p = require('puppeteer-core'); const W = ms => new Promise(r => setTimeout
   const b = await p.launch({ executablePath: '/usr/bin/google-chrome', args: ['--no-sandbox'] }); const errs = [];
   for (const [tag, w, h] of [['portrait', 412, 915], ['landscape', 915, 412]]) {
     const ctx = await b.createBrowserContext(); const pg = await ctx.newPage(); await pg.setViewport({ width: w, height: h, deviceScaleFactor: 2, isMobile: true, hasTouch: true }); pg.on('pageerror', e => errs.push(e.message));
-    await pg.evaluateOnNewDocument(() => { localStorage.setItem('sbm_intro', '1'); });
-    await pg.goto('http://localhost:8765/index.html'); await W(1500);
+    await pg.evaluateOnNewDocument(() => { const F = window.fetch; window.fetch = (u, o) => String(u).includes('api.github.com') ? Promise.reject(new Error('offline test')) : F(u, o); localStorage.setItem('sbm_intro', '1'); });
+    await pg.goto('http://localhost:8765/index.html'); await W(1500); 
     await pg.tap('#sPlay'); await W(500); await pg.evaluate(() => { document.getElementById('introOk')?.click(); document.querySelectorAll('.shDlg').forEach(d => d.remove()); engine.placeSpawn(myPid); _snap = null; $('wmap').classList.add('hidden'); }); await W(300);
     const bar = await pg.evaluate(() => [...document.querySelectorAll('#bar button')].filter(b => b.offsetParent).map(b => b.textContent.trim()));
     await pg.screenshot({ path: `/workspace/shots/${tag}-toolbar.png` });

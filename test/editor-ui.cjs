@@ -5,8 +5,8 @@ const W = ms => new Promise(r => setTimeout(r, ms));
   const b = await p.launch({ executablePath: '/usr/bin/google-chrome', args: ['--no-sandbox'] });
   const pg = await b.newPage(); await pg.setViewport({ width: 412, height: 915, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
   const errs = []; pg.on('pageerror', e => errs.push(e.message));
-  await pg.evaluateOnNewDocument(() => { localStorage.setItem('sbm_intro', '1'); localStorage.setItem('sbm_ed_dark', '0'); });
-  await pg.goto('http://localhost:8765/index.html'); await W(1500);
+  await pg.evaluateOnNewDocument(() => { const F = window.fetch; window.fetch = (u, o) => String(u).includes('api.github.com') ? Promise.reject(new Error('offline test')) : F(u, o); localStorage.setItem('sbm_intro', '1'); localStorage.setItem('sbm_ed_dark', '0'); });
+  await pg.goto('http://localhost:8765/index.html'); await W(1500); 
   await pg.evaluate(() => { document.querySelectorAll('#start,#intro').forEach(e => e.style.display = 'none'); document.getElementById('btnCode').click(); });
   await W(400);
   const cdp = await pg.target().createCDPSession();
@@ -15,7 +15,7 @@ const W = ms => new Promise(r => setTimeout(r, ms));
   const vis = () => pg.evaluate(() => fly.isVisible());
   const firstBlock = () => pg.evaluate(() => { const r = fly.getWorkspace().getTopBlocks(true)[0].getSvgRoot().getBoundingClientRect(); return { x: r.x + 30, y: r.y + 14, w: r.width, right: r.right }; });
   const ids = await pg.evaluate(() => CATS.map(c => c.id)); const out = []; let allOk = true;
-  for (const id of ids) {
+  for (const id of (process.env.QUICK ? ['game'] : ids)) {
     const open = async () => { if (await vis()) { console.log("STILL OPEN before open", id); await pg.evaluate(() => closeFlyout()); await W(100); } await (await pg.$(`#catBar [data-cat="${id}"]`)).tap(); await W(300); };
     await open();
     const fullW = await pg.evaluate(() => { const r = document.querySelector('.blocklyFlyout').getBoundingClientRect(); return Math.round(r.width); });
@@ -54,7 +54,7 @@ const W = ms => new Promise(r => setTimeout(r, ms));
   await T('touchStart', [[150, 500], [260, 500]]); for (let i = 1; i <= 10; i++) await T('touchMove', [[150 - i * 6, 500], [260 + i * 6, 500]]); await T('touchEnd', []);
   const s2 = await pg.evaluate(() => ws.scale);
   const pan = Math.hypot(s1[0] - s0[0], s1[1] - s0[1]) > 30, pinch = s2 > s1[2] + 0.05;
-  console.log('PAN', pan ? 'OK' : 'FAIL', 'PINCH', pinch ? 'OK' : 'FAIL');
+  console.log('PAN', pan ? 'OK' : 'FAIL', 'PINCH', pinch ? 'OK' : 'FAIL', s1, s2, empty);
   // 垃圾桶
   await pg.evaluate(() => { ws.setScale(0.8); ws.centerOnBlock(ws.getTopBlocks(true).slice(-1)[0].id); });
   const tb = await pg.evaluate(() => { const b = ws.getTopBlocks(true).map(b => b.getSvgRoot().getBoundingClientRect()).find(r => r.x > 20 && r.x < 300 && r.y > 60 && r.y < 800); const t = document.getElementById('edTrash').getBoundingClientRect(); return b && { x: b.x + 8, y: b.y + 8, tx: t.x + 16, ty: t.y + 16 }; });

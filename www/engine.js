@@ -1,106 +1,162 @@
-// 权威模拟引擎（多玩家 + Screeps 官方规则精简）。与渲染完全分离。
-const OK = 0, ERR_NOT_OWNER = -1, ERR_NO_PATH = -2, ERR_NAME_EXISTS = -3, ERR_BUSY = -4, ERR_NOT_ENOUGH_ENERGY = -6, ERR_INVALID_TARGET = -7, ERR_FULL = -8, ERR_NOT_IN_RANGE = -9, ERR_TIRED = -11, ERR_NO_BODYPART = -12, ERR_RCL_NOT_ENOUGH = -14;
+// 权威模拟引擎：按官方 Screeps 规则（常量全部来自 SC = 官方 constants.js）。与渲染完全分离。
+// 内部用"全局格坐标"（房间 (rx,ry) 的本地 (x,y) → rx*50+x），对玩家 API 一律暴露官方的房间内坐标 + roomName。
 const PLAYER_COLORS = [0x4fc3f7, 0xff8a65, 0xba68c8, 0x81c784, 0xfff176, 0xf06292, 0x4db6ac, 0xa1887f];
-const RESOURCE_ENERGY = 'energy';
+const WORLD_GEN = 2; // 地图/存档格式版本（v1.3：50x50 官方房间）
+const { OK, ERR_NOT_OWNER, ERR_NO_PATH, ERR_NAME_EXISTS, ERR_BUSY, ERR_NOT_FOUND, ERR_NOT_ENOUGH_ENERGY, ERR_NOT_ENOUGH_RESOURCES, ERR_INVALID_TARGET, ERR_FULL, ERR_NOT_IN_RANGE, ERR_INVALID_ARGS, ERR_TIRED, ERR_NO_BODYPART, ERR_RCL_NOT_ENOUGH, ERR_GCL_NOT_ENOUGH, RESOURCE_ENERGY } = SC;
+const OBSTACLES = new Set(SC.OBSTACLE_OBJECT_TYPES);
+const DIRS = { 1: [0, -1], 2: [1, -1], 3: [1, 0], 4: [1, 1], 5: [0, 1], 6: [-1, 1], 7: [-1, 0], 8: [-1, -1] };
+const dirOf = (dx, dy) => { for (const d in DIRS) if (DIRS[d][0] === Math.sign(dx) && DIRS[d][1] === Math.sign(dy)) return +d; return 0; };
 function dist(a, b) { return Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y)); }
-function roomName(x, y) { return 'R' + Math.floor(x / ROOM) + '_' + Math.floor(y / ROOM); }
 function roomKey(x, y) { return Math.floor(x / ROOM) + ',' + Math.floor(y / ROOM); }
+function roomName(x, y) { return roomNameXY(Math.floor(x / ROOM), Math.floor(y / ROOM)); }
+const sameRoom = (a, b) => roomKey(a.x, a.y) === roomKey(b.x, b.y);
+const bodyCost = body => body.reduce((a, b) => a + (SC.BODYPART_COST[b] ?? NaN), 0);
+const storeSum = s => { let n = 0; for (const k in s) n += s[k] || 0; return n; };
+const RESOURCES = new Set(SC.RESOURCES_ALL);
 
 function newWorld(seed = (Date.now() % 1e6) | 0) {
-  const w = { v: 3, seed, time: 0, S: 0, rooms: {}, roomsVer: 0, sources: [], controllers: [], spawns: [], creeps: [], sites: [], structures: [], players: {}, memory: {}, nextId: 1 };
-  ensureSize(w, 2); return w;
+  const w = { v: 3, gen: WORLD_GEN, seed, time: 0, S: 0, rooms: {}, roomsVer: 0, sources: [], minerals: [], controllers: [], spawns: [], creeps: [], sites: [], structures: [], resources: [], tombstones: [], flags: [], players: {}, memory: {}, nextId: 1 };
+  ensureSize(w, 1); return w;
 }
 function ensureSize(w, S) {
   if (S <= w.S) return false;
   for (let ry = 0; ry < S; ry++) for (let rx = 0; rx < S; rx++) {
     const k = rx + ',' + ry; if (w.rooms[k]) continue;
-    const g = genRoom(w.seed, rx, ry); w.rooms[k] = { tiles: g.tiles, owner: null };
-    for (const s of g.sources) w.sources.push({ id: 's' + (w.nextId++), x: rx * ROOM + s.x, y: ry * ROOM + s.y, energy: 1500, cap: 1500, regen: 300 });
-    // 每间一个 Controller（未占领 level=0）
-    const c = g.controller; w.controllers.push({ id: 'ctrl' + (w.nextId++), x: rx * ROOM + c.x, y: ry * ROOM + c.y, level: 0, progress: 0, progressTotal: CONTROLLER_LEVELS[1], ticksToDowngrade: 0, owner: null, safeMode: 0, reservation: null });
+    const g = genRoom(w.seed, rx, ry, roomExits(w.seed, rx, ry));
+    w.rooms[k] = { name: roomNameXY(rx, ry), tiles: g.tiles.slice(), base: g.tiles, owner: null };
+    const ox = rx * ROOM, oy = ry * ROOM;
+    for (const s of g.sources) w.sources.push({ kind: 'source', id: 's' + (w.nextId++), x: ox + s.x, y: oy + s.y, energy: SC.SOURCE_ENERGY_NEUTRAL_CAPACITY, cap: SC.SOURCE_ENERGY_NEUTRAL_CAPACITY, regenAt: null });
+    const c = g.controller; w.controllers.push({ kind: 'controller', id: 'ctrl' + (w.nextId++), x: ox + c.x, y: oy + c.y, level: 0, progress: 0, downgradeTime: null, owner: null, reservation: null, safeMode: null, safeModeAvailable: 0, safeModeCooldown: null, upgradeBlocked: null, sign: null });
+    if (g.mineral) { const m = g.mineral; w.minerals.push({ kind: 'mineral', id: 'm' + (w.nextId++), x: ox + m.x, y: oy + m.y, type: m.type, density: m.density, amount: m.amount, regenAt: null }); }
   }
   w.S = S;
   for (let ry = 0; ry < S; ry++) for (let rx = 0; rx < S; rx++) applyBorders(w, rx, ry);
   w.roomsVer++; return true;
 }
-function sizeFor(n) { return Math.max(2, Math.ceil(Math.sqrt(n * 2))); }
-function countStruct(w, pid, type, rx, ry) {
-  const inRoom = o => Math.floor(o.x / ROOM) === rx && Math.floor(o.y / ROOM) === ry && o.owner === pid;
-  let n = w.structures.filter(s => s.type === type && inRoom(s)).length + w.sites.filter(s => s.type === type && inRoom(s)).length;
-  if (type === 'spawn') n += w.spawns.filter(s => inRoom(s)).length;
-  return n;
+// 玩家越多世界越大：每人约 2 个房间
+function sizeFor(n) { return Math.max(1, Math.ceil(Math.sqrt(n * 2))); }
+function ctrlOfRoom(w, k) { return w.controllers.find(c => roomKey(c.x, c.y) === k); }
+function rclOf(w, x, y) { const c = ctrlOfRoom(w, roomKey(x, y)); return c && c.owner ? c.level : 0; }
+function countStruct(w, pid, type, k) {
+  const inRoom = o => roomKey(o.x, o.y) === k && o.owner === pid;
+  return w.structures.filter(s => s.type === type && inRoom(s)).length + w.sites.filter(s => s.type === type && inRoom(s)).length + (type === 'spawn' ? w.spawns.filter(inRoom).length : 0);
 }
-function rclOf(w, x, y) { const c = w.controllers.find(c => roomKey(c.x, c.y) === roomKey(x, y)); return c && c.owner ? c.level : 0; }
-function makeStruct(w, type, owner, x, y) {
-  const s = { id: 'st' + (w.nextId++), type, owner, x, y, hits: STRUCT_HITS[type] || 1, hitsMax: STRUCT_HITS[type] || 1 };
-  if (STRUCT_ENERGY_CAP[type] != null) { s.energy = STRUCT_ENERGY[type] || 0; s.energyCapacity = STRUCT_ENERGY_CAP[type]; }
-  if (type === 'tower') s.store = true;
-  return s;
+function storeCap(w, o, res) { // 官方 Store.getCapacity
+  if (o.kind === 'creep') return activeParts(o, 'carry') * SC.CARRY_CAPACITY;
+  if (o.kind === 'spawn') return res === undefined || res === 'energy' ? SC.SPAWN_ENERGY_CAPACITY : null;
+  const t = o.type, E = (n) => (res === undefined || res === 'energy') ? n : null;
+  if (t === 'extension') return E(SC.EXTENSION_ENERGY_CAPACITY[rclOf(w, o.x, o.y)]);
+  if (t === 'tower') return E(SC.TOWER_CAPACITY);
+  if (t === 'link') return E(SC.LINK_CAPACITY);
+  if (t === 'container') return SC.CONTAINER_CAPACITY;
+  if (t === 'storage') return SC.STORAGE_CAPACITY;
+  if (t === 'terminal') return SC.TERMINAL_CAPACITY;
+  if (t === 'factory') return SC.FACTORY_CAPACITY;
+  if (t === 'lab') return res === 'energy' ? SC.LAB_ENERGY_CAPACITY : res === undefined ? null : SC.LAB_MINERAL_CAPACITY;
+  if (t === 'powerSpawn') return res === 'energy' ? SC.POWER_SPAWN_ENERGY_CAPACITY : res === 'power' ? SC.POWER_SPAWN_POWER_CAPACITY : null;
+  if (t === 'nuker') return res === 'energy' ? SC.NUKER_ENERGY_CAPACITY : res === 'G' ? SC.NUKER_GHODIUM_CAPACITY : null;
+  return null;
 }
+const hasStore = o => o.kind === 'creep' || o.kind === 'spawn' || o.kind === 'tombstone' || (o.kind === 'structure' && o.store);
+function freeFor(w, o, res) { const cap = storeCap(w, o, res); if (cap == null) return null; const general = storeCap(w, o, undefined) != null; return cap - (general ? storeSum(o.store) : (o.store[res] || 0)); }
+function partHits(c, i) { return Math.max(0, Math.min(100, c.hits - (c.body.length - 1 - i) * 100)); }
+function activeParts(c, type) { let n = 0; for (let i = 0; i < c.body.length; i++) if (c.body[i] === type && partHits(c, i) > 0) n++; return n; }
 
 class Engine {
-  constructor(world) { this._objVer = 0; this.w = world; this.fns = {}; this.onLog = null; this.events = []; for (const pid in world.players) this.setCode(pid, world.players[pid].code || ''); }
+  constructor(world) {
+    if (!world || world.gen !== WORLD_GEN) world = newWorld(world && world.seed); // 旧格式存档无法兼容 → 新世界
+    this._objVer = 0; this.w = world; this.fns = {}; this.onLog = null; this.events = [];
+    for (const pid in world.players) this.setCode(pid, world.players[pid].code || '');
+  }
   get W() { return this.w.S * ROOM; }
   log(pid, ...a) { const s = `[${this.w.time}] ` + a.map(v => typeof v === 'object' ? JSON.stringify(v) : String(v)).join(' '); this.onLog && this.onLog(pid, s); }
   tile(x, y) { const rm = this.w.rooms[roomKey(x, y)]; if (!rm || x < 0 || y < 0) return T_WALL; return rm.tiles[(y % ROOM) * ROOM + (x % ROOM)]; }
-  _grid() {
+  _grid() { // 0 可走 1 障碍；附加：道路
     const w = this.w, WW = this.W;
     if (this._g && this._gVer === w.roomsVer && this._gObj === this._objVer && this._gW === WW) return this._g;
-    const g = new Uint8Array(WW * WW);
-    for (const k in w.rooms) { const [rx, ry] = k.split(',').map(Number), t = w.rooms[k].tiles; for (let ly = 0; ly < ROOM; ly++) for (let lx = 0; lx < ROOM; lx++) if (t[ly * ROOM + lx] === T_WALL) g[(ry * ROOM + ly) * WW + rx * ROOM + lx] = 1; }
-    for (const o of w.sources) g[o.y * WW + o.x] = 1;
-    for (const o of w.controllers) g[o.y * WW + o.x] = 1;
-    for (const o of w.spawns) g[o.y * WW + o.x] = 1;
-    for (const o of w.structures) if (OBSTACLE_STRUCT.has(o.type)) g[o.y * WW + o.x] = 1;
-    this._g = g; this._gVer = w.roomsVer; this._gObj = this._objVer; this._gW = WW; return g;
+    const g = new Uint8Array(WW * WW), road = new Uint8Array(WW * WW);
+    for (const k in w.rooms) { const [rx, ry] = k.split(',').map(Number), t = w.rooms[k].tiles; for (let ly = 0; ly < ROOM; ly++) for (let lx = 0; lx < ROOM; lx++) { const v = t[ly * ROOM + lx]; if (v === T_WALL) g[(ry * ROOM + ly) * WW + rx * ROOM + lx] = 1; else if (v === T_SWAMP) g[(ry * ROOM + ly) * WW + rx * ROOM + lx] = 4; } }
+    for (const L of [w.sources, w.controllers, w.spawns, w.minerals]) for (const o of L) g[o.y * WW + o.x] = 1;
+    for (const o of w.structures) { if (OBSTACLES.has(o.type)) g[o.y * WW + o.x] = 1; if (o.type === 'road') road[o.y * WW + o.x] = 1; }
+    for (const s of w.sites) if (OBSTACLES.has(s.type)) g[s.y * WW + s.x] |= 2; // 自己的工地可走；记号供敌方判断
+    this._g = g; this._road = road; this._gVer = w.roomsVer; this._gObj = this._objVer; this._gW = WW; return g;
   }
-  _occ() { if (!this._o) { this._o = new Map(); for (const c of this.w.creeps) this._o.set(c.y * this.W + c.x, c); } return this._o; }
-  solid(x, y) { const WW = this.W; if (x < 0 || y < 0 || x >= WW || y >= WW) return true; return this._grid()[y * WW + x] === 1; }
-  blocked(x, y, ignore) { if (this.solid(x, y)) return true; const c = this._occ().get(y * this.W + x); return !!c && c !== ignore; }
+  _occ() { if (!this._o) { this._o = new Map(); for (const c of this.w.creeps) if (!c.spawning) this._o.set(c.y * this.W + c.x, c); } return this._o; }
+  solid(x, y, pid) {
+    const WW = this.W; if (x < 0 || y < 0 || x >= WW || y >= WW) return true;
+    if (this._grid()[y * WW + x] & 1) return true;
+    if (pid !== undefined && this.w.structures.some(s => s.type === 'rampart' && s.x === x && s.y === y && s.owner !== pid && !s.isPublic)) return true;
+    return false;
+  }
+  blocked(x, y, ignore) { if (this.solid(x, y, ignore && ignore.owner)) return true; const c = this._occ().get(y * this.W + x); return !!c && c !== ignore; }
 
   addPlayer(pid, name) {
     const w = this.w; if (w.players[pid]) { w.players[pid].name = name || w.players[pid].name; return w.players[pid]; }
     const n = Object.keys(w.players).length; ensureSize(w, sizeFor(n + 1));
-    const p = w.players[pid] = { name: name || pid, color: PLAYER_COLORS[n % PLAYER_COLORS.length], code: '' };
-    w.memory[pid] = { creeps: {} }; this.placeSpawn(pid); this.log(pid, p.name, '加入世界'); return p;
+    const p = w.players[pid] = { name: name || pid, color: PLAYER_COLORS[n % PLAYER_COLORS.length], code: '', gcl: 0 };
+    w.memory[pid] = { creeps: {}, spawns: {}, rooms: {}, flags: {} }; this.placeSpawn(pid); this.log(pid, p.name, '加入世界'); return p;
   }
+  // 出生：选离其他玩家最远的空房间，像官方"选出生点"那样在 Controller 附近找一块 3x3 空地放 Spawn1
   placeSpawn(pid) {
     const w = this.w, owned = Object.entries(w.rooms).filter(([, r]) => r.owner).map(([k]) => k.split(',').map(Number));
-    let best = null, bd = -Infinity;
-    for (const [k, r] of Object.entries(w.rooms)) {
-      if (r.owner) continue; const [rx, ry] = k.split(',').map(Number);
-      const d = owned.length ? Math.min(...owned.map(([ox, oy]) => Math.abs(ox - rx) + Math.abs(oy - ry))) : -(Math.abs(rx - (w.S - 1) / 2) + Math.abs(ry - (w.S - 1) / 2));
-      if (d > bd) { bd = d; best = [rx, ry, r]; }
+    const cands = Object.entries(w.rooms).filter(([, r]) => !r.owner).map(([k, r]) => { const [rx, ry] = k.split(',').map(Number); return { k, rx, ry, r, d: owned.length ? Math.min(...owned.map(([ox, oy]) => Math.abs(ox - rx) + Math.abs(oy - ry))) : -(Math.abs(rx - (w.S - 1) / 2) + Math.abs(ry - (w.S - 1) / 2)) }; }).sort((a, b) => b.d - a.d);
+    for (const c of cands) {
+      const ctrl = ctrlOfRoom(w, c.k), srcs = w.sources.filter(s => roomKey(s.x, s.y) === c.k);
+      let best = null, bs = Infinity;
+      for (let ly = 4; ly < 46; ly++) for (let lx = 4; lx < 46; lx++) {
+        const x = c.rx * ROOM + lx, y = c.ry * ROOM + ly; let ok = true;
+        for (let dy = -1; dy <= 1 && ok; dy++) for (let dx = -1; dx <= 1 && ok; dx++) if (this.solid(x + dx, y + dy)) ok = false;
+        if (!ok) continue;
+        const sc = dist({ x, y }, ctrl) + srcs.reduce((a, s) => a + dist({ x, y }, s), 0);
+        if (dist({ x, y }, ctrl) >= 3 && sc < bs && this.findPath({ x, y }, ctrl, 1).length) { bs = sc; best = { x, y }; }
+      }
+      if (!best) continue;
+      c.r.owner = pid; ctrl.owner = pid; ctrl.level = 1; ctrl.progress = 0; ctrl.downgradeTime = w.time + SC.CONTROLLER_DOWNGRADE[1] + 1; ctrl.safeModeAvailable = 1;
+      w.spawns.push(this.makeSpawn(pid, 'Spawn1', best.x, best.y, SC.SPAWN_ENERGY_START)); this._objVer++; return;
     }
-    if (!best) { ensureSize(w, w.S + 1); return this.placeSpawn(pid); }
-    const [rx, ry, room] = best; room.owner = pid;
-    const t = room.tiles; for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) { const Y = 12 + dy, X = 12 + dx; if (Y >= 0 && X >= 0 && Y < ROOM && X < ROOM) t[Y * ROOM + X] = T_PLAIN; }
-    w.roomsVer++; this._objVer++;
-    // 占领 Controller L1 + Spawn
-    const ctrl = w.controllers.find(c => Math.floor(c.x / ROOM) === rx && Math.floor(c.y / ROOM) === ry);
-    if (ctrl) { ctrl.owner = pid; ctrl.level = 1; ctrl.progress = 0; ctrl.progressTotal = CONTROLLER_LEVELS[1]; ctrl.ticksToDowngrade = CONTROLLER_DOWNGRADE[1]; }
-    const sx = rx * ROOM + 12, sy = ry * ROOM + 12;
-    // 若 controller 正好在 spawn 点，挪 spawn
-    let x = sx, y = sy; if (ctrl && ctrl.x === x && ctrl.y === y) { for (const [dx, dy] of [[2, 0], [-2, 0], [0, 2], [0, -2], [2, 2]]) { x = sx + dx; y = sy + dy; if (!this.solid(x, y)) break; } }
-    w.spawns.push({ id: 'sp' + (w.nextId++), name: 'Spawn1', owner: pid, x, y, energy: 300, cap: 300, hits: 5000, hitsMax: 5000, spawning: null });
+    ensureSize(w, w.S + 1); return this.placeSpawn(pid);
+  }
+  makeSpawn(owner, name, x, y, energy) { return { kind: 'spawn', id: 'sp' + (this.w.nextId++), name, owner, x, y, store: { energy }, hits: SC.SPAWN_HITS, hitsMax: SC.SPAWN_HITS, spawning: null }; }
+  makeStruct(type, owner, x, y) {
+    const w = this.w, s = { kind: 'structure', id: 'st' + (w.nextId++), type, owner: (type === 'road' || type === 'container' || type === 'constructedWall') ? null : owner, x, y };
+    const H = { extension: SC.EXTENSION_HITS, road: SC.ROAD_HITS, constructedWall: SC.WALL_HITS, rampart: SC.RAMPART_HITS, tower: SC.TOWER_HITS, container: SC.CONTAINER_HITS, storage: SC.STORAGE_HITS, link: SC.LINK_HITS, extractor: SC.EXTRACTOR_HITS, lab: SC.LAB_HITS, terminal: SC.TERMINAL_HITS, observer: SC.OBSERVER_HITS, powerSpawn: SC.POWER_SPAWN_HITS, nuker: SC.NUKER_HITS, factory: SC.FACTORY_HITS };
+    s.hits = H[type] || 1; s.hitsMax = type === 'constructedWall' ? SC.WALL_HITS_MAX : type === 'rampart' ? SC.RAMPART_HITS_MAX[rclOf(w, x, y)] || SC.RAMPART_HITS_MAX[2] : s.hits;
+    if (type === 'road') { const t = this.tile(x, y), m = t === T_SWAMP ? SC.CONSTRUCTION_COST_ROAD_SWAMP_RATIO : t === T_WALL ? SC.CONSTRUCTION_COST_ROAD_WALL_RATIO : 1; s.hits = s.hitsMax = SC.ROAD_HITS * m; s.decayAt = w.time + SC.ROAD_DECAY_TIME; }
+    if (type === 'container') s.decayAt = w.time + SC.CONTAINER_DECAY_TIME;
+    if (type === 'rampart') s.decayAt = w.time + SC.RAMPART_DECAY_TIME;
+    if (storeCap(w, s, 'energy') != null || storeCap(w, s, undefined) != null) s.store = {};
+    if (['link', 'tower', 'extractor', 'lab', 'terminal', 'factory', 'nuker'].includes(type)) s.cooldown = 0;
+    return s;
   }
   setCode(pid, code) {
     if (!this.w.players[pid]) return; this.w.players[pid].code = code;
     try { this.fns[pid] = code ? compileUser(code) : null; } catch (e) { this.fns[pid] = null; this.log(pid, '编译失败:', e.message); }
   }
-  findPath(from, to, range, me) {
-    const WW = this.W, N = WW * WW, g = this._grid();
-    if (!this._prev || this._prev.length !== N) { this._prev = new Int32Array(N); this._stamp = new Uint32Array(N); this._q = new Int32Array(N); this._st = 0; }
-    const prev = this._prev, stamp = this._stamp, q = this._q, st = ++this._st;
-    const start = from.y * WW + from.x; let head = 0, tail = 0, end = -1; q[tail++] = start; stamp[start] = st; prev[start] = start;
-    while (head < tail && head < 8000) {
-      const k = q[head++], x = k % WW, y = (k / WW) | 0;
-      if (Math.max(Math.abs(x - to.x), Math.abs(y - to.y)) <= range) { end = k; break; }
+  // A*（官方 moveTo 默认代价：道路 1、平原 2、沼泽 10），8 方向；opts.ignoreCreeps
+  findPath(from, to, range, me, opts = {}) {
+    const WW = this.W, N = WW * WW, g = this._grid(), road = this._road, occ = this._occ();
+    const plain = opts.plainCost || (opts.ignoreRoads ? 1 : 2), swamp = opts.swampCost || (opts.ignoreRoads ? 5 : 10);
+    if (!this._gs || this._gs.length !== N) { this._gs = new Float64Array(N); this._prev = new Int32Array(N); this._stamp = new Uint32Array(N); this._st = 0; }
+    const gs = this._gs, prev = this._prev, stamp = this._stamp, st = ++this._st, pid = me && me.owner;
+    const tos = Array.isArray(to) ? to : [to];
+    const H = k => { const x = k % WW, y = (k / WW) | 0; let m = Infinity; for (const t of tos) { const d = Math.max(Math.abs(x - t.x), Math.abs(y - t.y)) - range; if (d < m) m = d; } return Math.max(0, m); };
+    const heap = [], push = (k, f) => { heap.push([f, k]); let i = heap.length - 1; while (i) { const p = (i - 1) >> 1; if (heap[p][0] <= heap[i][0]) break; [heap[p], heap[i]] = [heap[i], heap[p]]; i = p; } };
+    const pop = () => { const top = heap[0], last = heap.pop(); if (heap.length) { heap[0] = last; let i = 0; for (;;) { const l = 2 * i + 1, r = l + 1; let m = i; if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r; if (m === i) break; [heap[m], heap[i]] = [heap[i], heap[m]]; i = m; } } return top; };
+    let hostileRamp = null; for (const s of this.w.structures) if (s.type === 'rampart' && s.owner !== pid && !s.isPublic) (hostileRamp = hostileRamp || new Set()).add(s.y * WW + s.x);
+    const start = from.y * WW + from.x; stamp[start] = st; gs[start] = 0; prev[start] = start; push(start, H(start));
+    let end = -1, ops = 0, maxOps = opts.maxOps || 4000;
+    while (heap.length && ops++ < maxOps) {
+      const [, k] = pop(), x = k % WW, y = (k / WW) | 0;
+      if (H(k) === 0) { end = k; break; }
       for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
         if (!dx && !dy) continue; const nx = x + dx, ny = y + dy; if (nx < 0 || ny < 0 || nx >= WW || ny >= WW) continue; const nk = ny * WW + nx;
-        if (stamp[nk] === st || g[nk]) continue;
-        if (head === 1 && this.blocked(nx, ny, me)) continue;
-        stamp[nk] = st; prev[nk] = k; q[tail++] = nk;
+        if (g[nk] & 1) continue;
+        if (pid !== undefined && (g[nk] & 2) && this.w.sites.some(s => s.x === nx && s.y === ny && s.owner !== pid)) continue;
+        if (hostileRamp && hostileRamp.has(nk)) continue;
+        if (!opts.ignoreCreeps && occ.has(nk) && occ.get(nk) !== me && Math.max(Math.abs(nx - from.x), Math.abs(ny - from.y)) <= 3) continue;
+        const cost = road[nk] && !opts.ignoreRoads ? 1 : (g[nk] & 4) ? swamp : plain, ng = gs[k] + cost;
+        if (stamp[nk] === st && gs[nk] <= ng) continue;
+        stamp[nk] = st; gs[nk] = ng; prev[nk] = k; push(nk, ng + H(nk) * 1.0001);
       }
     }
     if (end < 0) return [];
@@ -108,226 +164,623 @@ class Engine {
     return path.reverse();
   }
 
+  // ===== 一个 tick：运行代码（动作立即结算）→ 移动 → 寿命/伤亡 → 各类建筑 tick =====
   tick() {
     const w = this.w; w.time++; this.events = []; this._o = null;
-    for (const pid in w.players) { const f = this.fns[pid]; if (!f) continue; const api = this.buildApi(pid); try { f(api.Game, w.memory[pid], api); } catch (e) { this.log(pid, '代码错误:', e.message); } }
+    for (const c of w.creeps) { c._did = {}; c.px = c.x; c.py = c.y; }
+    for (const pid in w.players) {
+      const f = this.fns[pid]; if (!f) continue; const api = this.buildApi(pid), t0 = Date.now();
+      try { f(api); } catch (e) { this.log(pid, '代码错误:', e && e.stack ? String(e.stack).split('\n').slice(0, 2).join(' ') : e); }
+      this.cpuUsed = Date.now() - t0;
+    }
+    this.resolveMoves();
     for (const c of w.creeps) {
-      const it = c._intent; delete c._intent; c.px = c.x; c.py = c.y;
-      if (it && c.fatigue <= 0) {
-        if (!this.blocked(it.x, it.y, c)) {
-          const o = this._occ(); if (o.get(c.y * this.W + c.x) === c) o.delete(c.y * this.W + c.x);
-          c.x = it.x; c.y = it.y; o.set(c.y * this.W + c.x, c);
-          const moves = c.body.filter(b => b === 'move').length, weight = c.body.length - moves;
-          const road = w.structures.some(s => s.type === 'road' && s.x === c.x && s.y === c.y);
-          c.fatigue = road ? 0 : this.tile(c.x, c.y) === T_SWAMP ? 2 : (weight > moves ? 1 : 0);
-        } else c._path = null;
-      } else if (c.fatigue > 0) c.fatigue--;
+      if (c.spawning) continue;
+      // 官方：站在出口格上 → 下一 tick 到相邻房间对侧边缘
+      const lx = c.x % ROOM, ly = c.y % ROOM; let nx = c.x, ny = c.y;
+      if (lx === 0) nx--; else if (lx === ROOM - 1) nx++; else if (ly === 0) ny--; else if (ly === ROOM - 1) ny++;
+      if ((nx !== c.x || ny !== c.y) && c._arrived !== w.time && !this.blocked(nx, ny, c)) { const o = this._occ(); o.delete(c.y * this.W + c.x); c.x = nx; c.y = ny; c.px = nx; c.py = ny; o.set(c.y * this.W + c.x, c); c._path = null; }
+      c.fatigue = Math.max(0, c.fatigue - activeParts(c, 'move') * SC.MOVE_POWER);
       c.ttl--;
     }
-    this._o = null; w.creeps = w.creeps.filter(c => { if (c.ttl <= 0) { this.log(c.owner, c.name, '寿终'); this.events.push({ t: 'die', x: c.x, y: c.y }); return false; } return true; });
-    for (const pid in w.memory) { const m = w.memory[pid].creeps || {}; for (const n in m) if (!w.creeps.some(c => c.owner === pid && c.name === n)) delete m[n]; }
-    for (const s of w.sources) if (w.time % s.regen === 0) s.energy = s.cap;
-    // Controller 降级
-    for (const c of w.controllers) {
-      if (!c.owner || c.level < 1) continue;
-      if (c._upgraded) { c.ticksToDowngrade = CONTROLLER_DOWNGRADE[c.level]; delete c._upgraded; }
-      else if (--c.ticksToDowngrade <= 0) {
-        if (c.level > 1) { c.level--; c.progress = 0; c.progressTotal = CONTROLLER_LEVELS[c.level]; c.ticksToDowngrade = CONTROLLER_DOWNGRADE[c.level]; this.log(c.owner, 'Controller 降级至 RCL', c.level); }
-        else { c.level = 0; c.owner = null; c.progress = 0; c.progressTotal = CONTROLLER_LEVELS[1]; c.ticksToDowngrade = 0; this.log(null, 'Controller 失控'); }
+    for (const c of w.creeps.slice()) if (!c.spawning && (c.ttl <= 0 || c.hits <= 0)) this.killCreep(c, SC.CREEP_CORPSE_RATE);
+    this.tickSpawns(); this.tickSources(); this.tickControllers(); this.tickStructures(); this.tickGround();
+    this._o = null;
+  }
+  resolveMoves() {
+    const w = this.w, movers = w.creeps.filter(c => c._move && !c.spawning); let progress = true;
+    while (progress && movers.length) {
+      progress = false;
+      for (let i = movers.length - 1; i >= 0; i--) {
+        const c = movers[i], t = c._move, o = this._occ(), other = o.get(t.y * this.W + t.x);
+        if (this.solid(t.x, t.y, c.owner)) { movers.splice(i, 1); c._path = null; continue; }
+        const swap = other && other._move && other._move.x === c.x && other._move.y === c.y;
+        if (other && other !== c && !swap) continue;
+        if (swap) { o.set(c.y * this.W + c.x, other); other.x = c.x; other.y = c.y; this.afterStep(other); movers.splice(movers.indexOf(other), 1); delete other._move; i = Math.min(i, movers.length); }
+        else o.delete(c.y * this.W + c.x);
+        c.x = t.x; c.y = t.y; o.set(c.y * this.W + c.x, c); this.afterStep(c);
+        const j = movers.indexOf(c); if (j >= 0) movers.splice(j, 1); delete c._move; progress = true; break;
       }
     }
-    // Spawn 能量上限 = base + extensions（官方每 extension 50，spawn 本身 300）
+    for (const c of movers) { delete c._move; c._path = null; }
+  }
+  afterStep(c) { // 官方疲劳：每个非 MOVE 部件（空 CARRY 不算）× 地形系数（道路 1 / 平原 2 / 沼泽 10）
+    const w = this.w; c._arrived = w.time; delete c._move;
+    let carryLoaded = Math.ceil(storeSum(c.store) / SC.CARRY_CAPACITY), weight = 0;
+    for (const p of c.body) { if (p === 'move') continue; if (p === 'carry') { if (carryLoaded > 0) { carryLoaded--; weight++; } continue; } weight++; }
+    const road = w.structures.find(s => s.type === 'road' && s.x === c.x && s.y === c.y);
+    const k = road ? 1 : this.tile(c.x, c.y) === T_SWAMP ? 10 : 2; c.fatigue += weight * k;
+    if (road) { road.hits -= SC.ROAD_WEAROUT * c.body.length; if (road.hits <= 0) this.removeStruct(road); }
+  }
+  killCreep(c, rate) {
+    const w = this.w; w.creeps = w.creeps.filter(x => x !== c); this._o = null; this._objVer++;
+    const ts = { kind: 'tombstone', id: 'tb' + (w.nextId++), x: c.x, y: c.y, owner: c.owner, creepName: c.name, creepBody: c.body.slice(), deathTime: w.time, decayAt: w.time + c.body.length * SC.TOMBSTONE_DECAY_PER_PART, store: Object.assign({}, c.store) };
+    if (rate > 0) { const life = c.body.includes('claim') ? SC.CREEP_CLAIM_LIFE_TIME : SC.CREEP_LIFE_TIME; const e = Math.floor(bodyCost(c.body) * rate * Math.max(0, c.ttl) / life); if (e > 0) ts.store.energy = (ts.store.energy || 0) + e; }
+    const cont = w.structures.find(s => s.type === 'container' && s.x === c.x && s.y === c.y);
+    if (cont) for (const r in ts.store) { const a = Math.min(ts.store[r], freeFor(w, cont, r)); if (a > 0) { cont.store[r] = (cont.store[r] || 0) + a; ts.store[r] -= a; } }
+    w.tombstones.push(ts); this.log(c.owner, c.name, c.ttl <= 0 ? '寿终' : '死亡'); this.events.push({ t: 'die', x: c.x, y: c.y });
+  }
+  removeStruct(s) { const w = this.w; w.structures = w.structures.filter(x => x !== s); w.spawns = w.spawns.filter(x => x !== s); this._objVer++; if (s.kind === 'spawn') for (const c of w.creeps.filter(c => c.spawning && c.x === s.x && c.y === s.y)) w.creeps.splice(w.creeps.indexOf(c), 1); }
+  roomEnergy(k, pid) { const w = this.w, L = w.spawns.filter(s => roomKey(s.x, s.y) === k && s.owner === pid).concat(w.structures.filter(s => s.type === 'extension' && s.owner === pid && roomKey(s.x, s.y) === k && this.isActive(s))); return { list: L, avail: L.reduce((a, s) => a + (s.store.energy || 0), 0), cap: L.reduce((a, s) => a + storeCap(w, s, 'energy'), 0) }; }
+  isActive(s) { // 官方 isActive：RCL 降级后超额建筑按离 Controller 距离保留
+    const w = this.w, k = roomKey(s.x, s.y), ctrl = ctrlOfRoom(w, k), type = s.kind === 'spawn' ? 'spawn' : s.type;
+    if (!SC.CONTROLLER_STRUCTURES[type] || !ctrl) return true; if (!ctrl.owner || ctrl.owner !== s.owner) return false;
+    const lim = SC.CONTROLLER_STRUCTURES[type][ctrl.level] || 0, all = (type === 'spawn' ? w.spawns : w.structures.filter(x => x.type === type)).filter(x => roomKey(x.x, x.y) === k);
+    if (all.length <= lim) return true; return all.sort((a, b) => dist(a, ctrl) - dist(b, ctrl)).indexOf(s) < lim;
+  }
+  tickSpawns() {
+    const w = this.w;
     for (const sp of w.spawns) {
-      const rx = Math.floor(sp.x / ROOM), ry = Math.floor(sp.y / ROOM);
-      const extN = w.structures.filter(s => s.type === 'extension' && s.owner === sp.owner && Math.floor(s.x / ROOM) === rx && Math.floor(s.y / ROOM) === ry).length;
-      sp.cap = 300 + 50 * extN; if (sp.energy > sp.cap) sp.energy = sp.cap;
-      if (w.time % 10 === 0 && sp.energy < Math.min(300, sp.cap)) sp.energy++; // 简化：spawn 缓慢自然回复
-      if (sp.spawning && --sp.spawning.left <= 0) {
-        const pos = this.freeAround(sp);
-        if (pos) { const sc = sp.spawning; this._o = null; w.creeps.push({ id: 'c' + (w.nextId++), owner: sp.owner, name: sc.name, body: sc.body, x: pos.x, y: pos.y, px: sp.x, py: sp.y, energy: 0, ttl: 1500, fatigue: 0 }); w.memory[sp.owner].creeps[sc.name] = sc.memory || {}; this.log(sp.owner, '新 creep:', sc.name); this.events.push({ t: 'spawn', x: pos.x, y: pos.y, fx: sp.x, fy: sp.y }); sp.spawning = null; }
-        else sp.spawning.left = 1;
+      const sc = sp.spawning;
+      if (sc && w.time >= sc.spawnTime) {
+        const cr = w.creeps.find(c => c.spawning && c.owner === sp.owner && c.name === sc.name), dirs = sc.directions && sc.directions.length ? sc.directions : [1, 2, 3, 4, 5, 6, 7, 8];
+        let pos = null; for (const d of dirs) { const [dx, dy] = DIRS[d]; if (!this.blocked(sp.x + dx, sp.y + dy)) { pos = { x: sp.x + dx, y: sp.y + dy }; break; } }
+        if (!cr) sp.spawning = null;
+        else if (pos) { cr.spawning = false; cr.x = cr.px = pos.x; cr.y = cr.py = pos.y; cr.px = sp.x; cr.py = sp.y; cr.ttl = cr.body.includes('claim') ? SC.CREEP_CLAIM_LIFE_TIME : SC.CREEP_LIFE_TIME; this._o = null; sp.spawning = null; this.log(sp.owner, '新 creep:', cr.name); this.events.push({ t: 'spawn', x: pos.x, y: pos.y, fx: sp.x, fy: sp.y }); }
+        else sc.spawnTime = w.time + 1;
+      }
+      const k = roomKey(sp.x, sp.y), ctrl = ctrlOfRoom(w, k);
+      if (!ctrl || ctrl.level < 1 || ctrl.owner !== sp.owner || !this.isActive(sp)) continue;
+      if (this.roomEnergy(k, sp.owner).avail < SC.SPAWN_ENERGY_CAPACITY && sp.store.energy < SC.SPAWN_ENERGY_CAPACITY) sp.store.energy++;
+    }
+  }
+  tickSources() {
+    const w = this.w;
+    for (const s of w.sources) {
+      const ctrl = ctrlOfRoom(w, roomKey(s.x, s.y)), cap = ctrl && (ctrl.owner || (ctrl.reservation && ctrl.reservation.endTime > w.time)) ? SC.SOURCE_ENERGY_CAPACITY : SC.SOURCE_ENERGY_NEUTRAL_CAPACITY;
+      if (cap !== s.cap) { s.cap = cap; s.energy = Math.min(s.energy, cap); }
+      if (s.energy < s.cap) { if (!s.regenAt) s.regenAt = w.time + SC.ENERGY_REGEN_TIME; if (w.time >= s.regenAt - 1) { s.energy = s.cap; s.regenAt = null; } }
+    }
+    for (const m of w.minerals) if (m.amount <= 0) { if (!m.regenAt) m.regenAt = w.time + SC.MINERAL_REGEN_TIME; if (w.time >= m.regenAt) { m.amount = SC.MINERAL_DENSITY[m.density]; m.regenAt = null; } }
+  }
+  tickControllers() {
+    const w = this.w;
+    for (const c of w.controllers) {
+      if (c.reservation && w.time >= c.reservation.endTime - 1) c.reservation = null;
+      if (!c.owner) continue;
+      if (!c.downgradeTime) { c.downgradeTime = w.time + SC.CONTROLLER_DOWNGRADE[c.level] + 1; continue; }
+      if (c._upgraded) { c.downgradeTime = Math.min(c.downgradeTime + SC.CONTROLLER_DOWNGRADE_RESTORE + 1, w.time + SC.CONTROLLER_DOWNGRADE[c.level] + 1); c._upgraded = 0; continue; }
+      while (w.time >= c.downgradeTime - 1 && c.level > 0) {
+        c.level--;
+        if (c.level === 0) { this.log(c.owner, 'Controller 失控'); const rm = w.rooms[roomKey(c.x, c.y)]; if (rm && rm.owner === c.owner) rm.owner = null; Object.assign(c, { progress: 0, owner: null, downgradeTime: null, upgradeBlocked: null, safeMode: null, safeModeAvailable: 0 }); }
+        else { c.downgradeTime += SC.CONTROLLER_DOWNGRADE[c.level] / 2 + 1; c.progress += Math.round(SC.CONTROLLER_LEVELS[c.level] * 0.9); c.safeModeAvailable = 0; this.log(c.owner, 'Controller 降级至 RCL', c.level); }
       }
     }
-    // Tower 自动？否，需玩家代码调用 attack/heal/repair
-    for (const st of w.sites) if (st.progress >= st.total) {
-      if (st.type === 'spawn') {
-        const n = w.spawns.filter(s => s.owner === st.owner).length;
-        w.spawns.push({ id: 'sp' + (w.nextId++), name: 'Spawn' + (n + 1), owner: st.owner, x: st.x, y: st.y, energy: 300, cap: 300, hits: 5000, hitsMax: 5000, spawning: null });
-      } else w.structures.push(makeStruct(w, st.type, st.owner, st.x, st.y));
-      this.log(st.owner, '建造完成', st.type); this.events.push({ t: 'built', x: st.x, y: st.y }); this._objVer++;
-    }
-    w.sites = w.sites.filter(s => s.progress < s.total); this._objVer++; this._o = null;
   }
-  freeAround(p) { for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if ((dx || dy) && !this.blocked(p.x + dx, p.y + dy)) return { x: p.x + dx, y: p.y + dy }; return null; }
-
-  buildApi(pid) {
-    const E = this, w = this.w, creeps = {}, spawns = {}, ev = this.events;
-    const pos = o => ({ x: o.x, y: o.y, roomName: roomName(o.x, o.y),
-      getRangeTo: t => dist(o, t.pos || t), inRangeTo: (t, r) => dist(o, t.pos || t) <= r,
-      findClosestByRange: type => { let b = null, bd = 1e9; for (const t of E.findList(pid, type, wraps)) { const d = dist(o, t); if (d < bd) { bd = d; b = t; } } return b; },
-      findClosestByPath(type) { return this.findClosestByRange(type); },
-      find: type => E.findList(pid, type, wraps),
-      lookFor(type) {
-        if (type === LOOK_STRUCTURES || type === FIND_STRUCTURES) {
-          const out = []; for (const s of w.structures) if (s.x === o.x && s.y === o.y) out.push(wraps.structure(s));
-          for (const s of w.spawns) if (s.x === o.x && s.y === o.y) out.push(wraps.spawn(s));
-          for (const c of w.controllers) if (c.x === o.x && c.y === o.y) out.push(wraps.controller(c));
-          return out;
-        }
-        if (type === 'controller' || type === LOOK_STRUCTURES) { const c = w.controllers.find(c => c.x === o.x && c.y === o.y); return c ? [wraps.controller(c)] : []; }
-        return [];
-      } });
-    const srcW = s => ({ id: s.id, x: s.x, y: s.y, pos: pos(s), energy: s.energy, energyCapacity: s.cap, _raw: s, _kind: 'source' });
-    const siteW = s => ({ id: s.id, x: s.x, y: s.y, pos: pos(s), my: s.owner === pid, structureType: s.type, progress: s.progress, progressTotal: s.total, _raw: s, _kind: 'site' });
-    const ctrlW = c => ({ id: c.id, x: c.x, y: c.y, pos: pos(c), my: c.owner === pid, owner: c.owner ? { username: w.players[c.owner]?.name } : null, level: c.level, progress: c.progress, progressTotal: c.progressTotal, ticksToDowngrade: c.ticksToDowngrade, structureType: 'controller', _raw: c, _kind: 'controller' });
-    const structW = s => ({
-      id: s.id, x: s.x, y: s.y, pos: pos(s), my: s.owner === pid, owner: { username: w.players[s.owner]?.name }, structureType: s.type, hits: s.hits, hitsMax: s.hitsMax, _raw: s, _kind: 'structure',
-      energy: s.energy, energyCapacity: s.energyCapacity,
-      store: s.energyCapacity != null ? { energy: s.energy, getFreeCapacity: () => s.energyCapacity - s.energy, getUsedCapacity: () => s.energy, getCapacity: () => s.energyCapacity } : undefined,
-      // Tower API
-      attack: (t) => towerAct(s, t, 'attack'), heal: (t) => towerAct(s, t, 'heal'), repair: (t) => towerAct(s, t, 'repair'),
-    });
-    function towerAct(tower, target, kind) {
-      if (tower.owner !== pid || tower.type !== 'tower') return ERR_NOT_OWNER;
-      if (!target || !target._raw) return ERR_INVALID_TARGET;
-      const d = dist(tower, target._raw || target); if (d > 20) return ERR_NOT_IN_RANGE;
-      const cost = 10; if ((tower.energy || 0) < cost) return ERR_NOT_ENOUGH_ENERGY;
-      tower.energy -= cost;
-      const eff = Math.max(0.1, 1 - Math.max(0, d - 5) / 20); // 简化距离衰减
-      if (kind === 'attack') { const raw = target._raw; if (raw.hits != null) { raw.hits -= Math.floor(600 * eff); if (raw.hits <= 0) destroyTarget(raw); } else if (raw.ttl != null && raw.owner !== pid) { raw.ttl -= Math.floor(20 * eff); } }
-      else if (kind === 'heal') { const raw = target._raw; if (raw.hits != null && raw.owner === pid) raw.hits = Math.min(raw.hitsMax || raw.hits, raw.hits + Math.floor(400 * eff)); }
-      else if (kind === 'repair') { const raw = target._raw; if (raw.hits != null && raw.owner === pid) raw.hits = Math.min(raw.hitsMax || 1, raw.hits + Math.floor(800 * eff)); }
-      ev.push({ t: kind, fx: tower.x, fy: tower.y, x: (target._raw || target).x, y: (target._raw || target).y }); return OK;
-    }
-    function destroyTarget(raw) {
-      if (raw.body) { raw.ttl = 0; return; }
-      w.structures = w.structures.filter(s => s !== raw); w.spawns = w.spawns.filter(s => s !== raw); E._objVer++;
-    }
-    const spawnW = sp => ({
-      id: sp.id, name: sp.name, x: sp.x, y: sp.y, pos: pos(sp), my: sp.owner === pid, structureType: 'spawn', hits: sp.hits, hitsMax: sp.hitsMax, _raw: sp, _kind: 'spawn',
-      energy: sp.energy, energyCapacity: sp.cap, spawning: sp.spawning,
-      store: { energy: sp.energy, getFreeCapacity: () => sp.cap - sp.energy, getUsedCapacity: () => sp.energy },
-      spawnCreep(body, name, opts = {}) {
-        if (sp.owner !== pid) return ERR_NOT_OWNER; if (!Array.isArray(body) || !body.length || body.length > 50) return ERR_INVALID_TARGET;
-        if (sp.spawning) return ERR_BUSY; name = String(name || ''); if (!name || w.creeps.some(c => c.owner === pid && c.name === name)) return ERR_NAME_EXISTS;
-        const cost = body.reduce((a, b) => a + (BODY_COST[b] ?? 1e9), 0); if (cost > sp.energy) return ERR_NOT_ENOUGH_ENERGY;
-        sp.energy -= cost; sp.spawning = { name, body: body.slice(), left: body.length * 3, total: body.length * 3, memory: opts.memory }; return OK;
-      } });
-    const wraps = { source: srcW, site: siteW, spawn: spawnW, controller: ctrlW, structure: structW, creep: c => creepW(c) };
-    const creepW = c => {
-      const cap = c.body.filter(b => b === 'carry').length * 50, work = c.body.filter(b => b === 'work').length, mine = c.owner === pid;
-      const deny = () => ERR_NOT_OWNER;
-      return {
-        id: c.id, name: c.name, my: mine, owner: { username: w.players[c.owner]?.name }, body: c.body.map(t => ({ type: t })), ticksToLive: c.ttl, fatigue: c.fatigue, pos: pos(c), x: c.x, y: c.y, hits: c.body.length * 100, hitsMax: c.body.length * 100, _raw: c, _kind: 'creep',
-        get memory() { if (!mine) return {}; const m = w.memory[pid].creeps; return (m[c.name] = m[c.name] || {}); }, set memory(v) { if (mine) w.memory[pid].creeps[c.name] = v; },
-        store: { energy: c.energy, getFreeCapacity: () => cap - c.energy, getUsedCapacity: () => c.energy, getCapacity: () => cap }, carryCapacity: cap,
-        say: mine ? (t => { c.say = String(t).slice(0, 10); c.sayT = w.time; }) : deny,
-        moveTo: mine ? function (t, y) {
-          const tg = typeof t === 'number' ? { x: t, y } : (t && (t.pos || t)); if (!tg) return ERR_INVALID_TARGET; if (c.fatigue > 0) return ERR_TIRED; if (dist(c, tg) === 0) return OK;
-          const range = typeof t === 'number' ? 0 : 1; if (dist(c, tg) <= range) return OK;
-          if (!c._path || !c._path.length || c._pt?.x !== tg.x || c._pt?.y !== tg.y || dist(c, c._path[0]) !== 1 || E.blocked(c._path[0].x, c._path[0].y, c)) { c._path = E.findPath(c, tg, range, c); c._pt = { x: tg.x, y: tg.y }; }
-          if (!c._path.length) return ERR_NO_PATH; c._intent = c._path.shift(); return OK;
-        } : deny,
-        harvest: mine ? (s => { if (!s || s._kind !== 'source') return ERR_INVALID_TARGET; if (dist(c, s) > 1) return ERR_NOT_IN_RANGE; if (!work) return ERR_NO_BODYPART; if (s._raw.energy <= 0) return ERR_NOT_ENOUGH_ENERGY; if (c.energy >= cap) return ERR_FULL; const a = Math.min(work * 2, s._raw.energy, cap - c.energy); s._raw.energy -= a; c.energy += a; ev.push({ t: 'harvest', fx: s.x, fy: s.y, x: c.x, y: c.y }); return OK; }) : deny,
-        transfer: mine ? ((t, res = 'energy', amt) => {
-          if (!t || !t._raw) return ERR_INVALID_TARGET; const raw = t._raw; if (dist(c, raw) > 1) return ERR_NOT_IN_RANGE; if (c.energy <= 0) return ERR_NOT_ENOUGH_ENERGY;
-          let room; if (t._kind === 'spawn') room = raw.cap - raw.energy;
-          else if (t._kind === 'structure' && raw.energyCapacity != null) room = raw.energyCapacity - (raw.energy || 0);
-          else if (t._kind === 'creep') room = raw.body.filter(b => b === 'carry').length * 50 - raw.energy;
-          else return ERR_INVALID_TARGET;
-          const a = Math.min(amt || c.energy, c.energy, room); if (a <= 0) return ERR_FULL;
-          if (t._kind === 'spawn') raw.energy += a; else if (t._kind === 'structure') raw.energy = (raw.energy || 0) + a; else raw.energy += a;
-          c.energy -= a; ev.push({ t: 'transfer', fx: c.x, fy: c.y, x: raw.x, y: raw.y }); return OK;
-        }) : deny,
-        build: mine ? (s => { if (!s || s._kind !== 'site') return ERR_INVALID_TARGET; if (dist(c, s) > 3) return ERR_NOT_IN_RANGE; if (!work) return ERR_NO_BODYPART; if (c.energy <= 0) return ERR_NOT_ENOUGH_ENERGY; const a = Math.min(work * 5, c.energy, s._raw.total - s._raw.progress); s._raw.progress += a; c.energy -= a; ev.push({ t: 'build', fx: c.x, fy: c.y, x: s.x, y: s.y }); return OK; }) : deny,
-        repair: mine ? (s => { if (!s || (s._kind !== 'structure' && s._kind !== 'spawn')) return ERR_INVALID_TARGET; const raw = s._raw; if (dist(c, raw) > 3) return ERR_NOT_IN_RANGE; if (!work) return ERR_NO_BODYPART; if (c.energy <= 0) return ERR_NOT_ENOUGH_ENERGY; if (raw.hits >= (raw.hitsMax || 1)) return ERR_FULL; const a = Math.min(work * 100, c.energy * 100, (raw.hitsMax || 1) - raw.hits); const e = Math.ceil(a / 100); raw.hits += a; c.energy -= e; ev.push({ t: 'build', fx: c.x, fy: c.y, x: raw.x, y: raw.y }); return OK; }) : deny,
-        upgradeController: mine ? (ctrl => {
-          if (!ctrl || ctrl._kind !== 'controller') return ERR_INVALID_TARGET; const raw = ctrl._raw;
-          if (raw.owner !== pid) return ERR_NOT_OWNER; if (dist(c, raw) > 3) return ERR_NOT_IN_RANGE; if (!work) return ERR_NO_BODYPART; if (c.energy <= 0) return ERR_NOT_ENOUGH_ENERGY;
-          if (raw.level >= 8) return ERR_FULL;
-          const a = Math.min(work, c.energy); c.energy -= a; raw.progress += a; raw._upgraded = true;
-          if (raw.progress >= raw.progressTotal && raw.level < 8) { raw.level++; raw.progress = 0; raw.progressTotal = CONTROLLER_LEVELS[raw.level] || CONTROLLER_LEVELS[7]; raw.ticksToDowngrade = CONTROLLER_DOWNGRADE[raw.level]; E.log(pid, 'Controller 升至 RCL', raw.level); }
-          ev.push({ t: 'upgrade', fx: c.x, fy: c.y, x: raw.x, y: raw.y }); return OK;
-        }) : deny,
-        drop: mine ? (() => { c.energy = 0; return OK; }) : deny,
-        suicide: mine ? (() => { c.ttl = 0; return OK; }) : deny,
-      };
-    };
-    for (const sp of w.spawns) if (sp.owner === pid) spawns[sp.name] = spawnW(sp);
-    for (const c of w.creeps) if (c.owner === pid) creeps[c.name] = creepW(c);
-    // Game.rooms[name].controller
-    const rooms = {};
-    for (const ctrl of w.controllers) {
-      const rn = roomName(ctrl.x, ctrl.y);
-      rooms[rn] = rooms[rn] || { name: rn, controller: null, energyAvailable: 0, energyCapacityAvailable: 0 };
-      rooms[rn].controller = ctrlW(ctrl);
-    }
-    for (const sp of w.spawns) if (sp.owner === pid) { const r = rooms[roomName(sp.x, sp.y)]; if (r) { r.energyAvailable += sp.energy; r.energyCapacityAvailable += sp.cap; } }
-    for (const s of w.structures) if (s.owner === pid && s.type === 'extension') { const r = rooms[roomName(s.x, s.y)]; if (r) { r.energyAvailable += s.energy || 0; r.energyCapacityAvailable += s.energyCapacity || 50; } }
-
-    const Game = { time: w.time, creeps, spawns, rooms,
-      getObjectById: id => {
-        for (const [k, l] of [['source', w.sources], ['site', w.sites], ['spawn', w.spawns], ['creep', w.creeps], ['controller', w.controllers], ['structure', w.structures]]) { const o = l.find(o => o.id === id); if (o) return wraps[k](o); } return null;
-      },
-      createConstructionSite: (x, y, type) => {
-        if (!STRUCT_COST[type]) return ERR_INVALID_TARGET; x |= 0; y |= 0;
-        const rm = w.rooms[roomKey(x, y)]; if (!rm) return ERR_INVALID_TARGET;
-        const ctrl = w.controllers.find(c => roomKey(c.x, c.y) === roomKey(x, y));
-        if (!ctrl || ctrl.owner !== pid) return ERR_NOT_OWNER;
-        const limit = (CONTROLLER_STRUCTURES[type] || [])[ctrl.level] || 0;
-        if (limit === 0) return ERR_RCL_NOT_ENOUGH;
-        const rx = Math.floor(x / ROOM), ry = Math.floor(y / ROOM);
-        if (countStruct(w, pid, type, rx, ry) >= limit) return ERR_RCL_NOT_ENOUGH;
-        if (E.solid(x, y) && !WALKABLE_STRUCT.has(type)) return ERR_INVALID_TARGET;
-        if (w.sites.some(s => s.x === x && s.y === y) || w.structures.some(s => s.x === x && s.y === y) || w.spawns.some(s => s.x === x && s.y === y) || w.controllers.some(s => s.x === x && s.y === y) || w.sources.some(s => s.x === x && s.y === y)) return ERR_INVALID_TARGET;
-        if (w.sites.filter(s => s.owner === pid).length >= 100) return ERR_FULL;
-        w.sites.push({ id: 'cs' + (w.nextId++), owner: pid, x, y, type, progress: 0, total: STRUCT_COST[type] }); return OK;
-      } };
-    this._creeps = creeps; this._wraps = wraps;
-    return { Game, log: (...a) => E.log(pid, ...a) };
-  }
-  findList(pid, type, wraps) {
+  tickStructures() {
     const w = this.w;
-    if (type === FIND_SOURCES) return w.sources.filter(s => s.energy > 0).map(wraps.source);
-    if (type === FIND_CONSTRUCTION_SITES) return w.sites.filter(s => s.owner === pid).map(wraps.site);
-    if (type === FIND_MY_SPAWNS) return w.spawns.filter(s => s.owner === pid).map(wraps.spawn);
-    if (type === FIND_MY_CREEPS) return Object.values(this._creeps);
-    if (type === FIND_HOSTILE_CREEPS) return w.creeps.filter(c => c.owner !== pid).map(wraps.creep);
-    if (type === FIND_MY_STRUCTURES) return w.structures.filter(s => s.owner === pid).map(wraps.structure).concat(w.spawns.filter(s => s.owner === pid).map(wraps.spawn)).concat(w.controllers.filter(c => c.owner === pid).map(wraps.controller));
-    if (type === FIND_STRUCTURES) return w.structures.map(wraps.structure).concat(w.spawns.map(wraps.spawn)).concat(w.controllers.map(wraps.controller));
-    if (type === FIND_HOSTILE_STRUCTURES) return w.structures.filter(s => s.owner !== pid).map(wraps.structure);
-    if (type === 'controller') return w.controllers.filter(c => c.owner === pid).map(wraps.controller);
-    return [];
+    for (const s of w.structures.slice()) {
+      if (s.cooldown > 0) s.cooldown--;
+      if (s.decayAt != null && w.time >= s.decayAt - 1) {
+        if (s.type === 'road') { const t = this.tile(s.x, s.y); s.hits -= SC.ROAD_DECAY_AMOUNT * (t === T_SWAMP ? SC.CONSTRUCTION_COST_ROAD_SWAMP_RATIO : t === T_WALL ? SC.CONSTRUCTION_COST_ROAD_WALL_RATIO : 1); s.decayAt = w.time + SC.ROAD_DECAY_TIME; }
+        else if (s.type === 'container') { s.hits -= SC.CONTAINER_DECAY; s.decayAt = w.time + (rclOf(w, s.x, s.y) > 0 ? SC.CONTAINER_DECAY_TIME_OWNED : SC.CONTAINER_DECAY_TIME); }
+        else if (s.type === 'rampart') { s.hits -= SC.RAMPART_DECAY_AMOUNT; s.decayAt = w.time + SC.RAMPART_DECAY_TIME; }
+        if (s.hits <= 0) { if (s.store) for (const r in s.store) this.dropAt(s.x, s.y, r, s.store[r]); this.removeStruct(s); }
+      }
+      if (s.type === 'rampart') s.hitsMax = SC.RAMPART_HITS_MAX[rclOf(w, s.x, s.y)] || 0;
+    }
   }
+  tickGround() {
+    const w = this.w;
+    for (const r of w.resources) r.amount -= Math.ceil(r.amount / SC.ENERGY_DECAY);
+    w.resources = w.resources.filter(r => r.amount > 0);
+    for (const t of w.tombstones.filter(t => w.time >= t.decayAt)) { for (const r in t.store) this.dropAt(t.x, t.y, r, t.store[r]); w.tombstones.splice(w.tombstones.indexOf(t), 1); }
+  }
+  dropAt(x, y, res, amount) {
+    const w = this.w; if (!(amount > 0)) return;
+    const cont = w.structures.find(s => s.type === 'container' && s.x === x && s.y === y);
+    if (cont) { const a = Math.min(amount, freeFor(w, cont, res)); if (a > 0) { cont.store[res] = (cont.store[res] || 0) + a; amount -= a; } }
+    if (amount <= 0) return;
+    const ex = w.resources.find(r => r.x === x && r.y === y && r.resourceType === res);
+    if (ex) ex.amount += amount; else w.resources.push({ kind: 'resource', id: 'r' + (w.nextId++), x, y, resourceType: res, amount });
+  }
+  damage(target, amount, attackerOwner) {
+    const w = this.w, ctrl = ctrlOfRoom(w, roomKey(target.x, target.y));
+    if (ctrl && ctrl.safeMode > w.time && ctrl.owner !== attackerOwner) return; // 安全模式
+    const ramp = w.structures.find(s => s.type === 'rampart' && s.x === target.x && s.y === target.y);
+    if (ramp && ramp !== target) target = ramp;
+    target.hits -= amount;
+    if (target.kind !== 'creep' && target.hits <= 0) { if (target.store) for (const r in target.store) this.dropAt(target.x, target.y, r, target.store[r]); this.removeStruct(target); }
+  }
+  gclLevel(pid) { const p = this.w.players[pid].gcl || 0; let lv = 1; while (p >= Math.pow(lv, SC.GCL_POW) * SC.GCL_MULTIPLY) lv++; return lv; }
+
+  buildApi(pid) { return buildApi(this, pid); }
+  findList(pid, type, k, wrap) { return findList(this, pid, type, k, wrap); }
   snapshot() {
-    const w = this.w;
+    const w = this.w, en = s => (s.store && s.store.energy) || 0;
     return { time: w.time, S: w.S, roomsVer: w.roomsVer, players: Object.fromEntries(Object.entries(w.players).map(([k, p]) => [k, { name: p.name, color: p.color }])),
       sources: w.sources.map(s => ({ id: s.id, x: s.x, y: s.y, energy: s.energy, cap: s.cap })),
-      controllers: w.controllers.map(c => ({ id: c.id, x: c.x, y: c.y, owner: c.owner, level: c.level, progress: c.progress, progressTotal: c.progressTotal, ticksToDowngrade: c.ticksToDowngrade })),
-      spawns: w.spawns.map(s => ({ id: s.id, name: s.name, owner: s.owner, x: s.x, y: s.y, energy: s.energy, cap: s.cap, hits: s.hits, hitsMax: s.hitsMax, spawning: s.spawning && { name: s.spawning.name, left: s.spawning.left, total: s.spawning.total } })),
-      creeps: w.creeps.map(c => ({ id: c.id, owner: c.owner, name: c.name, body: c.body, x: c.x, y: c.y, px: c.px, py: c.py, energy: c.energy, ttl: c.ttl, hits: c.body.length * 100, say: w.time - (c.sayT || -99) < 5 ? c.say : undefined })),
+      minerals: w.minerals.map(m => ({ id: m.id, x: m.x, y: m.y, type: m.type, amount: m.amount })),
+      controllers: w.controllers.map(c => ({ id: c.id, x: c.x, y: c.y, owner: c.owner, level: c.level, progress: c.progress, progressTotal: SC.CONTROLLER_LEVELS[c.level] || 0, ticksToDowngrade: c.downgradeTime ? c.downgradeTime - w.time : 0 })),
+      spawns: w.spawns.map(s => ({ id: s.id, name: s.name, owner: s.owner, x: s.x, y: s.y, energy: en(s), cap: SC.SPAWN_ENERGY_CAPACITY, hits: s.hits, hitsMax: s.hitsMax, spawning: s.spawning && { name: s.spawning.name, left: s.spawning.spawnTime - w.time, total: s.spawning.needTime } })),
+      creeps: w.creeps.filter(c => !c.spawning).map(c => ({ id: c.id, owner: c.owner, name: c.name, body: c.body, x: c.x, y: c.y, px: c.px, py: c.py, energy: storeSum(c.store), ttl: c.ttl, hits: c.hits, hitsMax: c.body.length * 100, fatigue: c.fatigue, say: w.time - (c.sayT || -99) < 2 ? c.say : undefined })),
       sites: w.sites.map(s => ({ id: s.id, owner: s.owner, x: s.x, y: s.y, type: s.type, progress: s.progress, total: s.total })),
-      structures: w.structures.map(s => ({ id: s.id, type: s.type, owner: s.owner, x: s.x, y: s.y, hits: s.hits, hitsMax: s.hitsMax, energy: s.energy, energyCapacity: s.energyCapacity })),
+      structures: w.structures.map(s => ({ id: s.id, type: s.type, owner: s.owner, x: s.x, y: s.y, hits: s.hits, hitsMax: s.hitsMax, energy: s.store ? en(s) : undefined, energyCapacity: s.store ? storeCap(w, s, 'energy') ?? storeCap(w, s) : undefined })),
+      resources: w.resources.map(r => ({ id: r.id, x: r.x, y: r.y, resourceType: r.resourceType, amount: r.amount })),
+      tombstones: w.tombstones.map(t => ({ id: t.id, x: t.x, y: t.y, owner: t.owner, creepName: t.creepName, energy: t.store.energy || 0, decay: t.decayAt - w.time })),
       events: this.events };
   }
-  roomsData() { return { roomsVer: this.w.roomsVer, S: this.w.S, rooms: Object.fromEntries(Object.entries(this.w.rooms).map(([k, r]) => [k, { tiles: r.tiles.join(''), owner: r.owner }])) }; }
-  saveData() { const w = this.w; return JSON.stringify(w, (k, v) => (k === '_path' || k === '_pt' || k === '_intent' || k === '_upgraded') ? undefined : v); }
+  roomsData() { return { roomsVer: this.w.roomsVer, S: this.w.S, rooms: Object.fromEntries(Object.entries(this.w.rooms).map(([k, r]) => [k, { tiles: r.tiles.join(''), owner: r.owner, name: r.name }])) }; }
+  saveData() { const w = this.w; return JSON.stringify(w, (k, v) => (k[0] === '_' ? undefined : v)); }
+}
+if (typeof module !== 'undefined') module.exports = { Engine, newWorld, countStruct, rclOf };
+
+// ===================== 玩家 API（官方名称/语义/返回码） =====================
+function findList(E, pid, type, k, wrap) {
+  const w = E.w, inR = o => k == null || roomKey(o.x, o.y) === k, mine = o => o.owner === pid, W = l => l.filter(inR).map(wrap);
+  const hostile = o => o.owner && o.owner !== pid, allStructs = () => w.structures.concat(w.spawns, w.controllers);
+  switch (type) {
+    case SC.FIND_CREEPS: return W(w.creeps.filter(c => !c.spawning));
+    case SC.FIND_MY_CREEPS: return W(w.creeps.filter(c => !c.spawning && mine(c)));
+    case SC.FIND_HOSTILE_CREEPS: return W(w.creeps.filter(c => !c.spawning && !mine(c)));
+    case SC.FIND_SOURCES_ACTIVE: return W(w.sources.filter(s => s.energy > 0));
+    case SC.FIND_SOURCES: return W(w.sources);
+    case SC.FIND_DROPPED_RESOURCES: return W(w.resources);
+    case SC.FIND_STRUCTURES: return W(allStructs());
+    case SC.FIND_MY_STRUCTURES: return W(allStructs().filter(mine));
+    case SC.FIND_HOSTILE_STRUCTURES: return W(allStructs().filter(hostile));
+    case SC.FIND_FLAGS: return W(w.flags.filter(mine));
+    case SC.FIND_CONSTRUCTION_SITES: return W(w.sites);
+    case SC.FIND_MY_SPAWNS: return W(w.spawns.filter(mine));
+    case SC.FIND_HOSTILE_SPAWNS: return W(w.spawns.filter(hostile));
+    case SC.FIND_MY_CONSTRUCTION_SITES: return W(w.sites.filter(mine));
+    case SC.FIND_HOSTILE_CONSTRUCTION_SITES: return W(w.sites.filter(hostile));
+    case SC.FIND_MINERALS: return W(w.minerals);
+    case SC.FIND_TOMBSTONES: return W(w.tombstones);
+    case SC.FIND_EXIT_TOP: case SC.FIND_EXIT_RIGHT: case SC.FIND_EXIT_BOTTOM: case SC.FIND_EXIT_LEFT: case SC.FIND_EXIT: {
+      if (k == null) return []; const [rx, ry] = k.split(',').map(Number), out = [];
+      const add = (lx, ly) => { const x = rx * ROOM + lx, y = ry * ROOM + ly; if (E.tile(x, y) !== T_WALL) out.push(wrap({ kind: 'pos', x, y })); };
+      for (let i = 0; i < ROOM; i++) { if (type === SC.FIND_EXIT || type === SC.FIND_EXIT_TOP) add(i, 0); if (type === SC.FIND_EXIT || type === SC.FIND_EXIT_RIGHT) add(49, i); if (type === SC.FIND_EXIT || type === SC.FIND_EXIT_BOTTOM) add(i, 49); if (type === SC.FIND_EXIT || type === SC.FIND_EXIT_LEFT) add(0, i); }
+      return out;
+    }
+    case 'controller': return W(w.controllers.filter(mine)); // 兼容 v1.2 积木
+    default: return []; // FIND_NUKES / POWER_CREEPS / DEPOSITS / RUINS 等：本游戏中不存在
+  }
 }
 
-function compileUser(code) {
-  const consts = {
-    OK, ERR_NOT_OWNER, ERR_NO_PATH, ERR_NOT_IN_RANGE, ERR_NOT_ENOUGH_ENERGY, ERR_BUSY, ERR_FULL, ERR_INVALID_TARGET, ERR_NAME_EXISTS, ERR_TIRED, ERR_NO_BODYPART, ERR_RCL_NOT_ENOUGH,
-    FIND_SOURCES, FIND_MY_CREEPS, FIND_CONSTRUCTION_SITES, FIND_MY_SPAWNS, FIND_HOSTILE_CREEPS, FIND_STRUCTURES, FIND_MY_STRUCTURES, FIND_HOSTILE_STRUCTURES,
-    LOOK_STRUCTURES, LOOK_CREEPS, LOOK_SOURCES, LOOK_CONSTRUCTION_SITES, RESOURCE_ENERGY,
-    WORK: 'work', CARRY: 'carry', MOVE: 'move', ATTACK: 'attack', RANGED_ATTACK: 'ranged_attack', HEAL: 'heal', TOUGH: 'tough',
-    STRUCTURE_SPAWN: 'spawn', STRUCTURE_EXTENSION: 'extension', STRUCTURE_ROAD: 'road', STRUCTURE_WALL: 'constructedWall', STRUCTURE_RAMPART: 'rampart',
-    STRUCTURE_TOWER: 'tower', STRUCTURE_CONTAINER: 'container', STRUCTURE_STORAGE: 'storage', STRUCTURE_CONTROLLER: 'controller',
-    STRUCTURE_LINK: 'link', STRUCTURE_EXTRACTOR: 'extractor', STRUCTURE_LAB: 'lab', STRUCTURE_TERMINAL: 'terminal',
-    STRUCTURE_OBSERVER: 'observer', STRUCTURE_POWER_SPAWN: 'powerSpawn', STRUCTURE_NUKER: 'nuker', STRUCTURE_FACTORY: 'factory',
+function buildApi(E, pid) {
+  const w = E.w, cache = new Map(), ev = E.events, mem = w.memory[pid];
+  const toG = (x, y, rn) => { const p = parseRoomName(rn); return p ? { x: p[0] * ROOM + x, y: p[1] * ROOM + y } : null; };
+  const raw = t => t && (t._raw || (t instanceof RoomPosition ? t._g : null));
+  const gpos = t => { if (!t) return null; if (t._raw) return t._raw; if (t instanceof RoomPosition) return t._g; if (t.pos instanceof RoomPosition) return t.pos._g; return null; };
+  const range = (a, b) => sameRoom(a, b) ? dist(a, b) : Infinity;
+  const applyOpts = (list, opts) => { if (opts && opts.filter) { const f = opts.filter; return list.filter(typeof f === 'function' ? f : o => Object.keys(f).every(key => o[key] === f[key])); } return list; };
+  const resolveFind = (t, k) => Array.isArray(t) ? t : findList(E, pid, t, k, wrap);
+
+  class RoomPosition {
+    constructor(x, y, roomName) { this.x = x; this.y = y; this.roomName = roomName; Object.defineProperty(this, '_g', { value: toG(x, y, roomName), enumerable: false }); }
+    _args(a, b, c) { if (typeof a === 'number') return toG(a, b, c || this.roomName); return gpos(a); }
+    getRangeTo(a, b) { const g = this._args(a, b); return g ? range(this._g, g) : Infinity; }
+    inRangeTo(a, b, c) { if (typeof a === 'number') return this.getRangeTo(a, b) <= c; return this.getRangeTo(a) <= b; }
+    isNearTo(a, b) { return this.getRangeTo(a, b) <= 1; }
+    isEqualTo(a, b) { return this.getRangeTo(a, b) === 0; }
+    getDirectionTo(a, b) { const g = this._args(a, b); return g ? dirOf(g.x - this._g.x, g.y - this._g.y) : 0; }
+    findInRange(t, r, opts) { return applyOpts(resolveFind(t, roomKey(this._g.x, this._g.y)).filter(o => range(this._g, gpos(o)) <= r), opts); }
+    findClosestByRange(t, opts) { let b = null, bd = Infinity; for (const o of applyOpts(resolveFind(t, roomKey(this._g.x, this._g.y)), opts)) { const d = range(this._g, gpos(o)); if (d < bd) { bd = d; b = o; } } return b; }
+    findClosestByPath(t, opts) { // 一次多目标 A*，按实际路径长度取最近
+      const list = applyOpts(resolveFind(t, roomKey(this._g.x, this._g.y)), opts).filter(o => sameRoom(this._g, gpos(o))); if (!list.length) return null;
+      const near = list.find(o => dist(this._g, gpos(o)) <= 1); if (near) return near;
+      const p = E.findPath(this._g, list.map(gpos), 1, undefined, Object.assign({ maxOps: 4000 }, opts)); if (!p.length) return null;
+      const end = p[p.length - 1]; let b = null, bd = Infinity; for (const o of list) { const d = dist(end, gpos(o)); if (d < bd) { bd = d; b = o; } } return b;
+    }
+    findPathTo(a, b, c) { const g = this._args(a, b), opts = typeof a === 'number' ? c : b; return g ? E.findPath(this._g, g, (opts && opts.range) || 0, undefined, opts || {}).map((p, i, arr) => { const prev = i ? arr[i - 1] : this._g; return { x: p.x % ROOM, y: p.y % ROOM, dx: p.x - prev.x, dy: p.y - prev.y, direction: dirOf(p.x - prev.x, p.y - prev.y) }; }) : []; }
+    look() { return lookAt(this._g.x, this._g.y); }
+    lookFor(type) { return lookAt(this._g.x, this._g.y).filter(o => o.type === type).map(o => o[type]); }
+    createConstructionSite(type, name) { return createSite(this._g.x, this._g.y, type, name); }
+    createFlag(name, color, secondaryColor) { return createFlag(this._g, name, color, secondaryColor); }
+    toJSON() { return { x: this.x, y: this.y, roomName: this.roomName }; }
+    toString() { return `[room ${this.roomName} pos ${this.x},${this.y}]`; }
+  }
+  const posOf = o => new RoomPosition(o.x % ROOM, o.y % ROOM, roomName(o.x, o.y));
+  const TERRAIN_NAME = ['plain', 'wall', 'swamp'];
+  function lookAt(x, y) {
+    const out = [], at = o => o.x === x && o.y === y, add = (type, o) => out.push({ type, [type]: wrap(o) });
+    for (const c of w.creeps) if (!c.spawning && at(c)) add(SC.LOOK_CREEPS, c);
+    for (const o of w.resources) if (at(o)) { add(SC.LOOK_RESOURCES, o); if (o.resourceType === 'energy') add(SC.LOOK_ENERGY, o); }
+    for (const o of w.sources) if (at(o)) add(SC.LOOK_SOURCES, o);
+    for (const o of w.minerals) if (at(o)) add(SC.LOOK_MINERALS, o);
+    for (const o of w.structures.concat(w.spawns, w.controllers)) if (at(o)) add(SC.LOOK_STRUCTURES, o);
+    for (const o of w.flags) if (at(o) && o.owner === pid) add(SC.LOOK_FLAGS, o);
+    for (const o of w.sites) if (at(o)) add(SC.LOOK_CONSTRUCTION_SITES, o);
+    for (const o of w.tombstones) if (at(o)) add(SC.LOOK_TOMBSTONES, o);
+    out.push({ type: SC.LOOK_TERRAIN, terrain: TERRAIN_NAME[E.tile(x, y)] });
+    return out;
+  }
+  function makeStore(o) {
+    const s = {}; for (const r in o.store) if (o.store[r] > 0) s[r] = o.store[r];
+    const P = new Proxy(s, { get: (t, key) => key in t ? t[key] : (RESOURCES.has(key) ? 0 : undefined) });
+    const def = (n, f) => Object.defineProperty(s, n, { value: f, enumerable: false });
+    def('getCapacity', r => o.kind === 'tombstone' ? null : storeCap(w, o, r));
+    def('getUsedCapacity', r => { if (r === undefined) { if (o.kind !== 'tombstone' && storeCap(w, o) == null) return null; return storeSum(o.store); } if (o.kind !== 'tombstone' && storeCap(w, o, r) == null) return 0; return o.store[r] || 0; });
+    def('getFreeCapacity', r => o.kind === 'tombstone' ? null : freeFor(w, o, r === undefined && storeCap(w, o) == null ? 'energy' : r));
+    return P;
+  }
+
+  // ---- 建造 ----
+  function createSite(x, y, type, name) {
+    if (!SC.CONSTRUCTION_COST[type]) return ERR_INVALID_ARGS;
+    const k = roomKey(x, y), rm = w.rooms[k]; if (!rm || x < 0 || y < 0) return ERR_INVALID_ARGS;
+    const lx = x % ROOM, ly = y % ROOM;
+    if (lx <= 0 || ly <= 0 || lx >= 49 || ly >= 49) return ERR_INVALID_TARGET;
+    if (E.tile(x, y) === T_WALL && type !== 'road') return ERR_INVALID_TARGET;
+    if (type !== 'road' && type !== 'container' && type !== 'rampart') { // 官方：出口旁一格内不能放其它建筑
+      for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) { const X = lx + dx, Y = ly + dy; if ((X === 0 || Y === 0 || X === 49 || Y === 49) && E.tile(x + dx, y + dy) !== T_WALL) return ERR_INVALID_TARGET; }
+    }
+    if (type === 'extractor' ? !w.minerals.some(m => m.x === x && m.y === y) : (w.minerals.some(m => m.x === x && m.y === y) || w.sources.some(s => s.x === x && s.y === y) || w.controllers.some(s => s.x === x && s.y === y))) return ERR_INVALID_TARGET;
+    if (w.sites.some(s => s.x === x && s.y === y)) return ERR_INVALID_TARGET;
+    const here = w.structures.filter(s => s.x === x && s.y === y).concat(w.spawns.filter(s => s.x === x && s.y === y));
+    if (here.some(s => (s.type || 'spawn') === type || (type !== 'rampart' && OBSTACLES.has(type) && OBSTACLES.has(s.type || 'spawn')) || (type === 'rampart' ? false : (s.type === 'constructedWall')))) return ERR_INVALID_TARGET;
+    const ctrl = ctrlOfRoom(w, k);
+    if (ctrl && ctrl.owner && ctrl.owner !== pid) return ERR_RCL_NOT_ENOUGH;
+    if (ctrl && ctrl.reservation && ctrl.reservation.owner !== pid) return ERR_RCL_NOT_ENOUGH;
+    const lvl = ctrl && ctrl.owner === pid ? ctrl.level : 0, lim = SC.CONTROLLER_STRUCTURES[type][lvl] || 0;
+    if (countStruct(w, pid, type, k) >= lim) return ERR_RCL_NOT_ENOUGH;
+    if (w.sites.filter(s => s.owner === pid).length >= SC.MAX_CONSTRUCTION_SITES) return ERR_FULL;
+    let total = SC.CONSTRUCTION_COST[type];
+    if (type === 'road') { const t = E.tile(x, y); if (t === T_SWAMP) total *= SC.CONSTRUCTION_COST_ROAD_SWAMP_RATIO; if (t === T_WALL) total *= SC.CONSTRUCTION_COST_ROAD_WALL_RATIO; }
+    if (type === 'spawn') { name = name || ('Spawn' + (w.spawns.filter(s => s.owner === pid).length + w.sites.filter(s => s.owner === pid && s.type === 'spawn').length + 1)); if (w.spawns.some(s => s.name === name && s.owner === pid)) return ERR_INVALID_ARGS; }
+    w.sites.push({ kind: 'site', id: 'cs' + (w.nextId++), owner: pid, x, y, type, progress: 0, total, name }); E._objVer++; return OK;
+  }
+  function createFlag(g, name, color = SC.COLOR_WHITE, color2 = color) {
+    if (!g) return ERR_INVALID_ARGS; name = name || ('Flag' + (w.flags.filter(f => f.owner === pid).length + 1));
+    if (w.flags.some(f => f.owner === pid && f.name === name)) return ERR_NAME_EXISTS;
+    if (name.length > 100 || color < 1 || color > 10) return ERR_INVALID_ARGS;
+    w.flags.push({ kind: 'flag', id: 'fl' + (w.nextId++), owner: pid, name, x: g.x, y: g.y, color, secondaryColor: color2 }); return name;
+  }
+
+  // ---- 包装对象 ----
+  function wrap(o) {
+    if (!o) return null; let v = cache.get(o); if (v) return v;
+    if (o.kind === 'pos') { v = posOf(o); cache.set(o, v); return v; }
+    v = { id: o.id, _raw: o, pos: posOf(o), effects: [] };
+    Object.defineProperty(v, '_raw', { enumerable: false }); Object.defineProperty(v, 'room', { get: () => room(roomKey(o.x, o.y)), enumerable: false });
+    cache.set(o, v); B[o.kind](v, o); return v;
+  }
+  const owner = o => o.owner ? { username: w.players[o.owner]?.name || o.owner } : undefined;
+  const structBase = (v, o, type) => {
+    Object.assign(v, { structureType: type, hits: o.hits, hitsMax: o.hitsMax, my: o.owner === pid, owner: owner(o) });
+    v.destroy = () => { if (o.owner !== pid && type !== 'road' && type !== 'container' && type !== 'constructedWall') return ERR_NOT_OWNER; const c = ctrlOfRoom(w, roomKey(o.x, o.y)); if (c && c.owner !== pid) return ERR_NOT_OWNER; if (w.creeps.some(c => !c.spawning && c.owner !== pid && sameRoom(c, o))) return ERR_BUSY; E.removeStruct(o); return OK; };
+    v.isActive = () => E.isActive(o); v.notifyWhenAttacked = en => typeof en === 'boolean' ? (o.owner === pid ? OK : ERR_NOT_OWNER) : ERR_INVALID_ARGS;
+    if (o.store) { v.store = makeStore(o); const ec = storeCap(w, o, 'energy'); v.energy = o.store.energy || 0; v.energyCapacity = ec; }
+    if (o.cooldown != null) v.cooldown = o.cooldown;
+    if (o.decayAt != null) v.ticksToDecay = o.decayAt - w.time;
   };
-  const names = Object.keys(consts), hidden = ['window', 'document', 'localStorage', 'fetch', 'XMLHttpRequest', 'WebSocket', 'Capacitor', 'globalThis', 'self', 'require', 'process', 'setTimeout', 'setInterval'];
-  const f = new Function('Game', 'Memory', 'console', '__loopGuard', ...hidden, ...names, '"use strict";\n' + code);
-  return (Game, Memory, api) => { let n = 0; const guard = () => { if (++n > 100000) throw new Error('循环次数过多（可能死循环）'); };
-    f(Game, Memory, { log: api.log }, guard, ...hidden.map(() => undefined), ...names.map(k => consts[k])); };
+  const B = {
+    source(v, o) { Object.assign(v, { energy: o.energy, energyCapacity: o.cap, ticksToRegeneration: o.regenAt ? o.regenAt - w.time : undefined }); },
+    mineral(v, o) { Object.assign(v, { mineralType: o.type, mineralAmount: o.amount, density: o.density, ticksToRegeneration: o.regenAt ? o.regenAt - w.time : undefined }); },
+    resource(v, o) { Object.assign(v, { resourceType: o.resourceType, amount: o.amount }); },
+    tombstone(v, o) { Object.assign(v, { deathTime: o.deathTime, ticksToDecay: o.decayAt - w.time, store: makeStore(o), creep: { id: o.id, name: o.creepName, my: o.owner === pid, owner: owner(o), body: o.creepBody.map(t => ({ type: t, hits: 0 })) } }); },
+    flag(v, o) { Object.assign(v, { name: o.name, color: o.color, secondaryColor: o.secondaryColor });
+      Object.defineProperty(v, 'memory', { get: () => (mem.flags = mem.flags || {}, mem.flags[o.name] = mem.flags[o.name] || {}), set: x => { mem.flags = mem.flags || {}; mem.flags[o.name] = x; } });
+      v.remove = () => { w.flags.splice(w.flags.indexOf(o), 1); return OK; }; v.setColor = (c, c2 = c) => { if (c < 1 || c > 10) return ERR_INVALID_ARGS; o.color = c; o.secondaryColor = c2; return OK; };
+      v.setPosition = (a, b) => { const g = typeof a === 'number' ? { x: Math.floor(o.x / ROOM) * ROOM + a, y: Math.floor(o.y / ROOM) * ROOM + b } : gpos(a); if (!g) return ERR_INVALID_TARGET; o.x = g.x; o.y = g.y; return OK; }; },
+    site(v, o) { Object.assign(v, { my: o.owner === pid, owner: owner(o), progress: o.progress, progressTotal: o.total, structureType: o.type }); v.remove = () => { if (o.owner !== pid) return ERR_NOT_OWNER; w.sites.splice(w.sites.indexOf(o), 1); E._objVer++; return OK; }; },
+    controller(v, o) {
+      structBase(v, o, 'controller'); delete v.hits; delete v.hitsMax;
+      Object.assign(v, { level: o.level, progress: o.level ? o.progress : undefined, progressTotal: o.level ? SC.CONTROLLER_LEVELS[o.level] : undefined, ticksToDowngrade: o.downgradeTime ? o.downgradeTime - w.time : undefined,
+        reservation: o.reservation ? { username: w.players[o.reservation.owner]?.name, ticksToEnd: o.reservation.endTime - w.time } : undefined,
+        safeMode: o.safeMode > w.time ? o.safeMode - w.time : undefined, safeModeAvailable: o.safeModeAvailable, safeModeCooldown: o.safeModeCooldown > w.time ? o.safeModeCooldown - w.time : undefined,
+        upgradeBlocked: o.upgradeBlocked > w.time ? o.upgradeBlocked - w.time : undefined, sign: o.sign || undefined, isPowerEnabled: false });
+      v.activateSafeMode = () => { if (o.owner !== pid) return ERR_NOT_OWNER; if (o.safeModeAvailable <= 0) return ERR_NOT_ENOUGH_RESOURCES; if (o.safeModeCooldown > w.time || o.upgradeBlocked > w.time || (o.downgradeTime - w.time) < SC.CONTROLLER_DOWNGRADE[o.level] / 2 - SC.CONTROLLER_DOWNGRADE_SAFEMODE_THRESHOLD) return ERR_TIRED; if (w.controllers.some(c => c.owner === pid && c.safeMode > w.time)) return ERR_BUSY; o.safeModeAvailable--; o.safeMode = w.time + SC.SAFE_MODE_DURATION; o.safeModeCooldown = w.time + SC.SAFE_MODE_COOLDOWN; return OK; };
+      v.unclaim = () => { if (o.owner !== pid) return ERR_NOT_OWNER; const rm = w.rooms[roomKey(o.x, o.y)]; if (rm.owner === pid) rm.owner = null; Object.assign(o, { owner: null, level: 0, progress: 0, downgradeTime: null, safeMode: null, safeModeAvailable: 0 }); return OK; };
+    },
+    spawn(v, o) {
+      structBase(v, o, 'spawn'); o.store = o.store || { energy: 0 }; v.store = makeStore(o); v.energy = o.store.energy || 0; v.energyCapacity = SC.SPAWN_ENERGY_CAPACITY; v.name = o.name;
+      Object.defineProperty(v, 'memory', { get: () => (mem.spawns = mem.spawns || {}, mem.spawns[o.name] = mem.spawns[o.name] || {}), set: x => { mem.spawns = mem.spawns || {}; mem.spawns[o.name] = x; } });
+      v.spawning = o.spawning ? { name: o.spawning.name, needTime: o.spawning.needTime, remainingTime: o.spawning.spawnTime - w.time, directions: o.spawning.directions, spawn: v,
+        cancel: () => { if (o.owner !== pid) return ERR_NOT_OWNER; w.creeps = w.creeps.filter(c => !(c.spawning && c.name === o.spawning.name && c.owner === pid)); o.spawning = null; return OK; },
+        setDirections: d => { if (o.owner !== pid) return ERR_NOT_OWNER; if (!Array.isArray(d) || !d.length || d.some(x => !DIRS[x])) return ERR_INVALID_ARGS; o.spawning.directions = d.slice(); return OK; } } : null;
+      v.spawnCreep = (body, name, opts = {}) => {
+        if (o.owner !== pid) return ERR_NOT_OWNER;
+        if (!Array.isArray(body) || !body.length || body.length > SC.MAX_CREEP_SIZE || body.some(b => !SC.BODYPARTS_ALL.includes(b)) || typeof name !== 'string' || !name) return ERR_INVALID_ARGS;
+        if (w.creeps.some(c => c.owner === pid && c.name === name)) return ERR_NAME_EXISTS;
+        if (o.spawning) return ERR_BUSY;
+        if (!E.isActive(o)) return ERR_RCL_NOT_ENOUGH;
+        const k = roomKey(o.x, o.y), cost = bodyCost(body);
+        let srcs = opts.energyStructures ? opts.energyStructures.map(raw).filter(x => x && (x.kind === 'spawn' || x.type === 'extension') && x.owner === pid && roomKey(x.x, x.y) === k) : E.roomEnergy(k, pid).list.slice().sort((a, b) => dist(a, o) - dist(b, o));
+        if (srcs.reduce((a, s) => a + (s.store.energy || 0), 0) < cost) return ERR_NOT_ENOUGH_ENERGY;
+        if (opts.directions && (!Array.isArray(opts.directions) || opts.directions.some(d => !DIRS[d]))) return ERR_INVALID_ARGS;
+        if (opts.dryRun) return OK;
+        let left = cost; for (const s of srcs) { const a = Math.min(left, s.store.energy || 0); s.store.energy -= a; left -= a; if (!left) break; }
+        const need = body.length * SC.CREEP_SPAWN_TIME;
+        o.spawning = { name, needTime: need, spawnTime: w.time + need, directions: opts.directions };
+        w.creeps.push({ kind: 'creep', id: 'c' + (w.nextId++), owner: pid, name, body: body.slice(), hits: body.length * 100, x: o.x, y: o.y, px: o.x, py: o.y, store: {}, ttl: 0, fatigue: 0, spawning: true });
+        if (opts.memory !== undefined) { mem.creeps = mem.creeps || {}; mem.creeps[name] = opts.memory; }
+        return OK;
+      };
+      v.createCreep = (body, name, memory) => { name = name || ('creep' + w.nextId); const r = v.spawnCreep(body, name, { memory }); return r === OK ? name : r; };
+      v.canCreateCreep = (body, name) => v.spawnCreep(body, name || ('x' + w.nextId), { dryRun: true });
+      const near = c => { const r = raw(c); if (!r || r.kind !== 'creep') return ERR_INVALID_TARGET; if (o.owner !== pid || r.owner !== pid) return ERR_NOT_OWNER; if (dist(r, o) > 1) return ERR_NOT_IN_RANGE; return r; };
+      v.renewCreep = c => { const r = near(c); if (typeof r === 'number') return r; if (o.spawning) return ERR_BUSY; if (r.body.includes('claim')) return ERR_INVALID_TARGET;
+        const add = Math.floor(SC.SPAWN_RENEW_RATIO * SC.CREEP_LIFE_TIME / SC.CREEP_SPAWN_TIME / r.body.length), cost = Math.ceil(SC.SPAWN_RENEW_RATIO * bodyCost(r.body) / SC.CREEP_SPAWN_TIME / r.body.length);
+        if (r.ttl + add > SC.CREEP_LIFE_TIME) return ERR_FULL; const pool = E.roomEnergy(roomKey(o.x, o.y), pid); if (pool.avail < cost) return ERR_NOT_ENOUGH_ENERGY;
+        let left = cost; for (const s of pool.list) { const a = Math.min(left, s.store.energy || 0); s.store.energy -= a; left -= a; } r.ttl += add; return OK; };
+      v.recycleCreep = c => { const r = near(c); if (typeof r === 'number') return r; E.killCreep(r, 1); return OK; };
+    },
+    structure(v, o) {
+      structBase(v, o, o.type);
+      if (o.type === 'rampart') { v.isPublic = !!o.isPublic; v.setPublic = p => { if (o.owner !== pid) return ERR_NOT_OWNER; o.isPublic = !!p; return OK; }; }
+      if (o.type === 'tower') {
+        const act = (t, kind) => {
+          if (o.owner !== pid) return ERR_NOT_OWNER; if (!E.isActive(o)) return ERR_RCL_NOT_ENOUGH; const r = raw(t);
+          if (!r || r.hits == null || !sameRoom(r, o)) return ERR_INVALID_TARGET; if ((o.store.energy || 0) < SC.TOWER_ENERGY_COST) return ERR_NOT_ENOUGH_ENERGY;
+          if (o._acted === w.time) return OK; o._acted = w.time;
+          const d = dist(r, o), base = kind === 'attack' ? SC.TOWER_POWER_ATTACK : kind === 'heal' ? SC.TOWER_POWER_HEAL : SC.TOWER_POWER_REPAIR;
+          let amt = base; if (d > SC.TOWER_OPTIMAL_RANGE) amt -= amt * SC.TOWER_FALLOFF * (Math.min(d, SC.TOWER_FALLOFF_RANGE) - SC.TOWER_OPTIMAL_RANGE) / (SC.TOWER_FALLOFF_RANGE - SC.TOWER_OPTIMAL_RANGE); amt = Math.floor(amt);
+          if (kind === 'heal' && r.kind !== 'creep') return ERR_INVALID_TARGET; if (kind === 'repair' && r.kind === 'creep') return ERR_INVALID_TARGET;
+          o.store.energy -= SC.TOWER_ENERGY_COST;
+          if (kind === 'attack') E.damage(r, amt, pid); else r.hits = Math.min(kind === 'heal' ? r.body.length * 100 : r.hitsMax, r.hits + amt);
+          ev.push({ t: kind, fx: o.x, fy: o.y, x: r.x, y: r.y }); return OK;
+        };
+        v.attack = t => act(t, 'attack'); v.heal = t => act(t, 'heal'); v.repair = t => act(t, 'repair');
+      }
+      if (o.type === 'link') v.transferEnergy = (t, amount) => {
+        if (o.owner !== pid) return ERR_NOT_OWNER; if (!E.isActive(o)) return ERR_RCL_NOT_ENOUGH; const r = raw(t);
+        if (!r || r.type !== 'link' || r === o) return ERR_INVALID_TARGET; if (!sameRoom(r, o)) return ERR_NOT_IN_RANGE; if (o.cooldown > 0) return ERR_TIRED;
+        amount = amount == null ? o.store.energy || 0 : amount; if (amount < 0) return ERR_INVALID_ARGS; if ((o.store.energy || 0) < amount || !amount) return ERR_NOT_ENOUGH_ENERGY; if (freeFor(w, r, 'energy') < amount) return ERR_FULL;
+        o.store.energy -= amount; r.store.energy = (r.store.energy || 0) + amount - Math.ceil(amount * SC.LINK_LOSS_RATIO); o.cooldown = SC.LINK_COOLDOWN * dist(o, r); ev.push({ t: 'transfer', fx: o.x, fy: o.y, x: r.x, y: r.y }); return OK; };
+    },
+    creep(v, o) {
+      const mine = o.owner === pid, cap = activeParts(o, 'carry') * SC.CARRY_CAPACITY;
+      Object.assign(v, { name: o.name, my: mine, owner: owner(o), body: o.body.map((t, i) => ({ type: t, hits: partHits(o, i) })), fatigue: o.fatigue, hits: o.hits, hitsMax: o.body.length * 100,
+        spawning: !!o.spawning, ticksToLive: o.spawning ? undefined : o.ttl, saying: o.say && w.time - o.sayT <= 1 && (mine || o.sayPublic) ? o.say : undefined, store: makeStore(o), carryCapacity: cap });
+      v.carry = v.store;
+      Object.defineProperty(v, 'memory', { get: () => { if (!mine) return undefined; mem.creeps = mem.creeps || {}; return (mem.creeps[o.name] = mem.creeps[o.name] || {}); }, set: x => { if (mine) { mem.creeps = mem.creeps || {}; mem.creeps[o.name] = x; } } });
+      v.getActiveBodyparts = t => activeParts(o, t);
+      const pre = (part) => { if (!mine) return ERR_NOT_OWNER; if (o.spawning) return ERR_BUSY; if (part && !activeParts(o, part)) return ERR_NO_BODYPART; return 0; };
+      const used = () => storeSum(o.store);
+      v.say = (msg, pub) => { if (!mine) return ERR_NOT_OWNER; if (o.spawning) return ERR_BUSY; o.say = String(msg).slice(0, 10); o.sayT = w.time; o.sayPublic = !!pub; return OK; };
+      v.suicide = () => { const e = pre(); if (e) return e; E.killCreep(o, SC.CREEP_CORPSE_RATE * 0 ); return OK; };
+      v.notifyWhenAttacked = en => { const e = pre(); if (e) return e; return typeof en === 'boolean' ? OK : ERR_INVALID_ARGS; };
+      v.cancelOrder = n => { if (!mine) return ERR_NOT_OWNER; if (n === 'move' && o._move) { delete o._move; return OK; } if (o._did[n]) { return OK; } return ERR_NOT_FOUND; };
+      v.move = d => {
+        const e = pre('move'); if (e) return e; if (o.fatigue > 0) return ERR_TIRED;
+        if (d && d._raw && d._raw.kind === 'creep') { const r = d._raw; if (dist(r, o) > 1) return ERR_NOT_IN_RANGE; d = dirOf(r.x - o.x, r.y - o.y); }
+        if (!DIRS[d]) return ERR_INVALID_ARGS; o._move = { x: o.x + DIRS[d][0], y: o.y + DIRS[d][1] }; return OK;
+      };
+      v.moveByPath = path => { const e = pre('move'); if (e) return e; if (typeof path === 'string') return ERR_INVALID_ARGS; if (!Array.isArray(path)) return ERR_INVALID_ARGS;
+        const lx = o.x % ROOM, ly = o.y % ROOM, rn = roomName(o.x, o.y);
+        let i = path.findIndex(p => (p.roomName || rn) === rn && p.x - (p.dx || 0) === lx && p.y - (p.dy || 0) === ly);
+        if (i < 0) { i = path.findIndex(p => (p.roomName || rn) === rn && p.x === lx && p.y === ly); if (i < 0 || i + 1 >= path.length) return ERR_NOT_FOUND; i++; }
+        const p = path[i]; if (p.direction) return v.move(p.direction); return v.move(dirOf(p.x - lx, p.y - ly)); };
+      v.moveTo = (a, b, c) => {
+        const e = pre('move'); if (e) return e; let g, opts;
+        if (typeof a === 'number') { g = { x: Math.floor(o.x / ROOM) * ROOM + a, y: Math.floor(o.y / ROOM) * ROOM + b }; opts = c || {}; } else { g = gpos(a); opts = b || {}; }
+        if (!g) return ERR_INVALID_TARGET; if (o.fatigue > 0) return ERR_TIRED;
+        const rng = Math.max(opts.range || 0, E.solid(g.x, g.y) ? 1 : 0); if (dist(o, g) <= rng) return OK;
+        const reuse = opts.reusePath == null ? 5 : opts.reusePath;
+        if (!o._path || !o._path.length || o._pt.x !== g.x || o._pt.y !== g.y || w.time - o._pT > reuse || dist(o, o._path[0]) !== 1 || E.blocked(o._path[0].x, o._path[0].y, o)) {
+          if (opts.noPathFinding) return ERR_NOT_FOUND;
+          if (o._failT && w.time - o._failT < 3 && o._pt && o._pt.x === g.x && o._pt.y === g.y) return ERR_NO_PATH; // 寻路失败后短暂缓存，省 CPU
+          o._path = E.findPath(o, g, rng, o, opts); o._pt = { x: g.x, y: g.y }; o._pT = w.time;
+          if (!o._path.length) { o._failT = w.time; return ERR_NO_PATH; } o._failT = 0;
+        }
+        const nx = o._path.shift(); o._move = { x: nx.x, y: nx.y };
+        if (opts.visualizePathStyle) ev.push({ t: 'path', fx: o.x, fy: o.y, x: g.x, y: g.y });
+        return OK;
+      };
+      const tgt = (t, r, kinds) => { const x = raw(t); if (!x || (kinds && !kinds.includes(x.kind === 'structure' ? 'structure' : x.kind))) return ERR_INVALID_TARGET; if (!sameRoom(x, o) || dist(x, o) > r) return ERR_NOT_IN_RANGE; return x; };
+      v.harvest = t => {
+        const e = pre('work'); if (e) return e; const x = raw(t); if (!x || (x.kind !== 'source' && x.kind !== 'mineral')) return ERR_INVALID_TARGET; if (!sameRoom(x, o) || dist(x, o) > 1) return ERR_NOT_IN_RANGE;
+        const ctrl = ctrlOfRoom(w, roomKey(x.x, x.y)); if (ctrl && ((ctrl.owner && ctrl.owner !== pid) || (ctrl.reservation && ctrl.reservation.owner !== pid))) return ERR_NOT_OWNER;
+        if (x.kind === 'source') { if (!x.energy) return ERR_NOT_ENOUGH_RESOURCES; const a = Math.min(x.energy, activeParts(o, 'work') * SC.HARVEST_POWER); x.energy -= a; o.store.energy = (o.store.energy || 0) + a; }
+        else { const ex = w.structures.find(s => s.type === 'extractor' && s.x === x.x && s.y === x.y); if (!ex) return ERR_NOT_FOUND; if (ex.owner !== pid) return ERR_NOT_OWNER; if (!E.isActive(ex)) return ERR_RCL_NOT_ENOUGH; if (ex.cooldown > 0) return ERR_TIRED; if (!x.amount) return ERR_NOT_ENOUGH_RESOURCES;
+          const a = Math.min(x.amount, activeParts(o, 'work') * SC.HARVEST_MINERAL_POWER); x.amount -= a; o.store[x.type] = (o.store[x.type] || 0) + a; ex.cooldown = SC.EXTRACTOR_COOLDOWN; }
+        const over = used() - cap; if (over > 0) { const r = x.kind === 'source' ? 'energy' : x.type; o.store[r] -= over; E.dropAt(o.x, o.y, r, over); } // 官方：溢出掉在地上
+        ev.push({ t: 'harvest', fx: x.x, fy: x.y, x: o.x, y: o.y }); return OK;
+      };
+      v.transfer = (t, res, amount) => {
+        const e = pre(); if (e) return e; if (!RESOURCES.has(res)) return ERR_INVALID_ARGS; const x = tgt(t, 1); if (typeof x === 'number') return x;
+        if (!hasStore(x) || x.kind === 'tombstone' || x === o) return ERR_INVALID_TARGET; if (x.kind === 'creep' && x.spawning) return ERR_INVALID_TARGET;
+        const have = o.store[res] || 0; if (amount != null && amount < 0) return ERR_INVALID_ARGS; if (!have || (amount != null && have < amount)) return ERR_NOT_ENOUGH_RESOURCES;
+        const free = freeFor(w, x, res); if (free == null) return ERR_INVALID_TARGET; if (free <= 0) return ERR_FULL;
+        if (amount != null && amount > free) return ERR_FULL; const a = Math.min(amount ?? have, free);
+        o.store[res] -= a; x.store[res] = (x.store[res] || 0) + a; if (x.kind === 'controller') return ERR_INVALID_TARGET;
+        ev.push({ t: 'transfer', fx: o.x, fy: o.y, x: x.x, y: x.y }); return OK;
+      };
+      v.withdraw = (t, res, amount) => {
+        const e = pre(); if (e) return e; if (!RESOURCES.has(res)) return ERR_INVALID_ARGS; const x = tgt(t, 1); if (typeof x === 'number') return x;
+        if (!hasStore(x) || x.kind === 'creep' || x.kind === 'spawn' && false) return ERR_INVALID_TARGET;
+        if (x.owner && x.owner !== pid && x.kind !== 'tombstone') return ERR_NOT_OWNER;
+        if (x.kind === 'structure' && w.structures.some(s => s.type === 'rampart' && s.x === x.x && s.y === x.y && s.owner !== pid && !s.isPublic)) return ERR_NOT_OWNER;
+        const have = x.store[res] || 0; if (amount != null && amount < 0) return ERR_INVALID_ARGS; if (!have || (amount != null && have < amount)) return ERR_NOT_ENOUGH_RESOURCES;
+        const free = cap - used(); if (free <= 0 || (amount != null && amount > free)) return ERR_FULL; const a = Math.min(amount ?? have, free);
+        x.store[res] -= a; o.store[res] = (o.store[res] || 0) + a; ev.push({ t: 'transfer', fx: x.x, fy: x.y, x: o.x, y: o.y }); return OK;
+      };
+      v.pickup = t => { const e = pre(); if (e) return e; const x = tgt(t, 1, ['resource']); if (typeof x === 'number') return x; const free = cap - used(); if (free <= 0) return ERR_FULL;
+        const a = Math.min(free, x.amount); x.amount -= a; o.store[x.resourceType] = (o.store[x.resourceType] || 0) + a; if (x.amount <= 0) w.resources.splice(w.resources.indexOf(x), 1); return OK; };
+      v.drop = (res, amount) => { const e = pre(); if (e) return e; if (!RESOURCES.has(res)) return ERR_INVALID_ARGS; const have = o.store[res] || 0; if (!have || (amount != null && amount > have)) return ERR_NOT_ENOUGH_RESOURCES;
+        const a = amount ?? have; o.store[res] -= a; E.dropAt(o.x, o.y, res, a); return OK; };
+      v.build = t => {
+        const e = pre('work'); if (e) return e; const x = raw(t); if (!x || x.kind !== 'site') return ERR_INVALID_TARGET; if (!sameRoom(x, o) || dist(x, o) > 3) return ERR_NOT_IN_RANGE;
+        if (x.owner !== pid) return ERR_NOT_OWNER; if (!(o.store.energy > 0)) return ERR_NOT_ENOUGH_ENERGY;
+        if (OBSTACLES.has(x.type) && w.creeps.some(c => !c.spawning && c.x === x.x && c.y === x.y)) return ERR_INVALID_TARGET;
+        const a = Math.min(activeParts(o, 'work') * SC.BUILD_POWER, o.store.energy, x.total - x.progress); x.progress += a; o.store.energy -= a;
+        ev.push({ t: 'build', fx: o.x, fy: o.y, x: x.x, y: x.y });
+        if (x.progress >= x.total) {
+          w.sites.splice(w.sites.indexOf(x), 1);
+          if (x.type === 'spawn') w.spawns.push(E.makeSpawn(pid, x.name, x.x, x.y, 0)); else w.structures.push(E.makeStruct(x.type, pid, x.x, x.y));
+          E._objVer++; E.log(pid, '建造完成', x.type); ev.push({ t: 'built', x: x.x, y: x.y });
+        }
+        return OK;
+      };
+      v.repair = t => {
+        const e = pre('work'); if (e) return e; const x = raw(t); if (!x || x.hits == null || x.kind === 'creep' || x.kind === 'controller') return ERR_INVALID_TARGET; if (!sameRoom(x, o) || dist(x, o) > 3) return ERR_NOT_IN_RANGE;
+        if (!(o.store.energy > 0)) return ERR_NOT_ENOUGH_ENERGY; if (x.hits >= x.hitsMax) return OK;
+        const a = Math.min(activeParts(o, 'work') * SC.REPAIR_POWER, Math.floor(o.store.energy / SC.REPAIR_COST), x.hitsMax - x.hits);
+        o.store.energy -= Math.max(1, Math.ceil(a * SC.REPAIR_COST)); x.hits += a; ev.push({ t: 'repair', fx: o.x, fy: o.y, x: x.x, y: x.y }); return OK;
+      };
+      v.dismantle = t => {
+        const e = pre('work'); if (e) return e; const x = raw(t); if (!x || x.kind !== 'structure' && x.kind !== 'spawn') return ERR_INVALID_TARGET; if (!sameRoom(x, o) || dist(x, o) > 1) return ERR_NOT_IN_RANGE;
+        const ctrl = ctrlOfRoom(w, roomKey(x.x, x.y)); if (ctrl && ctrl.safeMode > w.time && ctrl.owner !== pid) return ERR_NO_BODYPART;
+        const a = Math.min(activeParts(o, 'work') * SC.DISMANTLE_POWER, x.hits), back = Math.floor(a * SC.DISMANTLE_COST);
+        if (back) { o.store.energy = (o.store.energy || 0) + back; const over = used() - cap; if (over > 0) { o.store.energy -= over; E.dropAt(o.x, o.y, 'energy', over); } }
+        E.damage(x, a, pid); return OK;
+      };
+      v.upgradeController = t => {
+        const e = pre('work'); if (e) return e; const x = raw(t); if (!x || x.kind !== 'controller') return ERR_INVALID_TARGET; if (x.owner !== pid || !x.level) return ERR_NOT_OWNER;
+        if (!sameRoom(x, o) || dist(x, o) > 3) return ERR_NOT_IN_RANGE; if (!(o.store.energy > 0)) return ERR_NOT_ENOUGH_RESOURCES; if (x.upgradeBlocked > w.time) return ERR_INVALID_TARGET;
+        x._upTick = x._upTick === w.time ? w.time : (x._upCnt = 0, w.time);
+        let eff = Math.min(activeParts(o, 'work') * SC.UPGRADE_CONTROLLER_POWER, o.store.energy);
+        if (x.level === 8) { eff = Math.min(eff, SC.CONTROLLER_MAX_UPGRADE_PER_TICK - x._upCnt); if (eff <= 0) return OK; }
+        x._upCnt += eff; o.store.energy -= eff; x._upgraded = 1; w.players[pid].gcl = (w.players[pid].gcl || 0) + eff;
+        if (x.level < 8) {
+          const next = SC.CONTROLLER_LEVELS[x.level];
+          if (x.progress + eff >= next && x.downgradeTime + SC.CONTROLLER_DOWNGRADE_RESTORE >= w.time + SC.CONTROLLER_DOWNGRADE[x.level]) {
+            x.progress = x.progress + eff - next; x.level++; x.downgradeTime = w.time + SC.CONTROLLER_DOWNGRADE[x.level] / 2; if (x.level === 8) x.progress = 0; x.safeModeAvailable = (x.safeModeAvailable || 0) + 1; E.log(pid, 'Controller 升至 RCL', x.level);
+          } else x.progress += eff;
+        }
+        ev.push({ t: 'upgrade', fx: o.x, fy: o.y, x: x.x, y: x.y }); return OK;
+      };
+      v.claimController = t => {
+        const e = pre('claim'); if (e) return e; const x = tgt(t, 1, ['controller']); if (typeof x === 'number') return x;
+        if (x.owner || (x.reservation && x.reservation.owner !== pid)) return ERR_INVALID_TARGET;
+        if (w.controllers.filter(c => c.owner === pid).length >= E.gclLevel(pid)) return ERR_GCL_NOT_ENOUGH;
+        Object.assign(x, { owner: pid, level: 1, progress: 0, downgradeTime: null, reservation: null, safeModeAvailable: 0 }); const rm = w.rooms[roomKey(x.x, x.y)]; if (!rm.owner) rm.owner = pid; return OK;
+      };
+      v.reserveController = t => {
+        const e = pre('claim'); if (e) return e; const x = tgt(t, 1, ['controller']); if (typeof x === 'number') return x;
+        if (x.owner || (x.reservation && x.reservation.owner !== pid)) return ERR_INVALID_TARGET;
+        const end = x.reservation ? x.reservation.endTime : w.time + 1, add = activeParts(o, 'claim') * SC.CONTROLLER_RESERVE;
+        if (end - w.time + add > SC.CONTROLLER_RESERVE_MAX) return ERR_FULL; x.reservation = { owner: pid, endTime: end + add }; return OK;
+      };
+      v.attackController = t => {
+        const e = pre('claim'); if (e) return e; const x = tgt(t, 1, ['controller']); if (typeof x === 'number') return x;
+        if (!x.owner && !x.reservation) return ERR_INVALID_TARGET; if (x.owner === pid || (x.reservation && x.reservation.owner === pid)) return ERR_INVALID_TARGET; if (x.upgradeBlocked > w.time) return ERR_TIRED;
+        const n = activeParts(o, 'claim');
+        if (x.reservation) { x.reservation.endTime -= n * SC.CONTROLLER_RESERVE; } else { x.downgradeTime -= n * SC.CONTROLLER_CLAIM_DOWNGRADE; x.upgradeBlocked = w.time + SC.CONTROLLER_ATTACK_BLOCKED_UPGRADE; }
+        return OK;
+      };
+      v.signController = (t, text) => { const e = pre(); if (e) return e; const x = tgt(t, 1, ['controller']); if (typeof x === 'number') return x; x.sign = text ? { username: w.players[pid].name, text: String(text).slice(0, 100), time: w.time, datetime: Date.now() } : null; return OK; };
+      v.generateSafeMode = t => { const e = pre(); if (e) return e; const x = tgt(t, 1, ['controller']); if (typeof x === 'number') return x; if ((o.store.G || 0) < SC.SAFE_MODE_COST) return ERR_NOT_ENOUGH_RESOURCES; o.store.G -= SC.SAFE_MODE_COST; x.safeModeAvailable++; return OK; };
+      const hostileOk = x => x.kind === 'creep' ? x.owner !== pid || true : true;
+      v.attack = t => { const e = pre('attack'); if (e) return e; const x = tgt(t, 1, ['creep', 'structure', 'spawn']); if (typeof x === 'number') return x; if (!hostileOk(x) || x.hits == null) return ERR_INVALID_TARGET;
+        E.damage(x, activeParts(o, 'attack') * SC.ATTACK_POWER, pid); if (x.kind === 'creep' && activeParts(x, 'attack')) E.damage(o, activeParts(x, 'attack') * SC.ATTACK_POWER, x.owner); ev.push({ t: 'attack', fx: o.x, fy: o.y, x: x.x, y: x.y }); return OK; };
+      v.rangedAttack = t => { const e = pre('ranged_attack'); if (e) return e; const x = tgt(t, 3, ['creep', 'structure', 'spawn']); if (typeof x === 'number') return x; if (x.hits == null) return ERR_INVALID_TARGET;
+        E.damage(x, activeParts(o, 'ranged_attack') * SC.RANGED_ATTACK_POWER, pid); ev.push({ t: 'attack', fx: o.x, fy: o.y, x: x.x, y: x.y }); return OK; };
+      v.rangedMassAttack = () => { const e = pre('ranged_attack'); if (e) return e; const n = activeParts(o, 'ranged_attack') * SC.RANGED_ATTACK_POWER;
+        for (const x of w.creeps.filter(c => !c.spawning && c.owner !== pid && sameRoom(c, o) && dist(c, o) <= 3).concat(w.structures.concat(w.spawns).filter(s => s.owner && s.owner !== pid && sameRoom(s, o) && dist(s, o) <= 3))) E.damage(x, Math.round(n * SC.RANGED_ATTACK_DISTANCE_RATE[dist(x, o)]), pid);
+        return OK; };
+      v.heal = t => { const e = pre('heal'); if (e) return e; const x = tgt(t, 1, ['creep']); if (typeof x === 'number') return x; x.hits = Math.min(x.body.length * 100, x.hits + activeParts(o, 'heal') * SC.HEAL_POWER); ev.push({ t: 'heal', fx: o.x, fy: o.y, x: x.x, y: x.y }); return OK; };
+      v.rangedHeal = t => { const e = pre('heal'); if (e) return e; const x = tgt(t, 3, ['creep']); if (typeof x === 'number') return x; x.hits = Math.min(x.body.length * 100, x.hits + activeParts(o, 'heal') * SC.RANGED_HEAL_POWER); ev.push({ t: 'heal', fx: o.x, fy: o.y, x: x.x, y: x.y }); return OK; };
+      v.pull = t => { const e = pre(); if (e) return e; const x = tgt(t, 1, ['creep']); if (typeof x === 'number') return x; if (x === o) return ERR_INVALID_TARGET; o._pulling = x; return OK; };
+    },
+  };
+
+  // ---- Room ----
+  const rooms = new Map();
+  class RoomTerrain { constructor(name) { this.roomName = name; const p = parseRoomName(name); this._k = p && p[0] + ',' + p[1]; if (!w.rooms[this._k]) throw new Error('Could not access room ' + name); }
+    get(x, y) { const t = w.rooms[this._k].tiles[y * ROOM + x]; return t === T_WALL ? SC.TERRAIN_MASK_WALL : t === T_SWAMP ? SC.TERRAIN_MASK_SWAMP : 0; }
+    getRawBuffer() { const b = new Uint8Array(2500); for (let i = 0; i < 2500; i++) { const t = w.rooms[this._k].tiles[i]; b[i] = t === T_WALL ? 1 : t === T_SWAMP ? 2 : 0; } return b; } }
+  const noopVisual = new Proxy({}, { get: (t, k) => k === 'roomName' ? undefined : (() => noopVisual) });
+  function room(k) {
+    if (rooms.has(k)) return rooms.get(k); const rm = w.rooms[k]; if (!rm) return undefined;
+    const [rx, ry] = k.split(',').map(Number), ox = rx * ROOM, oy = ry * ROOM, ctrlRaw = ctrlOfRoom(w, k), en = E.roomEnergy(k, pid);
+    const R = { name: rm.name, energyAvailable: en.avail, energyCapacityAvailable: en.cap, visual: noopVisual };
+    rooms.set(k, R);
+    Object.defineProperty(R, 'controller', { get: () => ctrlRaw ? wrap(ctrlRaw) : undefined });
+    Object.defineProperty(R, 'storage', { get: () => wrap(w.structures.find(s => s.type === 'storage' && roomKey(s.x, s.y) === k && s.owner === pid)) || undefined });
+    Object.defineProperty(R, 'terminal', { get: () => wrap(w.structures.find(s => s.type === 'terminal' && roomKey(s.x, s.y) === k && s.owner === pid)) || undefined });
+    Object.defineProperty(R, 'memory', { get: () => (mem.rooms = mem.rooms || {}, mem.rooms[rm.name] = mem.rooms[rm.name] || {}), set: x => { mem.rooms = mem.rooms || {}; mem.rooms[rm.name] = x; } });
+    const G = (a, b) => typeof a === 'number' ? { x: ox + a, y: oy + b } : gpos(a);
+    R.find = (type, opts) => applyOpts(findList(E, pid, type, k, wrap), opts);
+    R.lookAt = (a, b) => { const g = G(a, b); return g ? lookAt(g.x, g.y) : []; };
+    R.lookForAt = (type, a, b) => { const g = G(a, b); return g ? lookAt(g.x, g.y).filter(o => o.type === type).map(o => o[type]) : []; };
+    const area = (filterType, top, left, bottom, right, asArray) => {
+      const res = asArray ? [] : {};
+      for (let y = top; y <= bottom; y++) for (let x = left; x <= right; x++) {
+        const items = lookAt(ox + x, oy + y).filter(o => !filterType || o.type === filterType);
+        if (asArray) for (const it of items) res.push(Object.assign({ x, y }, filterType ? { type: it.type, [filterType]: it[filterType] } : it));
+        else if (items.length) { res[y] = res[y] || {}; res[y][x] = filterType ? items.map(o => o[filterType]) : items; }
+      }
+      return res;
+    };
+    R.lookAtArea = (t, l, b, r, asArray) => area(null, t, l, b, r, asArray);
+    R.lookForAtArea = (type, t, l, b, r, asArray) => area(type, t, l, b, r, asArray);
+    R.createConstructionSite = (a, b, c, d) => { if (typeof a === 'number') return createSite(ox + a, oy + b, c, d); const g = gpos(a); return g ? createSite(g.x, g.y, b, c) : ERR_INVALID_ARGS; };
+    R.createFlag = (a, b, c, d, e) => typeof a === 'number' ? createFlag({ x: ox + a, y: oy + b }, c, d, e) : createFlag(gpos(a), b, c, d);
+    R.getTerrain = () => new RoomTerrain(rm.name);
+    R.getPositionAt = (x, y) => (x < 0 || y < 0 || x > 49 || y > 49) ? null : new RoomPosition(x, y, rm.name);
+    R.findPath = (from, to, opts) => { const f = gpos(from); return f ? new RoomPosition(f.x % ROOM, f.y % ROOM, roomName(f.x, f.y)).findPathTo(to, opts) : []; };
+    R.findExitTo = other => { const n = typeof other === 'string' ? other : other.name, p = parseRoomName(n); if (!p) return ERR_INVALID_ARGS; const dx = p[0] - rx, dy = p[1] - ry;
+      if (Math.abs(dx) + Math.abs(dy) !== 1) { const route = Game.map.findRoute(rm.name, n); return Array.isArray(route) && route.length ? route[0].exit : ERR_NO_PATH; } return dx > 0 ? SC.FIND_EXIT_RIGHT : dx < 0 ? SC.FIND_EXIT_LEFT : dy > 0 ? SC.FIND_EXIT_BOTTOM : SC.FIND_EXIT_TOP; };
+    R.getEventLog = raw => raw ? '[]' : [];
+    R.toString = () => `[room ${rm.name}]`;
+    return R;
+  }
+
+  // ---- Game ----
+  const creeps = {}, spawns = {}, structures = {}, sites = {}, flags = {}, vis = new Set();
+  for (const c of w.creeps) if (c.owner === pid) { creeps[c.name] = wrap(c); vis.add(roomKey(c.x, c.y)); }
+  for (const s of w.spawns) if (s.owner === pid) { spawns[s.name] = wrap(s); structures[s.id] = spawns[s.name]; vis.add(roomKey(s.x, s.y)); }
+  for (const s of w.structures) if (s.owner === pid) { structures[s.id] = wrap(s); vis.add(roomKey(s.x, s.y)); }
+  for (const c of w.controllers) if (c.owner === pid || (c.reservation && c.reservation.owner === pid)) { if (c.owner === pid) structures[c.id] = wrap(c); vis.add(roomKey(c.x, c.y)); }
+  for (const s of w.sites) if (s.owner === pid) sites[s.id] = wrap(s);
+  for (const f of w.flags) if (f.owner === pid) { flags[f.name] = wrap(f); vis.add(roomKey(f.x, f.y)); }
+  const gameRooms = {}; for (const k of vis) { const r = room(k); if (r) gameRooms[r.name] = r; }
+  const gclLv = E.gclLevel(pid), gclP = w.players[pid].gcl || 0, t0 = Date.now();
+  const Game = {
+    time: w.time, creeps, spawns, structures, constructionSites: sites, flags, rooms: gameRooms, powerCreeps: {}, resources: {},
+    shard: { name: 'shard0', type: 'normal', ptr: false },
+    gcl: { level: gclLv, progress: gclP - (gclLv > 1 ? Math.pow(gclLv - 1, SC.GCL_POW) * SC.GCL_MULTIPLY : 0), progressTotal: Math.pow(gclLv, SC.GCL_POW) * SC.GCL_MULTIPLY - (gclLv > 1 ? Math.pow(gclLv - 1, SC.GCL_POW) * SC.GCL_MULTIPLY : 0) },
+    gpl: { level: 0, progress: 0, progressTotal: SC.POWER_LEVEL_MULTIPLY },
+    cpu: { limit: 20, tickLimit: 500, bucket: 10000, shardLimits: { shard0: 20 }, unlocked: true, unlockedTime: undefined, getUsed: () => Date.now() - t0, getHeapStatistics: () => ({}), halt: () => { throw new Error('Game.cpu.halt'); }, setShardLimits: () => ERR_BUSY, unlock: () => ERR_FULL, generatePixel: () => ERR_NOT_ENOUGH_RESOURCES },
+    market: { credits: 0, incomingTransactions: [], outgoingTransactions: [], orders: {}, calcTransactionCost: (amount, a, b) => Math.ceil(amount * (1 - Math.exp(-Game.map.getRoomLinearDistance(a, b, true) / 30))), getAllOrders: () => [], getHistory: () => [], getOrderById: () => null, cancelOrder: () => ERR_INVALID_ARGS, changeOrderPrice: () => ERR_INVALID_ARGS, createOrder: () => ERR_NOT_ENOUGH_RESOURCES, deal: () => ERR_NOT_ENOUGH_RESOURCES, extendOrder: () => ERR_INVALID_ARGS },
+    getObjectById: id => { for (const L of [w.creeps, w.spawns, w.structures, w.controllers, w.sources, w.minerals, w.sites, w.resources, w.tombstones, w.flags]) { const o = L.find(o => o.id === id); if (o) return wrap(o); } return null; },
+    notify: (msg) => { E.log(pid, '[notify]', msg); return OK; },
+    map: {
+      describeExits: n => { const p = parseRoomName(n); if (!p || !w.rooms[p[0] + ',' + p[1]]) return null; const out = {}; const t = w.rooms[p[0] + ',' + p[1]].tiles, open = (f) => { for (let i = 0; i < 50; i++) if (f(i) !== T_WALL) return true; return false; };
+        if (open(i => t[i])) out[SC.TOP] = roomNameXY(p[0], p[1] - 1); if (open(i => t[i * 50 + 49])) out[SC.RIGHT] = roomNameXY(p[0] + 1, p[1]); if (open(i => t[49 * 50 + i])) out[SC.BOTTOM] = roomNameXY(p[0], p[1] + 1); if (open(i => t[i * 50])) out[SC.LEFT] = roomNameXY(p[0] - 1, p[1]); return out; },
+      findRoute: (from, to, opts = {}) => { from = typeof from === 'string' ? from : from.name; to = typeof to === 'string' ? to : to.name; if (from === to) return [];
+        const prev = { [from]: null }, q = [from]; while (q.length) { const n = q.shift(); if (n === to) break; const ex = Game.map.describeExits(n) || {}; for (const d in ex) { const m = ex[d]; if (m in prev) continue; if (opts.routeCallback && opts.routeCallback(m, n) === Infinity) continue; prev[m] = { n, exit: +d }; q.push(m); } }
+        if (!(to in prev)) return ERR_NO_PATH; const out = []; for (let n = to; prev[n]; n = prev[n].n) out.unshift({ exit: prev[n].exit, room: n }); return out; },
+      findExit: (from, to, opts) => { const r = Game.map.findRoute(from, to, opts); return Array.isArray(r) ? (r.length ? r[0].exit : ERR_INVALID_ARGS) : r; },
+      getRoomLinearDistance: (a, b, cont) => { const p = parseRoomName(a), q = parseRoomName(b); return p && q ? Math.max(Math.abs(p[0] - q[0]), Math.abs(p[1] - q[1])) : Infinity; },
+      getRoomTerrain: n => new RoomTerrain(n), getTerrainAt: (a, b, n) => { const pos = typeof a === 'number' ? { x: a, y: b, roomName: n } : a; return ['plain', 'wall', 'swamp'][[0, 1, 2][[0, 1, 2].indexOf(new RoomTerrain(pos.roomName).get(pos.x, pos.y))] ?? 0] || 'plain'; },
+      getWorldSize: () => w.S, getRoomStatus: n => { const p = parseRoomName(n); return p && w.rooms[p[0] + ',' + p[1]] ? { status: 'normal', timestamp: null } : undefined; },
+      isRoomAvailable: n => !!Game.map.getRoomStatus(n), visual: noopVisual,
+    },
+    createConstructionSite(x, y, type, name) { // 兼容 v1.2 积木（非官方）：坐标按第一个 Spawn 所在房间解释
+      const sp = w.spawns.find(s => s.owner === pid); if (!sp) return ERR_INVALID_TARGET; return createSite(Math.floor(sp.x / ROOM) * ROOM + x, Math.floor(sp.y / ROOM) * ROOM + y, type, name);
+    },
+  };
+  Game.map.getTerrainAt = (a, b, n) => { const pos = typeof a === 'number' ? { x: a, y: b, roomName: n } : a; const v = new RoomTerrain(pos.roomName).get(pos.x, pos.y); return v & SC.TERRAIN_MASK_WALL ? 'wall' : v & SC.TERRAIN_MASK_SWAMP ? 'swamp' : 'plain'; };
+  const RawMemory = { segments: {}, foreignSegment: undefined, get: () => JSON.stringify(mem), set: s => { const m = JSON.parse(s); for (const k in mem) delete mem[k]; Object.assign(mem, m); }, setActiveSegments: () => undefined, setActiveForeignSegment: () => undefined, setDefaultPublicSegment: () => undefined, setPublicSegments: () => undefined, interShardSegment: '' };
+  const Room = function () { throw new Error('Room 不能直接构造'); }; Room.Terrain = RoomTerrain; Room.serializePath = p => JSON.stringify(p); Room.deserializePath = s => JSON.parse(s);
+  const PathFinder = { search(origin, goal, opts = {}) { const o = gpos(origin), goals = (Array.isArray(goal) ? goal : [goal]).map(g => ({ g: gpos(g.pos || g) || gpos(g), r: g.range || 0 }));
+      let best = null; for (const { g, r } of goals) { if (!g) continue; const p = E.findPath(o, g, r, undefined, Object.assign({ ignoreCreeps: true }, opts)); if (p.length && (!best || p.length < best.length)) best = p; }
+      return { path: (best || []).map(p => new RoomPosition(p.x % ROOM, p.y % ROOM, roomName(p.x, p.y))), ops: 0, cost: best ? best.length : 0, incomplete: !best }; },
+    CostMatrix: class CostMatrix { constructor() { this._bits = new Uint8Array(2500); } set(x, y, v) { this._bits[y * 50 + x] = v; } get(x, y) { return this._bits[y * 50 + x]; } clone() { const c = new PathFinder.CostMatrix(); c._bits.set(this._bits); return c; } serialize() { return Array.from(this._bits); } static deserialize(d) { const c = new PathFinder.CostMatrix(); c._bits.set(d); return c; } },
+    use: () => undefined };
+  return { Game, Memory: mem, RawMemory, RoomPosition, Room, PathFinder, log: (...a) => E.log(pid, ...a) };
+}
+
+// 用户代码沙箱：官方全局（Game/Memory/RoomPosition/...）+ 全部官方常量
+const SC_NAMES = Object.keys(SC).filter(k => /^[A-Z_][A-Z0-9_]*$/.test(k));
+function compileUser(code) {
+  const hidden = ['window', 'document', 'localStorage', 'fetch', 'XMLHttpRequest', 'WebSocket', 'Capacitor', 'globalThis', 'self', 'require', 'process', 'setTimeout', 'setInterval', 'SC'];
+  const f = new Function('Game', 'Memory', 'RawMemory', 'RoomPosition', 'Room', 'PathFinder', 'console', '__loopGuard', ...hidden, ...SC_NAMES, '"use strict";\n' + code);
+  return (api) => { let n = 0; const guard = () => { if (++n > 100000) throw new Error('循环次数过多（可能死循环）'); };
+    f(api.Game, api.Memory, api.RawMemory, api.RoomPosition, api.Room, api.PathFinder, { log: api.log }, guard, ...hidden.map(() => undefined), ...SC_NAMES.map(k => SC[k])); };
 }
 if (typeof module !== 'undefined') module.exports = { Engine, newWorld, compileUser, countStruct, rclOf };

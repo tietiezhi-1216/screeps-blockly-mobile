@@ -22,6 +22,16 @@ class Renderer {
   }
   reset() { if (this.roomSp) { for (const e of this.roomSp.values()) { e.sp.destroy(); e.tx.destroy(); } this.roomSp.clear(); } this.rooms = []; for (const s of this.sprites.values()) s.destroy({ children: true }); this.sprites.clear(); this.view = null; this.roomsVer = -1; this.selected = null; this.beamG.clear(); this.roadG.clear(); this._roadSig = ''; }
   pause(p) { p ? this.app.ticker.stop() : this.app.ticker.start(); }
+  // 房间视图：整房间适配屏幕宽度并居中（官方客户端默认一屏一个房间）
+  fitRoom(rx, ry) { this.scale = Math.min(innerWidth, innerHeight - 140) / (ROOM * TS); this.cx = (rx * ROOM + 25) * TS; this.cy = (ry * ROOM + 25) * TS; }
+  curRoom() { return [Math.floor(this.cx / TS / ROOM), Math.floor(this.cy / TS / ROOM)]; }
+  // 图层开关：grid 网格 / names 房间名 / owner 领地着色
+  setOverlay(k, on) {
+    this.ov = this.ov || {}; this.ov[k] = on;
+    if (k === 'grid') { this.showGrid = on; for (const e of this.rooms) if (e.drawn) { e.drawn = false; } }
+    if (k === 'names') this.labelL.visible = on;
+    if (k === 'owner') { this.roomsVer = -1; if (this.view) this.setView(this.view, 1); }
+  }
   focus(x, y) { this.cx = (x + .5) * TS; this.cy = (y + .5) * TS; }
   // 画一张 w×h 格的贴图（坐标系：1 = 1 格，原点在中心），按 key 缓存
   tex(key, w, h, draw) {
@@ -118,12 +128,13 @@ class Renderer {
   rebuildTerrain(v) {
     if (!this.roomSp) this.roomSp = new Map();
     for (const k in v.rooms) {
-      const r = v.rooms[k], own = r.owner && v.players[r.owner], sig = (r.owner || '') + (own ? own.name : '') + '|' + r.tiles.slice(0, 50).join('') + r.tiles.slice(2450).join('') + r.tiles.filter((_, i) => i % 50 === 0 || i % 50 === 49).join('');
+      const r = v.rooms[k], own = r.owner && v.players[r.owner], sig = (this.ov && this.ov.owner ? 'o' : '') + (r.owner || '') + (own ? own.name : '') + '|' + r.tiles.slice(0, 50).join('') + r.tiles.slice(2450).join('') + r.tiles.filter((_, i) => i % 50 === 0 || i % 50 === 49).join('');
       let e = this.roomSp.get(k); if (e && e.sig === sig) continue;
       const [rx, ry] = k.split(',').map(Number);
       if (e) { e.sp.texture !== PIXI.Texture.EMPTY && e.sp.texture.destroy(true); e.sp.destroy(); e.tx.destroy(); }
       const sp = new PIXI.Sprite(PIXI.Texture.EMPTY); sp.x = rx * ROOM * TS; sp.y = ry * ROOM * TS; sp.width = sp.height = ROOM * TS; this.terrainL.addChild(sp);
       const tx = new PIXI.Text((r.name || roomNameXY(rx, ry)) + (own ? '  ' + own.name : ''), { fontFamily: 'sans-serif', fontSize: 20, fill: own ? own.color : 0x888888 }); tx.alpha = .6; tx.x = sp.x + 6; tx.y = sp.y + 4; this.labelL.addChild(tx);
+      if (own && this.ov && this.ov.owner) { const og = new PIXI.Graphics(); og.beginFill(own.color, .12).drawRect(0, 0, ROOM * TS, ROOM * TS).endFill(); og.lineStyle(3, own.color, .6).drawRect(1.5, 1.5, ROOM * TS - 3, ROOM * TS - 3); sp.addChild(og); og.scale.set(1 / sp.scale.x); }
       e = { sp, tx, sig, rx, ry, tiles: r.tiles, drawn: false }; this.roomSp.set(k, e);
     }
     this.rooms = [...this.roomSp.values()]; this.roomsVer = v.roomsVer;
@@ -212,7 +223,7 @@ class Renderer {
     const vx0 = this.cx - innerWidth / 2 / s, vy0 = this.cy - innerHeight / 2 / s, vx1 = this.cx + innerWidth / 2 / s, vy1 = this.cy + innerHeight / 2 / s, RS = ROOM * TS;
     let built = 0;
     for (const e of this.rooms) { const vis = !(e.sp.x > vx1 || e.sp.y > vy1 || e.sp.x + RS < vx0 || e.sp.y + RS < vy0); e.sp.visible = e.tx.visible = vis;
-      if (vis && !e.drawn && built < 2) { built++; e.drawn = true; e.sp.texture = this.roomTexture(e.rx, e.ry, e.tiles); e.sp.width = e.sp.height = RS; } }
+      if (vis && !e.drawn && built < 2) { built++; e.drawn = true; const old = e.sp.texture; e.sp.texture = this.roomTexture(e.rx, e.ry, e.tiles); if (old && old !== PIXI.Texture.EMPTY) old.destroy(true); e.sp.width = e.sp.height = RS; for (const ch of e.sp.children) ch.scale.set(1 / e.sp.scale.x); } }
     const a = Math.min(1, (now - this.tickAt) / this.dt);
     for (const c of this.creepL.children) { const d = c.data; if (!d) continue; const px = d.px ?? d.x, py = d.py ?? d.y; c.x = (px + (d.x - px) * a + .5) * TS; c.y = (py + (d.y - py) * a + .5) * TS; }
     this.beamG.alpha = 1 - a;

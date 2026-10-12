@@ -5,12 +5,17 @@
 <body>
 <div id="stage"></div>
 <div id="hud"></div>
+<div id="roomBar"><button id="rbMap" data-icon="map"><span class="lb">世界地图</span></button><span id="rbName"></span><button id="rbSpawn" class="primary hidden" data-icon="flag"><span class="lb">选择出生点</span></button></div>
+<button class="navArrow" id="navT" data-d="0,-1"></button><button class="navArrow" id="navB" data-d="0,1"></button><button class="navArrow" id="navL" data-d="-1,0"></button><button class="navArrow" id="navR" data-d="1,0"></button>
+<div id="panel" class="hidden"><div class="pnHead"><div class="pnTabs"><button data-pt="room">房间</button><button data-pt="console">控制台</button><button data-pt="memory">内存</button><button data-pt="layers">图层</button></div><button id="pnClose" data-icon="x" class="iconbtn"></button></div>
+<div id="pnBody"></div>
+<div id="pnConsole" class="hidden"><div class="cnFilter"><input id="cnFind" placeholder="过滤日志…"><button data-cf="all" class="on">全部</button><button data-cf="err">错误</button><button data-cf="me">我的</button></div><div id="cnOut"></div><div class="cnIn"><input id="cnCmd" placeholder="输入 JS，例如 Game.time 或 Object.keys(Game.creeps)" autocapitalize="off" autocomplete="off" spellcheck="false"><button id="cnRun" class="primary">执行</button></div></div></div>
 <nav id="bar">
   <button id="btnRun" data-icon="player-play"><span class="lb">运行</span></button>
   <button id="btnCode" data-icon="puzzle"><span class="lb">代码</span></button>
   <button id="btnBuild" data-icon="hammer"><span class="lb">建造</span></button>
   <button id="btnSpeed" data-icon="player-track-next"><span class="lb">1x</span></button>
-  <button id="btnLog" data-icon="terminal-2"><span class="lb">日志</span></button>
+  <button id="btnLog" data-icon="terminal-2"><span class="lb">面板</span></button>
   <button id="btnNet" data-icon="broadcast"><span class="lb">联机</span></button>
   <button id="btnMenu" data-icon="settings"><span class="lb">设置</span></button>
 </nav>

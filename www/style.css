@@ -103,3 +103,26 @@ pre.mem{margin:var(--sp-1) 0 0;max-height:120px;overflow:auto;background:#0008;p
 #bbMsg{flex:1;min-width:0;font-size:13px;color:#cfd3da;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #buildBar button{height:30px;padding:0 12px;border:0;border-radius:4px;background:#2a2f3a;color:#fff;font-size:13px;white-space:nowrap}
 #buildBar button:disabled{opacity:.4}
+/* v1.4.1 房间导航 / 面板 */
+#roomBar{position:fixed;left:0;right:0;top:calc(var(--top) + 38px);display:flex;align-items:center;gap:8px;padding:4px 8px;z-index:6;pointer-events:none}
+#roomBar>*{pointer-events:auto}#roomBar button{height:30px;padding:0 10px;font-size:13px;display:inline-flex;align-items:center;gap:4px;background:#222d;border-radius:4px}
+#roomBar .ic{width:16px;height:16px}#rbName{font:600 14px sans-serif;color:#eee;background:#000a;padding:5px 10px;border-radius:4px;white-space:nowrap}
+#roomBar .hidden{display:none}
+.navArrow{position:fixed;z-index:5;background:#000b;color:#ddd;font-size:12px;border-radius:4px;padding:6px 8px;white-space:nowrap;display:flex;align-items:center;gap:2px}
+.navArrow:disabled{opacity:.25}.navArrow.hidden{display:none}
+#navT{top:calc(var(--top) + 78px);left:50%;transform:translateX(-50%)}#navB{bottom:calc(68px + var(--bot));left:50%;transform:translateX(-50%)}
+#navL{left:4px;top:50%;transform:translateY(-50%);writing-mode:vertical-rl}#navR{right:4px;top:50%;transform:translateY(-50%);writing-mode:vertical-rl}
+#panel{position:fixed;left:0;right:0;bottom:calc(60px + var(--bot));height:52%;background:#181818f2;border-top:1px solid #333;z-index:8;display:flex;flex-direction:column;color:#ddd}
+#panel.hidden{display:none}.pnHead{display:flex;align-items:center;border-bottom:1px solid #2c2c2c}.pnTabs{flex:1;display:flex}
+.pnTabs button{flex:1;background:none;border:0;border-bottom:2px solid transparent;border-radius:0;color:#999;font-size:14px;padding:10px 0}.pnTabs button.on{color:#fff;border-bottom-color:#6dc1ff}
+#pnBody{flex:1;overflow:auto;padding:8px 12px;font-size:13px}#pnBody.hidden{display:none}
+#pnConsole{flex:1;display:flex;flex-direction:column;min-height:0}#pnConsole.hidden{display:none}
+.cnFilter{display:flex;gap:6px;padding:6px 8px}.cnFilter input{flex:1;min-width:0}.cnFilter button{padding:4px 10px;font-size:12px;background:#262626}.cnFilter button.on{background:#3a4a5a;color:#fff}
+#cnOut{flex:1;overflow:auto;font:12px/1.45 monospace;padding:4px 10px;white-space:pre-wrap;user-select:text}
+#cnOut .err{color:#ff7b7b}#cnOut .cmd{color:#6dc1ff}#cnOut .res{color:#b5e48c}
+.cnIn{display:flex;gap:6px;padding:6px 8px;border-top:1px solid #2c2c2c}.cnIn input{flex:1;min-width:0;font-family:monospace}
+#panel input{background:#0f0f0f;border:1px solid #333;color:#eee;border-radius:4px;padding:6px 8px;font-size:13px}
+.ri .kv{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #242424}.ri .kv .k{color:#888}.ri h4{margin:10px 0 4px;font-size:12px;color:#888;font-weight:500}
+.ri .bar{height:5px;background:#2b2b2b;border-radius:3px;margin:4px 0 2px}.ri .bar i{display:block;height:100%;background:#ffe56d;border-radius:3px}
+.mem details{margin-left:12px}.mem summary{cursor:pointer;color:#9cdcfe}.mem .mk{color:#9cdcfe}.mem .mv{color:#ce9178}.mem .ln{margin-left:12px;font:12px monospace;white-space:nowrap}
+.lyr label{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #242424}

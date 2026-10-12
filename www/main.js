@@ -6,7 +6,9 @@ let running = false, speed = 1, ws = null, code = '';
 applyIcons();
 const renderer = new Renderer($('stage')); renderer.myPid = myPid;
 let showFps = localStorage.getItem('sbm_fps') === '1';
-const log = s => { const l = $('log'); l.textContent += s + '\n'; if (l.textContent.length > 20000) l.textContent = l.textContent.slice(-15000); l.scrollTop = 1e9; };
+// 控制台：保留最近 500 条，可按文本 / 类型过滤（同官方 Console）
+const LOGS = []; let cnFilter = 'all';
+const log = (s, cls) => { s = String(s); LOGS.push({ s, cls: cls || (/错误|error|失败/i.test(s) ? 'err' : ''), t: engine ? engine.w.time : client?.view?.time }); if (LOGS.length > 500) LOGS.splice(0, LOGS.length - 500); if (typeof renderConsole === 'function') renderConsole(); };
 
 function loadEngine() {
   let w = null; try { w = JSON.parse(localStorage.getItem(SAVE_W)); } catch (e) {}
@@ -14,7 +16,7 @@ function loadEngine() {
   engine = new Engine(w); engine.onLog = (pid, s) => { if (pid === myPid) log(s); };
   engine.addPlayer(myPid, nick, true); engine.setCode(myPid, code);
   renderer.reset(); renderer.setView(engine.w, 500 / speed);
-  const sp = engine.w.spawns.find(s => s.owner === myPid); if (sp) renderer.focus(sp.x, sp.y); else renderer.focus(5 * ROOM + 24, 5 * ROOM + 24);
+  const sp = engine.w.spawns.find(s => s.owner === myPid); if (sp) renderer.fitRoom(Math.floor(sp.x / ROOM), Math.floor(sp.y / ROOM)); else renderer.fitRoom(5, 5);
 }
 function save() { if (engine && mode !== 'client') localStorage.setItem(SAVE_W, engine.saveData()); }
 
@@ -100,11 +102,13 @@ function stats() {
   const v = view(); let H;
   if (!v) H = chip('plug-connected', mode === 'client' ? '等待房主…' : '');
   else {
-    const sp = v.spawns.find(s => s.owner === myPid), n = v.creeps.filter(c => c.owner === myPid).length, np = Object.keys(v.players).length;
-    H = chip(mode === 'solo' ? 'device-gamepad-2' : mode === 'host' ? 'home' : 'wifi', mode === 'client' ? '客户端' : running ? '运行' : '暂停') + chip('refresh', `<b>${v.time}</b>`) + chip('bolt', `<b>${sp ? sp.energy + '/' + sp.cap : '-'}</b>`) + chip('bug', `<b>${n}</b>`) + chip('users', `${np}`) + chip('map', `${v.S}×${v.S}`);
+    const re = roomEnergy(v), n = v.creeps.filter(c => c.owner === myPid).length, np = Object.keys(v.players).length;
+    H = chip(mode === 'solo' ? 'device-gamepad-2' : mode === 'host' ? 'home' : 'wifi', mode === 'client' ? '客户端' : running ? '运行' : '暂停') + chip('refresh', `<b>${v.time}</b>`) + chip('bolt', `<b>${re ? re[0] + '/' + re[1] : '-'}</b>`) + chip('bug', `<b>${n}</b>`) + chip('users', `${np}`) + chip('map', `${v.S}×${v.S}`);
   }
   if (showFps) H += chip('gauge', `${renderer.fps.toFixed(0)} fps · ${tickMs.toFixed(1)}ms`);
-  if (v && v.players[myPid]?.needsSpawn && !wm.auto && $('start').classList.contains('hidden') && $('wmap').classList.contains('hidden') && !build.on) openWorldMap(true);
+  const need = !!(v && v.players[myPid]?.needsSpawn); $('rbSpawn').classList.toggle('hidden', !need || build.type === 'spawn1');
+  if (need && !wm.auto && $('start').classList.contains('hidden') && $('wmap').classList.contains('hidden') && !build.on) openWorldMap(true);
+  updateRoomNav(v);
   if (H !== stats._h) $('hud').innerHTML = stats._h = H;
 }
 let tickMs = 0, hudT = 0;
@@ -122,7 +126,7 @@ function setLabel(btn, ic, text) { const b = $(btn); b.querySelector('.ic').inne
 function setRunUI() { setLabel('btnRun', running && mode !== 'client' ? 'player-pause' : 'player-play', mode === 'client' ? '房主控制' : running ? '暂停' : '运行'); $('btnRun').classList.toggle('on', running && mode !== 'client'); $('btnRun').disabled = mode === 'client'; $('btnSpeed').disabled = mode === 'client'; }
 $('btnRun').onclick = () => { running = !running; setRunUI(); if (!running) save(); };
 $('btnSpeed').onclick = () => { speed = speed >= 8 ? 1 : speed * 2; setLabel('btnSpeed', 'player-track-next', speed + 'x'); };
-$('btnLog').onclick = () => $('log').classList.toggle('hidden');
+$('btnLog').onclick = () => $('panel').classList.contains('hidden') ? openPanel(panelTab) : $('panel').classList.add('hidden');
 $('btnCode').onclick = () => { $('editor').classList.remove('hidden'); renderer.pause(true); Blockly.svgResize(ws); };
 $('edClose').onclick = () => { $('editor').classList.add('hidden'); renderer.pause(false); regen(true); log('[代码] 已应用'); };
 $('btnMenu').onclick = () => $('menu').classList.remove('hidden');
@@ -272,14 +276,15 @@ function wmData() { const v = view(); if (!v) return null; return { S: v.S, owne
 function drawWorldMap() {
   const d = wmData(), c = $('wmCanvas'); if (!d) return; const r = c.getBoundingClientRect(), dpr = Math.min(2, devicePixelRatio || 1);
   c.width = r.width * dpr; c.height = r.height * dpr; const g = c.getContext('2d'); g.scale(dpr, dpr); g.fillStyle = '#141414'; g.fillRect(0, 0, r.width, r.height);
-  const cs = Math.floor(Math.min(r.width - 16, r.height - 16) / d.S), ox = (r.width - cs * d.S) / 2, oy = (r.height - cs * d.S) / 2; wm.geo = { cs, ox, oy, S: d.S };
+  const cs = Math.floor(Math.min(r.width - 16, r.height - 16) / d.S * (wm.z || 1)), ox = (r.width - cs * d.S) / 2 + (wm.px || 0), oy = (r.height - cs * d.S) / 2 + (wm.py || 0); wm.geo = { cs, ox, oy, S: d.S };
   for (let ry = 0; ry < d.S; ry++) for (let rx = 0; rx < d.S; rx++) {
     const st = roomStatus(d.S, d.owned, rx, ry, myPid), x = ox + rx * cs, y = oy + ry * cs, o = d.owned[rx + ',' + ry];
     g.fillStyle = st === 'owned' && d.players[o] ? '#' + (d.players[o].color >>> 0).toString(16).padStart(6, '0') : WM_COL[st];
     g.fillRect(x + 1, y + 1, cs - 2, cs - 2);
     if (st === 'close') { g.strokeStyle = 'rgba(255,255,255,.08)'; g.beginPath(); for (let i = -cs; i < cs; i += 5) { g.moveTo(x + i, y + cs); g.lineTo(x + i + cs, y); } g.save(); g.rect(x + 1, y + 1, cs - 2, cs - 2); g.clip(); g.stroke(); g.restore(); }
     if (wm.sel && wm.sel[0] === rx && wm.sel[1] === ry) { g.strokeStyle = '#fff'; g.lineWidth = 2; g.strokeRect(x + 2, y + 2, cs - 4, cs - 4); g.lineWidth = 1; }
-    if (cs >= 30) { g.fillStyle = 'rgba(255,255,255,.45)'; g.font = '9px sans-serif'; g.fillText(roomNameXY(rx, ry), x + 3, y + 11); }
+    if (cs >= 30) { g.fillStyle = 'rgba(255,255,255,.5)'; g.font = Math.min(14, cs / 4) + 'px sans-serif'; g.fillText(roomNameXY(rx, ry), x + 3, y + 3 + Math.min(14, cs / 4)); if (o && d.players[o] && cs >= 50) { g.fillStyle = '#fff'; g.fillText(d.players[o].name, x + 3, y + cs - 6); } }
+    const [cx, cy] = renderer.curRoom(); if (!wm.pick && cx === rx && cy === ry) { g.strokeStyle = '#ffe56d'; g.setLineDash([4, 3]); g.strokeRect(x + 3, y + 3, cs - 6, cs - 6); g.setLineDash([]); }
   }
   const me = Object.keys(d.owned).filter(k => d.owned[k] === myPid).length, free = (() => { let n = 0; for (let ry = 0; ry < d.S; ry++) for (let rx = 0; rx < d.S; rx++) if (roomStatus(d.S, d.owned, rx, ry, myPid) === 'free') n++; return n; })();
   $('wmInfo').textContent = `${d.S}×${d.S} · 空闲 ${free} · 我的 ${me}`;
@@ -287,7 +292,7 @@ function drawWorldMap() {
 function openWorldMap(pick) {
   wm.pick = !!pick; wm.auto = true; wm.sel = null; $('wmTitle').textContent = pick ? '选择出生房间' : '世界地图'; $('wmClose').style.display = pick ? 'none' : '';
   $('wmGo').disabled = true; $('wmGo').textContent = pick ? '进入房间' : '前往'; $('wmSel').textContent = pick ? '点选一个空闲（绿色）房间' : '点选一个房间';
-  $('wmap').classList.remove('hidden'); requestAnimationFrame(drawWorldMap);
+  wm.z = 1; wm.px = 0; wm.py = 0; wm.last = null; $('wmap').classList.remove('hidden'); requestAnimationFrame(drawWorldMap);
 }
 window.openWorldMap = openWorldMap;
 $('wmClose').onclick = () => $('wmap').classList.add('hidden');
@@ -295,12 +300,12 @@ $('wmCanvas').addEventListener('click', e => {
   const G = wm.geo; if (!G) return; const r = $('wmCanvas').getBoundingClientRect(), rx = Math.floor((e.clientX - r.left - G.ox) / G.cs), ry = Math.floor((e.clientY - r.top - G.oy) / G.cs);
   if (rx < 0 || ry < 0 || rx >= G.S || ry >= G.S) return; const d = wmData(), st = roomStatus(d.S, d.owned, rx, ry, myPid);
   const ZH = { free: '空闲，可出生', close: '离其他玩家太近', mine: '我的房间', owned: '已被 ' + (d.players[d.owned[rx + ',' + ry]]?.name || '其他玩家') + ' 占领', highway: '高速公路（无 Controller）', center: '扇区中心（无 Controller）' };
-  wm.sel = [rx, ry]; $('wmSel').textContent = `${roomNameXY(rx, ry)} · ${ZH[st]}`; $('wmGo').disabled = wm.pick && st !== 'free'; drawWorldMap();
+  wm.sel = [rx, ry]; $('wmSel').textContent = `${roomNameXY(rx, ry)} · ${ZH[st]}`; $('wmGo').disabled = wm.pick && st !== 'free'; if (!wm.pick && wm.last && wm.last[0] === rx && wm.last[1] === ry) return $('wmGo').click(); wm.last = [rx, ry]; drawWorldMap();
 });
 $('wmGo').onclick = () => {
   const [rx, ry] = wm.sel; $('wmap').classList.add('hidden');
   if (mode === 'client') client.gen(rx, ry); else { ensureNear(engine.w, rx, ry, 0); renderer.setView(engine.w, 1); _snap = null; }
-  renderer.focus(rx * ROOM + 24.5, ry * ROOM + 24.5); renderer.scale = Math.max(renderer.scale, 1.2);
+  renderer.fitRoom(rx, ry);
   if (!wm.pick) return;
   build.on = true; build.type = 'spawn1'; build.at = null; $('buildBar').classList.remove('hidden'); $('bbOk').disabled = true; $('bbOk').textContent = '放置 Spawn1'; $('bbCancel').textContent = '返回地图';
   $('bbMsg').textContent = `点 ${roomNameXY(rx, ry)} 里的空地放置 Spawn1`; wm.room = [rx, ry];
@@ -326,3 +331,119 @@ function confirmSpawn() {
 }
 window.doRespawn = () => { endBuild(); wm.auto = false; if (mode === 'client') client.respawn(); else { engine.respawn(myPid); _snap = null; renderer.reset(); renderer.setView(engine.w, 1); hostS && hostS.pushAll(); save(); } toastMsg('已重新出生，请选择新的出生点'); };
 addEventListener('resize', () => { if (!$('wmap').classList.contains('hidden')) drawWorldMap(); });
+
+
+// ===== 房间导航（同官方客户端：四边箭头到相邻房间、返回世界地图、顶栏房间名） =====
+function roomEnergy(v) { // 当前房间（若是我的）否则我的第一个房间：energyAvailable / energyCapacityAvailable
+  const [rx, ry] = renderer.curRoom(), mineIn = k => v.owned && v.owned[k] === myPid; let k = rx + ',' + ry;
+  if (!mineIn(k)) { const sp = v.spawns.find(s => s.owner === myPid); if (!sp) return null; k = roomKey(sp.x, sp.y); }
+  const inR = o => roomKey(o.x, o.y) === k && o.owner === myPid; let a = 0, c = 0;
+  for (const s of v.spawns) if (inR(s)) { a += s.energy || 0; c += s.cap || 300; }
+  for (const s of v.structures || []) if (s.type === 'extension' && inR(s)) { a += s.energy || 0; c += s.energyCapacity || 0; }
+  return [a, c];
+}
+function roomTiles(rx, ry) { const k = rx + ',' + ry; return mode === 'client' ? client?.rooms?.[k]?.tiles : engine?.w.rooms[k]?.tiles; }
+function edgeOpen(rx, ry, dx, dy) {
+  const v = view(); if (!v) return false; const nx = rx + dx, ny = ry + dy; if (nx < 0 || ny < 0 || nx >= v.S || ny >= v.S) return false;
+  const t = roomTiles(rx, ry); if (!t) return true;
+  for (let i = 1; i < 49; i++) { const x = dx ? (dx > 0 ? 49 : 0) : i, y = dy ? (dy > 0 ? 49 : 0) : i; if (+t[y * ROOM + x] !== T_WALL) return true; }
+  return false;
+}
+function updateRoomNav(v) {
+  const [rx, ry] = renderer.curRoom(), name = roomNameXY(rx, ry), o = v && v.owned && v.owned[rx + ',' + ry];
+  const lbl = name + (o ? ' · ' + (o === myPid ? '我的' : (v.players[o]?.name || '')) : ''); if ($('rbName').textContent !== lbl) $('rbName').textContent = lbl;
+  const hide = !v || !$('panel').classList.contains('hidden') || !$('wmap').classList.contains('hidden') || !$('start').classList.contains('hidden');
+  for (const [id, dx, dy, ar] of [['navT', 0, -1, '▲'], ['navB', 0, 1, '▼'], ['navL', -1, 0, '◀'], ['navR', 1, 0, '▶']]) {
+    const b = $(id); b.classList.toggle('hidden', hide); if (hide) continue; const ok = edgeOpen(rx, ry, dx, dy), t = ar + ' ' + roomNameXY(rx + dx, ry + dy);
+    if (b.textContent !== t) b.textContent = t; b.disabled = !ok;
+  }
+}
+function gotoRoom(rx, ry) {
+  if (mode === 'client') client.gen(rx, ry); else if (engine) { ensureNear(engine.w, rx, ry, 0); _snap = null; renderer.setView(engine.w, 1); }
+  renderer.fitRoom(rx, ry); updateRoomNav(view());
+}
+for (const id of ['navT', 'navB', 'navL', 'navR']) $(id).onclick = () => { const [dx, dy] = $(id).dataset.d.split(',').map(Number), [rx, ry] = renderer.curRoom(); gotoRoom(rx + dx, ry + dy); };
+$('rbMap').onclick = () => openWorldMap(false);
+$('rbSpawn').onclick = () => { wm.auto = false; openWorldMap(true); };
+
+// 世界地图：双指缩放 / 拖动；点房间选择，「前往」进入
+(function mapGestures() {
+  const c = $('wmCanvas'), pts = new Map(); let d0 = 0, z0 = 1, moved = 0;
+  wm.z = 1; wm.px = 0; wm.py = 0;
+  c.addEventListener('pointerdown', e => { pts.set(e.pointerId, [e.clientX, e.clientY]); moved = 0; if (pts.size === 2) { const [a, b] = [...pts.values()]; d0 = Math.hypot(a[0] - b[0], a[1] - b[1]); z0 = wm.z; } });
+  c.addEventListener('pointermove', e => { const p = pts.get(e.pointerId); if (!p) return;
+    if (pts.size === 1) { wm.px += e.clientX - p[0]; wm.py += e.clientY - p[1]; moved += Math.abs(e.clientX - p[0]) + Math.abs(e.clientY - p[1]); }
+    pts.set(e.pointerId, [e.clientX, e.clientY]);
+    if (pts.size === 2) { const [a, b] = [...pts.values()]; wm.z = Math.max(1, Math.min(5, z0 * Math.hypot(a[0] - b[0], a[1] - b[1]) / d0)); moved = 99; }
+    drawWorldMap(); });
+  const up = e => { pts.delete(e.pointerId); }; c.addEventListener('pointerup', up); c.addEventListener('pointercancel', up);
+  c.addEventListener('wheel', e => { wm.z = Math.max(1, Math.min(5, wm.z * (e.deltaY < 0 ? 1.15 : 0.87))); drawWorldMap(); e.preventDefault(); }, { passive: false });
+  c.addEventListener('click', e => { if (moved > 10) e.stopImmediatePropagation(); }, true);
+})();
+
+// ===== 面板：房间信息 / 控制台 / 内存 / 图层 =====
+let panelTab = 'room';
+function openPanel(t) {
+  panelTab = t; $('panel').classList.remove('hidden'); $('inspect').classList.add('hidden');
+  for (const b of document.querySelectorAll('.pnTabs button')) b.classList.toggle('on', b.dataset.pt === t);
+  $('pnConsole').classList.toggle('hidden', t !== 'console'); $('pnBody').classList.toggle('hidden', t === 'console');
+  renderPanel(true);
+}
+document.querySelectorAll('.pnTabs button').forEach(b => b.onclick = () => openPanel(b.dataset.pt));
+$('pnClose').onclick = () => $('panel').classList.add('hidden');
+const kvr = (k, v) => `<div class="kv"><span class="k">${k}</span><span class="v">${v}</span></div>`;
+function roomInfoHTML() {
+  const v = view(); if (!v) return '<p>无数据</p>'; const [rx, ry] = renderer.curRoom(), k = rx + ',' + ry, inR = o => roomKey(o.x, o.y) === k;
+  const t = roomType(rx, ry), o = v.owned && v.owned[k], ctrl = (v.controllers || []).find(inR), srcs = v.sources.filter(inR), mins = (v.minerals || []).filter(inR);
+  const cr = v.creeps.filter(inR), my = cr.filter(c => c.owner === myPid).length, st = (v.structures || []).filter(inR), sites = v.sites.filter(inR), re = o === myPid ? roomEnergy(v) : null;
+  const cnt = {}; for (const s of st) cnt[s.type] = (cnt[s.type] || 0) + 1; for (const s of v.spawns.filter(inR)) cnt.spawn = (cnt.spawn || 0) + 1;
+  const TZ = { normal: '普通房间', highway: '高速公路', center: '扇区中心' };
+  let h = `<div class="ri">${kvr('房间', roomNameXY(rx, ry) + ' · ' + TZ[t])}${kvr('所属', o ? esc(v.players[o]?.name || o) + (o === myPid ? '（我）' : '') : '无主')}`;
+  if (ctrl) { const p = ctrl.level && ctrl.level < 8 ? ctrl.progress / (ctrl.progressTotal || 1) : ctrl.level ? 1 : 0;
+    h += `<h4>Controller</h4>${kvr('等级', 'RCL ' + ctrl.level)}${ctrl.level ? kvr('升级进度', `${ctrl.progress} / ${ctrl.progressTotal || '-'}`) + `<div class="bar"><i style="width:${(p * 100).toFixed(1)}%"></i></div>` + kvr('降级倒计时', ctrl.ticksToDowngrade ?? '-') : ''}`; }
+  if (re) h += `<h4>能量</h4>${kvr('energyAvailable', re[0])}${kvr('energyCapacityAvailable', re[1])}`;
+  h += `<h4>资源</h4>${srcs.map((s, i) => kvr('能量源 ' + (i + 1), `${s.energy} / ${s.cap}`)).join('') || kvr('能量源', '无')}${mins.map(m => kvr('矿物 ' + esc(m.type), m.amount)).join('')}`;
+  h += `<h4>单位</h4>${kvr('creep', `${cr.length}（我的 ${my}，其他 ${cr.length - my}）`)}${kvr('工地', sites.length)}`;
+  h += `<h4>建筑</h4>${Object.keys(cnt).length ? Object.entries(cnt).map(([a, b]) => kvr(ST_ZH[a] || a, b)).join('') : kvr('建筑', '无')}`;
+  h += `<h4>运行</h4>${kvr('Game.time', v.time)}${kvr('本机 tick 耗时', mode === 'client' ? '房主计算' : tickMs.toFixed(2) + ' ms')}${kvr('世界', v.S + '×' + v.S + ' 房间')}</div>`;
+  return h;
+}
+function memHTML(o, depth = 0) {
+  if (o === null || typeof o !== 'object') return `<span class="mv">${esc(JSON.stringify(o))}</span>`;
+  const ks = Object.keys(o); if (!ks.length) return `<span class="mv">${Array.isArray(o) ? '[]' : '{}'}</span>`;
+  return ks.slice(0, 200).map(k => { const x = o[k]; return x && typeof x === 'object' && Object.keys(x).length
+    ? `<details ${depth < 1 ? 'open' : ''}><summary>${esc(k)} <span style="color:#666">${Array.isArray(x) ? '[' + x.length + ']' : '{' + Object.keys(x).length + '}'}</span></summary>${memHTML(x, depth + 1)}</details>`
+    : `<div class="ln"><span class="mk">${esc(k)}</span>: ${memHTML(x, depth + 1)}</div>`; }).join('');
+}
+function layersHTML() {
+  const ov = renderer.ov || {}, row = (k, t) => `<label>${t}<input type="checkbox" data-ov="${k}" ${ov[k] ? 'checked' : ''}></label>`;
+  return `<div class="lyr">${row('grid', '房间网格')}${row('names', '房间名称')}${row('owner', '领地着色（按玩家颜色）')}${row('fps', '显示 FPS / tick 耗时')}</div>`;
+}
+function renderPanel(force) {
+  if ($('panel').classList.contains('hidden')) return;
+  if (panelTab === 'room') $('pnBody').innerHTML = roomInfoHTML();
+  else if (panelTab === 'memory' && force) $('pnBody').innerHTML = mode === 'client' ? '<p>内存在房主上，客户端暂不可查看。</p>' : `<div class="mem">${memHTML(engine.w.memory[myPid] || {})}</div>`;
+  else if (panelTab === 'layers' && force) { $('pnBody').innerHTML = layersHTML(); $('pnBody').querySelectorAll('[data-ov]').forEach(i => i.onchange = () => {
+    if (i.dataset.ov === 'fps') { $('mFps').click(); return; } renderer.setOverlay(i.dataset.ov, i.checked); localStorage.setItem('sbm_ov', JSON.stringify(renderer.ov)); }); $('pnBody').querySelector('[data-ov="fps"]').checked = showFps; }
+  else if (panelTab === 'console') renderConsole();
+}
+renderer.onTick = () => { renderInspect(); if (panelTab === 'room') renderPanel(false); };
+function renderConsole() {
+  if ($('panel').classList.contains('hidden') || panelTab !== 'console') return; const q = $('cnFind').value.trim().toLowerCase();
+  const L = LOGS.filter(l => (cnFilter === 'all' || (cnFilter === 'err' && l.cls === 'err') || (cnFilter === 'me' && l.cls !== 'sys')) && (!q || l.s.toLowerCase().includes(q))).slice(-300);
+  const o = $('cnOut'), atEnd = o.scrollTop + o.clientHeight >= o.scrollHeight - 20;
+  o.innerHTML = L.map(l => `<div class="${l.cls}">${l.t != null && !/^\[\d+\]/.test(l.s) ? `<span style="color:#666">[${l.t}]</span> ` : ''}${esc(l.s)}</div>`).join(''); if (atEnd) o.scrollTop = 1e9;
+}
+$('cnFind').oninput = renderConsole;
+document.querySelectorAll('[data-cf]').forEach(b => b.onclick = () => { cnFilter = b.dataset.cf; document.querySelectorAll('[data-cf]').forEach(x => x.classList.toggle('on', x === b)); renderConsole(); });
+// 控制台输入：在本机世界里以自己的身份执行一行 JS（Game / Memory / RoomPosition / PathFinder 与常量可用）
+function runCmd() {
+  const src = $('cnCmd').value.trim(); if (!src) return; log('> ' + src, 'cmd');
+  if (mode === 'client') return log('客户端不能在房主世界执行命令', 'err');
+  try { const A = buildApi(engine, myPid); const f = new Function(...Object.keys(A), `"use strict"; return (${src});`); let r = f(...Object.values(A));
+    const seen = new WeakSet(); log(r && typeof r === 'object' ? (JSON.stringify(r, (k, v) => { if (k === 'room' && v && v.name) return '[room ' + v.name + ']'; if (v && typeof v === 'object') { if (seen.has(v)) return '[循环]'; seen.add(v); } return v; }, 1) || String(r)).slice(0, 4000) : String(r), 'res');
+    _snap = null; } catch (e) { log(e.message, 'err'); }
+  $('cnCmd').value = '';
+}
+$('cnRun').onclick = runCmd; $('cnCmd').addEventListener('keydown', e => { if (e.key === 'Enter') runCmd(); });
+(() => { let ov = {}; try { ov = JSON.parse(localStorage.getItem('sbm_ov')) || {}; } catch (e) {} ov = Object.assign({ names: true }, ov); for (const k in ov) renderer.setOverlay(k, ov[k]); })();

@@ -7,7 +7,15 @@
 
 > ⚠ v1.0.1 → v1.1.0 更换了签名证书，需**先卸载 v1.0.1 再安装**（之后的版本可直接覆盖升级）。
 
-## v1.1 功能
+## v1.2 功能（对齐 Screeps 规则）
+- **Room Controller**：每个房间一个；`upgradeController` 消耗能量提升 `progress`，满则 RCL+1（1–8）
+- **降级**：一段时间不升级会倒计时降级（`CONTROLLER_DOWNGRADE`，数值对齐官方数量级）
+- **RCL 建造上限**：extension / tower / storage / spawn / road / wall / rampart / container 等按官方表限制；超限或等级不够返回 `ERR_RCL_NOT_ENOUGH`
+- **建筑**：工地 `createConstructionSite` + `build`；extension 提供 spawn 能量容量；tower 可 `attack` / `heal` / `repair`
+- Blockly：升级 Controller、放置工地（多种类型）、防御塔指令、RCL/进度查询
+- 积木分类改为**顶部水平标签**（可折叠），工作区更大；全 UI **扁平纯色**无渐变无阴影
+
+## 早期功能
 - **PixiJS 渲染**（WebGL）：程序生成贴图——带明暗/高度的山体、沼泽、发光能量源、旋转的 Spawn、扩展、道路、工地进度
 - **流畅动画**：creep 在 tick 之间插值移动；采集/运送能量粒子飞行、建造火花、出生光环、死亡烟雾
 - **程序化地图**：种子值噪声地形（墙/沼泽），房间之间的出口由边的哈希决定且两侧一致，每个出口、能量源都会挖通到房间中心（保证连通）

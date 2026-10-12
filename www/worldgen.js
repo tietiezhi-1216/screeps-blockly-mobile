@@ -32,7 +32,19 @@ function genRoom(seed, rx, ry) {
     if (free < 3 && tries < 300) continue;
     t[y * ROOM + x] = T_PLAIN; carve(x, y, cx, cy); sources.push({ x, y });
   }
-  return { tiles: t, sources, carve };
+  // Controller：房间中心附近可走格（避开能量源）
+  let cxCtrl = 12, cyCtrl = 12;
+  for (let tries = 0; tries < 80; tries++) {
+    const x = 8 + Math.floor(r() * 9), y = 8 + Math.floor(r() * 9);
+    if (sources.some(s => Math.max(Math.abs(s.x - x), Math.abs(s.y - y)) < 3)) continue;
+    if (t[y * ROOM + x] === T_WALL) continue;
+    let free = 0; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if ((dx || dy) && t[(y + dy) * ROOM + x + dx] !== T_WALL) free++;
+    if (free < 3) continue;
+    cxCtrl = x; cyCtrl = y; break;
+  }
+  t[cyCtrl * ROOM + cxCtrl] = T_PLAIN;
+  carve(cxCtrl, cyCtrl, cx, cy);
+  return { tiles: t, sources, controller: { x: cxCtrl, y: cyCtrl }, carve };
 }
 // 按邻居情况刷新房间边界墙与出口，并保证出口连到房间中心
 function applyBorders(world, rx, ry) {

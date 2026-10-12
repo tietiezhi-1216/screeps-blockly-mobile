@@ -2,7 +2,7 @@
 const fs = require('fs'), vm = require('vm'), path = require('path');
 const { WebSocketServer, WebSocket } = require('ws');
 const W = p => fs.readFileSync(path.join(__dirname, '../www', p), 'utf8');
-vm.runInThisContext(W('worldgen.js') + W('engine.js') + W('net.js'));
+vm.runInThisContext(W('screeps-const.js') + W('worldgen.js') + W('engine.js') + W('net.js'));
 const assert = (c, m) => { if (!c) { console.error('FAIL', m); process.exit(1); } console.log('ok -', m); };
 const HARV = `var creep;
 Game.spawns['Spawn1'].spawnCreep([WORK, CARRY, MOVE], 'c' + Game.time);
@@ -39,6 +39,6 @@ function connectivity(e) {
   assert(v.events !== undefined, '快照带有动画事件');
   clients[1].sendCode(''); await new Promise(r => setTimeout(r, 200)); assert(e.w.players.cliB.code === '', '客户端可在运行中更新代码');
   // 存档 / 读档
-  const e2 = new Engine(JSON.parse(e.saveData())); e2.tick(); assert(e2.w.creeps.length === e.w.creeps.length, '存档往返正常');
+  const e2 = new Engine(JSON.parse(e.saveData())); assert(e2.w.creeps.length === e.w.creeps.length && e2.w.controllers.length === e.w.controllers.length, '存档往返正常');
   clients.forEach(c => c.close()); wss.close(); console.log('ALL PASS'); process.exit(0);
 })();

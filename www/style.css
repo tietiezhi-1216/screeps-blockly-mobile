@@ -12,7 +12,7 @@ button{font:inherit;color:inherit;border:0;cursor:pointer}
 .muted{color:var(--muted);font-size:var(--fs-xs);text-align:center}
 #stage,#world{position:fixed;inset:0;width:100%;height:100%}
 /* HUD：单行紧凑，位于状态栏下方 */
-#hud{position:fixed;left:0;right:0;top:0;padding:calc(var(--top) + var(--sp-1)) var(--sp-2) var(--sp-1);display:flex;gap:var(--sp-1);align-items:center;flex-wrap:nowrap;overflow:hidden;white-space:nowrap;background:linear-gradient(#000c,#0000);pointer-events:none;z-index:5;font-size:var(--fs-s)}
+#hud{position:fixed;left:0;right:0;top:0;padding:calc(var(--top) + var(--sp-1)) var(--sp-2) var(--sp-1);display:flex;gap:var(--sp-1);align-items:center;flex-wrap:nowrap;overflow:hidden;white-space:nowrap;background:#000c;pointer-events:none;z-index:5;font-size:var(--fs-s)}
 .chip{display:inline-flex;align-items:center;gap:3px;background:#ffffff14;border-radius:var(--r-m);padding:2px 7px;flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
 .chip b{color:var(--accent);font-weight:600}.chip .ic{font-size:14px}
 /* 底栏：图标在上、文字在下 */
@@ -29,7 +29,7 @@ button{font:inherit;color:inherit;border:0;cursor:pointer}
 .body{display:flex;gap:2px;flex-wrap:wrap}.part{width:14px;height:8px;border-radius:2px}
 pre.mem{margin:var(--sp-1) 0 0;max-height:120px;overflow:auto;background:#0008;padding:var(--sp-1);border-radius:var(--r-s);font-size:var(--fs-xs);white-space:pre-wrap;user-select:text}
 /* 面板 */
-.panel{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(380px,90vw);max-height:84vh;overflow:auto;background:var(--panel);padding:var(--sp-4);border-radius:var(--r-l);display:flex;flex-direction:column;gap:var(--sp-2);z-index:20;box-shadow:0 10px 40px #000a}
+.panel{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(380px,90vw);max-height:84vh;overflow:auto;background:var(--panel);padding:var(--sp-4);border-radius:var(--r-l);display:flex;flex-direction:column;gap:var(--sp-2);z-index:20;box-shadow:none}
 .pTitle{font-size:var(--fs-l);font-weight:700;text-align:center;margin-bottom:var(--sp-1);white-space:nowrap}
 .panel button,.startBtns button{display:flex;align-items:center;justify-content:center;gap:var(--sp-2);height:44px;padding:0 var(--sp-3);background:var(--btn);border-radius:var(--r-m);font-size:var(--fs-m);min-width:0}
 .panel button.primary,.primary{background:var(--primary)!important;color:#fff}
@@ -49,17 +49,24 @@ pre.mem{margin:var(--sp-1) 0 0;max-height:120px;overflow:auto;background:#0008;p
 #edTabs button.on{background:var(--btn-on)}
 #blocklyDiv{flex:1;position:relative}
 #jsView{flex:1;margin:0;overflow:auto;background:#1e1e1e;color:#9cdcfe;font:12px/1.5 monospace;padding:var(--sp-3);user-select:text}
-/* Blockly 分类：大号彩色按钮 */
-.blocklyToolboxDiv,.blocklyToolbox{background:#1f2533!important;padding:6px 4px!important;min-width:88px}
-.blocklyTreeRow{height:44px!important;line-height:44px!important;margin:0 0 6px 0!important;border-radius:var(--r-m)!important;padding:0 10px 0 8px!important;border-left-width:6px!important}
-.blocklyTreeLabel{font-size:15px!important;color:#fff!important;font-weight:600;white-space:nowrap}
-.blocklyTreeSelected{outline:3px solid #fff;outline-offset:-3px}.blocklyTreeIcon{display:none!important}
-.blocklyFlyoutBackground{fill:#2a3142!important;fill-opacity:.95!important}
 /* 开始界面 */
-#start{position:fixed;inset:0;z-index:50;display:flex;flex-direction:column;justify-content:space-between;align-items:center;padding:calc(var(--top) + 12vh) var(--sp-4) calc(var(--bot) + 8vh);
-background:linear-gradient(180deg,#05101ecc 0%,#05101e33 35%,#05101e00 55%,#05101ecc 100%),url(art/start_bg.webp) 76% 70%/cover no-repeat,radial-gradient(120% 80% at 70% 80%,#2a5a7a 0%,#0b1a2a 50%,#05080d 100%)}
-.startTitle{text-align:center}.t1{font-size:var(--fs-xl);font-weight:800;letter-spacing:2px;color:#fff;text-shadow:0 0 18px #4fc3f7aa,0 2px 4px #000;white-space:nowrap}
+#start{position:fixed;inset:0;z-index:50;display:flex;flex-direction:column;justify-content:space-between;align-items:center;padding:calc(var(--top) + 12vh) var(--sp-4) calc(var(--bot) + 8vh);background:#05101ecc url(art/start_bg.webp) 76% 70%/cover no-repeat}
+.startTitle{text-align:center}.t1{font-size:var(--fs-xl);font-weight:800;letter-spacing:2px;color:#fff;white-space:nowrap}
 .t2{margin-top:var(--sp-2);font-size:var(--fs-s);color:#bcd;white-space:nowrap}
 .startBtns{display:flex;flex-direction:column;gap:var(--sp-3);width:min(300px,80vw)}
-.startBtns button.big{height:50px;font-size:var(--fs-l);background:#1b2433cc;border:1px solid #ffffff22;backdrop-filter:blur(4px)}
+.startBtns button.big{height:50px;font-size:var(--fs-l);background:#1b2433;border:1px solid #333;}
 #upd{z-index:60}
+
+/* Blockly 顶部分类条（可折叠） */
+#catBar{display:flex;flex-wrap:wrap;gap:4px;padding:6px;background:#1b1e25;border-bottom:1px solid #333;flex:0 0 auto;max-height:40%;overflow:auto}
+#catBar.collapsed{display:none}
+#catBar .cat{height:32px;padding:0 10px;border:0;border-radius:4px;color:#fff;font-size:13px;font-weight:600;white-space:nowrap;background:#2a2f3a}
+#catBar .cat.on{outline:2px solid #fff;outline-offset:-2px}
+#catToggle{height:32px;padding:0 10px;background:#333;border:0;border-radius:4px;color:#aaa;font-size:12px;white-space:nowrap}
+#edTabs{align-items:center}
+/* 扁平按钮：无阴影无渐变 */
+.panel,.panel button,.startBtns button,#bar button,#edTabs button,#upd button{box-shadow:none!important;background-image:none!important}
+.panel{border:1px solid #333}
+/* 隐藏 Blockly 原生 toolbox 槽位 */
+.blocklyToolboxDiv{display:none!important;width:0!important}
+.blocklyMainBackground{stroke:none!important}

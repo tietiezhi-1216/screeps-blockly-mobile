@@ -23,6 +23,17 @@ class Renderer {
       source: this.canvasTex(R, R, g => { const gr = g.createRadialGradient(32, 32, 6, 32, 32, 32); gr.addColorStop(0, 'rgba(255,230,109,.55)'); gr.addColorStop(1, 'rgba(255,230,109,0)'); g.fillStyle = gr; g.fillRect(0, 0, R, R); g.fillStyle = '#ffe56d'; g.fillRect(20, 20, 24, 24); g.strokeStyle = '#a08a2a'; g.lineWidth = 2; g.strokeRect(20, 20, 24, 24); }),
       spawn: this.canvasTex(R, R, g => { g.fillStyle = '#181818'; g.beginPath(); g.arc(32, 32, 30, 0, 7); g.fill(); g.strokeStyle = '#cccccc'; g.lineWidth = 5; g.beginPath(); g.arc(32, 32, 26, 0, 7); g.stroke(); g.fillStyle = '#111'; g.beginPath(); g.arc(32, 32, 20, 0, 7); g.fill(); }),
       ext: this.canvasTex(32, 32, g => { g.fillStyle = '#181818'; g.beginPath(); g.arc(16, 16, 14, 0, 7); g.fill(); g.strokeStyle = '#bbbbbb'; g.lineWidth = 2.5; g.beginPath(); g.arc(16, 16, 12, 0, 7); g.stroke(); }),
+      controller: this.canvasTex(64, 64, g => { // 紫/灰六边形风格
+        g.fillStyle = 'rgba(140,80,200,.25)'; g.beginPath(); g.arc(32, 32, 30, 0, 7); g.fill();
+        g.strokeStyle = '#9b6dff'; g.lineWidth = 3; g.beginPath();
+        for (let i = 0; i < 6; i++) { const a = Math.PI / 6 + i * Math.PI / 3; const x = 32 + Math.cos(a) * 22, y = 32 + Math.sin(a) * 22; i ? g.lineTo(x, y) : g.moveTo(x, y); } g.closePath(); g.stroke();
+        g.fillStyle = '#6a4a8a'; g.beginPath(); g.arc(32, 32, 10, 0, 7); g.fill();
+      }),
+      tower: this.canvasTex(32, 32, g => { g.fillStyle = '#333'; g.fillRect(10, 6, 12, 20); g.strokeStyle = '#c44'; g.lineWidth = 2; g.strokeRect(10, 6, 12, 20); g.fillStyle = '#c44'; g.fillRect(13, 2, 6, 6); }),
+      container: this.canvasTex(32, 32, g => { g.fillStyle = '#444'; g.fillRect(6, 10, 20, 14); g.strokeStyle = '#aaa'; g.lineWidth = 2; g.strokeRect(6, 10, 20, 14); }),
+      storage: this.canvasTex(32, 32, g => { g.fillStyle = '#2a2a2a'; g.beginPath(); g.moveTo(16, 2); g.lineTo(28, 10); g.lineTo(28, 22); g.lineTo(16, 30); g.lineTo(4, 22); g.lineTo(4, 10); g.closePath(); g.fill(); g.strokeStyle = '#ffe56d'; g.lineWidth = 2; g.stroke(); }),
+      wall: this.canvasTex(16, 16, g => { g.fillStyle = '#555'; g.fillRect(1, 1, 14, 14); }),
+      rampart: this.canvasTex(16, 16, g => { g.strokeStyle = '#3a8'; g.lineWidth = 2; g.strokeRect(1, 1, 14, 14); }),
       disc: this.canvasTex(R, R, g => { g.fillStyle = '#fff'; g.beginPath(); g.arc(32, 32, 31, 0, 7); g.fill(); }),
     };
   }
@@ -74,8 +85,16 @@ class Renderer {
     if (first) { const me = v.spawns.find(s => s.owner === this.myPid) || v.spawns[0]; if (me) this.focus(me.x, me.y); }
     const col = o => v.players[o]?.color ?? 0xffffff, seen = new Set(), ent = (id, make) => { seen.add(id); let s = this.sprites.get(id); if (!s) { s = make(); this.sprites.set(id, s); } return s; };
     for (const r of v.structures) {
-      const id = 'st' + r.x + ',' + r.y;
-      ent(id, () => { if (r.type === 'road') { const g = new PIXI.Graphics(); g.beginFill(0x666666).drawCircle((r.x + .5) * TS, (r.y + .5) * TS, TS * .18).endFill(); this.roadL.addChild(g); return g; } const s = new PIXI.Sprite(this.tex.ext); s.anchor.set(.5); s.width = s.height = TS * .8; s.x = (r.x + .5) * TS; s.y = (r.y + .5) * TS; this.objL.addChild(s); return s; });
+      const id = r.id || ('st' + r.x + ',' + r.y);
+      ent(id, () => {
+        if (r.type === 'road') { const g = new PIXI.Graphics(); g.beginFill(0x666666).drawCircle((r.x + .5) * TS, (r.y + .5) * TS, TS * .18).endFill(); this.roadL.addChild(g); return g; }
+        const tex = r.type === 'tower' ? this.tex.tower : r.type === 'container' ? this.tex.container : r.type === 'storage' ? this.tex.storage : r.type === 'constructedWall' ? this.tex.wall : r.type === 'rampart' ? this.tex.rampart : this.tex.ext;
+        const s = new PIXI.Sprite(tex); s.anchor.set(.5); s.width = s.height = (r.type === 'constructedWall' || r.type === 'rampart' ? TS : TS * .9); s.x = (r.x + .5) * TS; s.y = (r.y + .5) * TS; this.objL.addChild(s); return s;
+      });
+    }
+    for (const c of v.controllers || []) {
+      const s = ent(c.id, () => { const s = new PIXI.Sprite(this.tex.controller); s.anchor.set(.5); s.width = s.height = TS * 1.3; s.x = (c.x + .5) * TS; s.y = (c.y + .5) * TS; const lbl = new PIXI.Text('', { fontSize: 10, fill: 0xccaaee }); lbl.anchor.set(.5, 0); lbl.y = TS * .55; s.addChild(lbl); s.lbl = lbl; this.objL.addChild(s); return s; });
+      s.tint = c.owner ? (v.players[c.owner]?.color ?? 0x9b6dff) : 0x666666; s.lbl.text = c.level > 0 ? ('RCL' + c.level) : '';
     }
     for (const st of v.sites) {
       const g = ent(st.id, () => { const g = new PIXI.Graphics(); this.siteL.addChild(g); return g; });
@@ -94,13 +113,13 @@ class Renderer {
     }
     for (const [id, s] of this.sprites) if (!seen.has(id)) { s.destroy({ children: true }); this.sprites.delete(id); }
     // 动作光束（每 tick 重画一次，逐帧淡出）
-    const g = this.beamG; g.clear(); const BC = { harvest: 0xffe56d, transfer: 0xffffff, build: 0x4fc3f7 };
+    const g = this.beamG; g.clear(); const BC = { harvest: 0xffe56d, transfer: 0xffffff, build: 0x4fc3f7, upgrade: 0x9b6dff, attack: 0xff4444, heal: 0x66ff66, repair: 0x4fc3f7 };
     for (const e of v.events || []) if (BC[e.t] !== undefined) { g.lineStyle(1.5, BC[e.t], .9).moveTo((e.fx + .5) * TS, (e.fy + .5) * TS).lineTo((e.x + .5) * TS, (e.y + .5) * TS); }
     this.drawSel(); this.onTick && this.onTick();
   }
   select(o) { this.selected = o; this.drawSel(); }
   drawSel() { const g = this.selG; g.clear(); const o = this.selected; if (!o || !this.view) return; const cur = this.find(o); if (!cur) return; if (!o.kind || o.kind !== 'creep') g.lineStyle(1.5, 0xffffff, .9).drawRect(cur.x * TS, cur.y * TS, TS, TS); }
-  find(o) { const v = this.view; if (!v || !o) return null; const L = { creep: v.creeps, spawn: v.spawns, source: v.sources, site: v.sites }[o.kind]; return L ? L.find(x => x.id === o.id) : null; }
+  find(o) { const v = this.view; if (!v || !o) return null; const L = { creep: v.creeps, spawn: v.spawns, source: v.sources, site: v.sites, controller: v.controllers, structure: v.structures }[o.kind]; return L ? L.find(x => x.id === o.id) : null; }
   // ===== 每帧：creep 线性插值 + 镜头 =====
   frame() {
     const now = performance.now(); this._fpsN++; if (now - this._fpsT > 500) { this.fps = this._fpsN * 1000 / (now - this._fpsT); this._fpsN = 0; this._fpsT = now; }

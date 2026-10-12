@@ -10,7 +10,7 @@ const log = s => { const l = $('log'); l.textContent += s + '\n'; if (l.textCont
 
 function loadEngine() {
   let w = null; try { w = JSON.parse(localStorage.getItem(SAVE_W)); } catch (e) {}
-  if (!w || w.v !== 2) w = newWorld();
+  if (!w || w.v !== 3) w = newWorld();
   engine = new Engine(w); engine.onLog = (pid, s) => { if (pid === myPid) log(s); };
   engine.addPlayer(myPid, nick); engine.setCode(myPid, code);
   renderer.reset(); renderer.setView(engine.w, 500 / speed);
@@ -18,15 +18,44 @@ function loadEngine() {
 function save() { if (engine && mode !== 'client') localStorage.setItem(SAVE_W, engine.saveData()); }
 
 function initBlockly() {
-  ws = Blockly.inject('blocklyDiv', { toolbox: TOOLBOX, trashcan: true, zoom: { controls: true, wheel: true, pinch: true, startScale: 0.8, minScale: 0.4, maxScale: 2 }, move: { scrollbars: true, drag: true, wheel: true }, grid: { spacing: 24, length: 2, colour: '#ddd', snap: true }, renderer: 'zelos' });
-  colorizeToolbox();
+  const first = CATS[0];
+  const tb = { kind: 'flyoutToolbox', contents: first.custom ? [{ kind: 'category', custom: first.custom, name: first.name }] : first.blocks.map(t => ({ kind: 'block', type: t })) };
+  ws = Blockly.inject('blocklyDiv', { toolbox: tb, trashcan: true, zoom: { controls: true, wheel: true, pinch: true, startScale: 0.85, minScale: 0.4, maxScale: 2.5 }, move: { scrollbars: true, drag: true, wheel: true }, grid: { spacing: 24, length: 2, colour: '#ddd', snap: true }, renderer: 'zelos', horizontalLayout: false, toolboxPosition: 'start' });
+  buildCatBar(first.id);
   let saved = null; try { saved = JSON.parse(localStorage.getItem(SAVE_C)); } catch (e) {}
   Blockly.serialization.workspaces.load(saved || DEFAULT_WS, ws);
   ws.addChangeListener(e => { if (!e.isUiEvent) { regen(false); localStorage.setItem(SAVE_C, JSON.stringify(Blockly.serialization.workspaces.save(ws))); } });
   regen(false);
 }
-function colorizeToolbox() { // 让分类按钮整块着色
-  try { for (const it of ws.getToolbox().getToolboxItems()) { const d = it.getDiv && it.getDiv(), row = d && d.querySelector('.blocklyTreeRow'), col = it.colour_ || (it.getColour && it.getColour()); if (row && col) { row.style.background = col; row.style.borderLeftColor = '#ffffff55'; } } } catch (e) { console.warn(e); }
+let catCollapsed = false, activeCat = null;
+function buildCatBar(sel) {
+  activeCat = sel || activeCat || CATS[0].id;
+  const bar = $('catBar'); bar.innerHTML = '';
+  const tog = document.createElement('button'); tog.id = 'catToggle'; tog.textContent = catCollapsed ? '分类 ▾' : '分类 ▴';
+  tog.onclick = () => { catCollapsed = !catCollapsed; bar.classList.toggle('collapsed', catCollapsed); tog.textContent = catCollapsed ? '分类 ▾' : '分类 ▴'; Blockly.svgResize(ws); };
+  // put toggle in edTabs if missing
+  if (!$('catToggle')) { const tabs = $('edTabs'); const t = document.createElement('button'); t.id = 'catToggle'; t.textContent = '分类 ▴'; t.onclick = tog.onclick; tabs.insertBefore(t, tabs.children[2] || null); }
+  else $('catToggle').onclick = tog.onclick;
+  bar.classList.toggle('collapsed', catCollapsed);
+  for (const c of CATS) {
+    const b = document.createElement('button'); b.className = 'cat' + (c.id === activeCat ? ' on' : ''); b.textContent = c.name; b.style.background = c.colour;
+    b.onclick = () => selectCat(c.id); bar.appendChild(b);
+  }
+}
+function selectCat(id) {
+  activeCat = id; const c = CATS.find(x => x.id === id); if (!c || !ws) return;
+  catCollapsed = false; buildCatBar(id);
+  let contents;
+  if (c.custom === 'VARIABLE') contents = [{ kind: 'category', name: c.name, custom: 'VARIABLE' }];
+  else if (c.custom === 'PROCEDURE') contents = [{ kind: 'category', name: c.name, custom: 'PROCEDURE' }];
+  else contents = c.blocks.map(t => ({ kind: 'block', type: t }));
+  // flyoutToolbox can't use category custom easily — inject blocks; for VARIABLE/PROCEDURE use continuous toolbox trick
+  if (c.custom) {
+    ws.updateToolbox({ kind: 'categoryToolbox', contents: [{ kind: 'category', name: c.name, custom: c.custom, colour: c.colour }] });
+  } else {
+    ws.updateToolbox({ kind: 'flyoutToolbox', contents });
+  }
+  Blockly.svgResize(ws);
 }
 function regen(push = true) {
   code = Blockly.JavaScript.workspaceToCode(ws); $('jsView').textContent = '// 每个 tick 执行一次（等价于 Screeps 的 module.exports.loop）\n' + code;
@@ -135,13 +164,16 @@ function renderInspect() {
     if (mode !== 'client' && o.owner === myPid) b += `<pre class="mem">Memory ${esc(JSON.stringify(engine.w.memory[myPid].creeps[o.name] || {}, null, 1))}</pre>`; }
   else if (sel.kind === 'spawn') { t = 'StructureSpawn ' + esc(o.name); b += kv('所属', pn(o.owner)) + kv('hits', '5000 / 5000') + kv('能量', `${o.energy} / ${o.cap}`) + kv('生产', o.spawning ? `${esc(o.spawning.name)}（剩 ${o.spawning.left} tick）` : '空闲'); }
   else if (sel.kind === 'source') { t = 'Source'; b += kv('能量', `${o.energy} / ${o.cap}`) + kv('再生', '每 300 tick'); }
+  else if (sel.kind === 'controller') { t = 'StructureController'; b += kv('所属', o.owner ? pn(o.owner) : '未占领') + kv('等级 RCL', o.level) + kv('进度', `${o.progress} / ${o.progressTotal}`) + kv('降级倒计时', o.ticksToDowngrade || '-'); }
+  else if (sel.kind === 'structure') { t = 'Structure ' + esc(o.type); b += kv('所属', pn(o.owner)) + kv('hits', `${o.hits} / ${o.hitsMax}`) + (o.energyCapacity != null ? kv('能量', `${o.energy||0} / ${o.energyCapacity}`) : ''); }
   else if (sel.kind === 'site') { t = 'ConstructionSite'; b += kv('类型', o.type) + kv('所属', pn(o.owner)) + kv('进度', `${o.progress} / ${o.total}`); }
   $('insTitle').innerHTML = t; $('insBody').innerHTML = b; $('inspect').classList.remove('hidden');
 }
 renderer.onTap = (x, y) => {
   const v = view(); if (!v) return; const f = a => a.find(o => o.x === x && o.y === y);
   const c = f(v.creeps), sp = f(v.spawns), s = f(v.sources), st = f(v.sites);
-  sel = c ? { kind: 'creep', id: c.id } : sp ? { kind: 'spawn', id: sp.id } : s ? { kind: 'source', id: s.id } : st ? { kind: 'site', id: st.id } : null;
+  const ctrl = (v.controllers||[]).find(o => o.x === x && o.y === y), stt = (v.structures||[]).find(o => o.x === x && o.y === y);
+  sel = c ? { kind: 'creep', id: c.id } : sp ? { kind: 'spawn', id: sp.id } : ctrl ? { kind: 'controller', id: ctrl.id } : stt ? { kind: 'structure', id: stt.id } : s ? { kind: 'source', id: s.id } : st ? { kind: 'site', id: st.id } : null;
   renderer.select(sel); if (sel) renderInspect(); else $('inspect').classList.add('hidden');
 };
 $('insClose').onclick = () => { sel = null; renderer.select(null); $('inspect').classList.add('hidden'); };

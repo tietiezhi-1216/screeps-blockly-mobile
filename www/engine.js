@@ -1,7 +1,7 @@
 // 权威模拟引擎：按官方 Screeps 规则（常量全部来自 SC = 官方 constants.js）。与渲染完全分离。
 // 内部用"全局格坐标"（房间 (rx,ry) 的本地 (x,y) → rx*50+x），对玩家 API 一律暴露官方的房间内坐标 + roomName。
 const PLAYER_COLORS = [0x4fc3f7, 0xff8a65, 0xba68c8, 0x81c784, 0xfff176, 0xf06292, 0x4db6ac, 0xa1887f];
-const WORLD_GEN = 2; // 地图/存档格式版本（v1.3：50x50 官方房间）
+const WORLD_GEN = 3; // 地图/存档格式版本（v1.4：懒生成扇区世界 + 玩家自选出生点）
 const { OK, ERR_NOT_OWNER, ERR_NO_PATH, ERR_NAME_EXISTS, ERR_BUSY, ERR_NOT_FOUND, ERR_NOT_ENOUGH_ENERGY, ERR_NOT_ENOUGH_RESOURCES, ERR_INVALID_TARGET, ERR_FULL, ERR_NOT_IN_RANGE, ERR_INVALID_ARGS, ERR_TIRED, ERR_NO_BODYPART, ERR_RCL_NOT_ENOUGH, ERR_GCL_NOT_ENOUGH, RESOURCE_ENERGY } = SC;
 const OBSTACLES = new Set(SC.OBSTACLE_OBJECT_TYPES);
 const DIRS = { 1: [0, -1], 2: [1, -1], 3: [1, 0], 4: [1, 1], 5: [0, 1], 6: [-1, 1], 7: [-1, 0], 8: [-1, -1] };
@@ -16,25 +16,30 @@ const RESOURCES = new Set(SC.RESOURCES_ALL);
 
 function newWorld(seed = (Date.now() % 1e6) | 0) {
   const w = { v: 3, gen: WORLD_GEN, seed, time: 0, S: 0, rooms: {}, roomsVer: 0, sources: [], minerals: [], controllers: [], spawns: [], creeps: [], sites: [], structures: [], resources: [], tombstones: [], flags: [], players: {}, memory: {}, nextId: 1 };
-  ensureSize(w, 1); return w;
+  w.S = SECTOR; return w;
 }
+// 懒生成：世界边界是 S×S 个房间（起始 11×11，一个官方扇区），但房间只在需要时（有对象/邻近/被查看）才生成
+function ensureRoom(w, rx, ry) {
+  if (rx < 0 || ry < 0 || rx >= w.S || ry >= w.S) return null; const k = rx + ',' + ry; if (w.rooms[k]) return w.rooms[k];
+  const g = genRoom(w.seed, rx, ry, roomExits(w.seed, rx, ry));
+  const rm = w.rooms[k] = { name: roomNameXY(rx, ry), type: g.type, tiles: g.tiles.slice(), base: g.tiles, owner: null };
+  const ox = rx * ROOM, oy = ry * ROOM;
+  for (const s of g.sources) w.sources.push({ kind: 'source', id: 's' + (w.nextId++), x: ox + s.x, y: oy + s.y, energy: SC.SOURCE_ENERGY_NEUTRAL_CAPACITY, cap: SC.SOURCE_ENERGY_NEUTRAL_CAPACITY, regenAt: null });
+  const c = g.controller; if (c) w.controllers.push({ kind: 'controller', id: 'ctrl' + (w.nextId++), x: ox + c.x, y: oy + c.y, level: 0, progress: 0, downgradeTime: null, owner: null, reservation: null, safeMode: null, safeModeAvailable: 0, safeModeCooldown: null, upgradeBlocked: null, sign: null });
+  if (g.mineral) { const m = g.mineral; w.minerals.push({ kind: 'mineral', id: 'm' + (w.nextId++), x: ox + m.x, y: oy + m.y, type: m.type, density: m.density, amount: m.amount, regenAt: null }); }
+  applyBorders(w, rx, ry); w.roomsVer++; return rm;
+}
+function ensureNear(w, rx, ry, r = 1) { for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) ensureRoom(w, rx + dx, ry + dy); }
 function ensureSize(w, S) {
-  if (S <= w.S) return false;
-  for (let ry = 0; ry < S; ry++) for (let rx = 0; rx < S; rx++) {
-    const k = rx + ',' + ry; if (w.rooms[k]) continue;
-    const g = genRoom(w.seed, rx, ry, roomExits(w.seed, rx, ry));
-    w.rooms[k] = { name: roomNameXY(rx, ry), tiles: g.tiles.slice(), base: g.tiles, owner: null };
-    const ox = rx * ROOM, oy = ry * ROOM;
-    for (const s of g.sources) w.sources.push({ kind: 'source', id: 's' + (w.nextId++), x: ox + s.x, y: oy + s.y, energy: SC.SOURCE_ENERGY_NEUTRAL_CAPACITY, cap: SC.SOURCE_ENERGY_NEUTRAL_CAPACITY, regenAt: null });
-    const c = g.controller; w.controllers.push({ kind: 'controller', id: 'ctrl' + (w.nextId++), x: ox + c.x, y: oy + c.y, level: 0, progress: 0, downgradeTime: null, owner: null, reservation: null, safeMode: null, safeModeAvailable: 0, safeModeCooldown: null, upgradeBlocked: null, sign: null });
-    if (g.mineral) { const m = g.mineral; w.minerals.push({ kind: 'mineral', id: 'm' + (w.nextId++), x: ox + m.x, y: oy + m.y, type: m.type, density: m.density, amount: m.amount, regenAt: null }); }
-  }
-  w.S = S;
-  for (let ry = 0; ry < S; ry++) for (let rx = 0; rx < S; rx++) applyBorders(w, rx, ry);
+  if (S <= w.S) return false; w.S = S;
+  for (const k in w.rooms) { const [rx, ry] = k.split(',').map(Number); applyBorders(w, rx, ry); }
   w.roomsVer++; return true;
 }
-// 玩家越多世界越大：每人约 2 个房间
-function sizeFor(n) { return Math.max(1, Math.ceil(Math.sqrt(n * 2))); }
+const SECTOR = 11; // 起始世界：一个官方扇区（四周是高速公路，中间 (5,5) 为扇区中心）
+// 可选的空闲房间太少时向外扩一个扇区
+function freeRooms(w) { const owned = ownedMap(w); let n = 0; for (let ry = 0; ry < w.S; ry++) for (let rx = 0; rx < w.S; rx++) if (roomStatus(w.S, owned, rx, ry, null) === 'free') n++; return n; }
+function ownedMap(w) { const o = {}; for (const k in w.rooms) if (w.rooms[k].owner) o[k] = w.rooms[k].owner; return o; }
+function maybeExpand(w) { const need = Math.max(12, Object.keys(w.players).length * 4); while (freeRooms(w) < need) ensureSize(w, w.S + 10); }
 function ctrlOfRoom(w, k) { return w.controllers.find(c => roomKey(c.x, c.y) === k); }
 function rclOf(w, x, y) { const c = ctrlOfRoom(w, roomKey(x, y)); return c && c.owner ? c.level : 0; }
 function countStruct(w, pid, type, k) {
@@ -70,12 +75,12 @@ class Engine {
   }
   get W() { return this.w.S * ROOM; }
   log(pid, ...a) { const s = `[${this.w.time}] ` + a.map(v => typeof v === 'object' ? JSON.stringify(v) : String(v)).join(' '); this.onLog && this.onLog(pid, s); }
-  tile(x, y) { const rm = this.w.rooms[roomKey(x, y)]; if (!rm || x < 0 || y < 0) return T_WALL; return rm.tiles[(y % ROOM) * ROOM + (x % ROOM)]; }
+  tile(x, y) { if (x < 0 || y < 0) return T_WALL; const rm = this.w.rooms[roomKey(x, y)] || ensureRoom(this.w, Math.floor(x / ROOM), Math.floor(y / ROOM)); if (!rm) return T_WALL; return rm.tiles[(y % ROOM) * ROOM + (x % ROOM)]; }
   _grid() { // 0 可走 1 障碍；附加：道路
     const w = this.w, WW = this.W;
     if (this._g && this._gVer === w.roomsVer && this._gObj === this._objVer && this._gW === WW) return this._g;
-    const g = new Uint8Array(WW * WW), road = new Uint8Array(WW * WW);
-    for (const k in w.rooms) { const [rx, ry] = k.split(',').map(Number), t = w.rooms[k].tiles; for (let ly = 0; ly < ROOM; ly++) for (let lx = 0; lx < ROOM; lx++) { const v = t[ly * ROOM + lx]; if (v === T_WALL) g[(ry * ROOM + ly) * WW + rx * ROOM + lx] = 1; else if (v === T_SWAMP) g[(ry * ROOM + ly) * WW + rx * ROOM + lx] = 4; } }
+    const g = new Uint8Array(WW * WW).fill(1), road = new Uint8Array(WW * WW); // 未生成的房间当墙
+    for (const k in w.rooms) { const [rx, ry] = k.split(',').map(Number), t = w.rooms[k].tiles; for (let ly = 0; ly < ROOM; ly++) for (let lx = 0; lx < ROOM; lx++) { const v = t[ly * ROOM + lx], i = (ry * ROOM + ly) * WW + rx * ROOM + lx; g[i] = v === T_WALL ? 1 : v === T_SWAMP ? 4 : 0; } }
     for (const L of [w.sources, w.controllers, w.spawns, w.minerals]) for (const o of L) g[o.y * WW + o.x] = 1;
     for (const o of w.structures) { if (OBSTACLES.has(o.type)) g[o.y * WW + o.x] = 1; if (o.type === 'road') road[o.y * WW + o.x] = 1; }
     for (const s of w.sites) if (OBSTACLES.has(s.type)) g[s.y * WW + s.x] |= 2; // 自己的工地可走；记号供敌方判断
@@ -90,32 +95,69 @@ class Engine {
   }
   blocked(x, y, ignore) { if (this.solid(x, y, ignore && ignore.owner)) return true; const c = this._occ().get(y * this.W + x); return !!c && c !== ignore; }
 
-  addPlayer(pid, name) {
+  // manual=true：像官方一样由玩家在世界地图上自己选房间和 Spawn 位置（needsSpawn）；否则自动选（测试/机器人）
+  addPlayer(pid, name, manual = false) {
     const w = this.w; if (w.players[pid]) { w.players[pid].name = name || w.players[pid].name; return w.players[pid]; }
-    const n = Object.keys(w.players).length; ensureSize(w, sizeFor(n + 1));
-    const p = w.players[pid] = { name: name || pid, color: PLAYER_COLORS[n % PLAYER_COLORS.length], code: '', gcl: 0 };
-    w.memory[pid] = { creeps: {}, spawns: {}, rooms: {}, flags: {} }; this.placeSpawn(pid); this.log(pid, p.name, '加入世界'); return p;
+    const n = Object.keys(w.players).length;
+    const p = w.players[pid] = { name: name || pid, color: PLAYER_COLORS[n % PLAYER_COLORS.length], code: '', gcl: 0, needsSpawn: true };
+    w.memory[pid] = { creeps: {}, spawns: {}, rooms: {}, flags: {} }; maybeExpand(w);
+    if (!manual) this.placeSpawn(pid); this.log(pid, p.name, '加入世界'); return p;
   }
-  // 出生：选离其他玩家最远的空房间，像官方"选出生点"那样在 Controller 附近找一块 3x3 空地放 Spawn1
+  // 校验出生点（官方规则）：普通房间、无主且不挨着别人的房间、可走格、不在边缘/出口旁、不压在对象上
+  checkSpawnAt(pid, x, y) {
+    const w = this.w, rx = Math.floor(x / ROOM), ry = Math.floor(y / ROOM);
+    if (!w.players[pid]) return '玩家不存在';
+    if (!w.players[pid].needsSpawn) return '你已经有出生点了';
+    const st = roomStatus(w.S, ownedMap(w), rx, ry, pid);
+    if (st === 'out') return '超出世界'; if (st === 'highway') return '高速公路房间不能出生'; if (st === 'center') return '扇区中心房间不能出生';
+    if (st === 'owned' || st === 'mine') return '房间已被占领'; if (st === 'close') return '离其他玩家太近';
+    ensureNear(w, rx, ry, 0); const ctrl = ctrlOfRoom(w, rx + ',' + ry);
+    if (!ctrl || ctrl.owner || (ctrl.reservation && ctrl.reservation.owner !== pid)) return '房间不可占领';
+    const lx = x - rx * ROOM, ly = y - ry * ROOM;
+    if (lx < 1 || ly < 1 || lx > 48 || ly > 48) return '不能放在房间边缘';
+    if (this.tile(x, y) === T_WALL) return '不能放在墙上';
+    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) { const X = lx + dx, Y = ly + dy; if ((X === 0 || Y === 0 || X === 49 || Y === 49) && this.tile(x + dx, y + dy) !== T_WALL) return '不能紧挨出口'; }
+    if (this.solid(x, y) || this._occ().get(y * this.W + x)) return '该位置被占用';
+    let free = 0; for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) if ((dx || dy) && !this.solid(x + dx, y + dy)) free++;
+    if (!free) return '周围没有空位，creep 出不来';
+    return null;
+  }
+  placeSpawnAt(pid, x, y) {
+    const err = this.checkSpawnAt(pid, x, y); if (err) return err;
+    const w = this.w, rx = Math.floor(x / ROOM), ry = Math.floor(y / ROOM), k = rx + ',' + ry, ctrl = ctrlOfRoom(w, k);
+    w.rooms[k].owner = pid; Object.assign(ctrl, { owner: pid, level: 1, progress: 0, downgradeTime: w.time + SC.CONTROLLER_DOWNGRADE[1] + 1, safeModeAvailable: 1, reservation: null });
+    for (const s of w.sources) if (roomKey(s.x, s.y) === k) { s.cap = s.energy = SC.SOURCE_ENERGY_CAPACITY; s.regenAt = null; }
+    w.spawns.push(this.makeSpawn(pid, 'Spawn1', x, y, SC.SPAWN_ENERGY_START)); w.players[pid].needsSpawn = false;
+    ensureNear(w, rx, ry); this._objVer++; w.roomsVer++; maybeExpand(w); this.log(pid, '在', w.rooms[k].name, '放下 Spawn1'); return null;
+  }
+  // 自动出生：离其他玩家最远的空闲房间，在 Controller 与能量源附近找空地
   placeSpawn(pid) {
-    const w = this.w, owned = Object.entries(w.rooms).filter(([, r]) => r.owner).map(([k]) => k.split(',').map(Number));
-    const cands = Object.entries(w.rooms).filter(([, r]) => !r.owner).map(([k, r]) => { const [rx, ry] = k.split(',').map(Number); return { k, rx, ry, r, d: owned.length ? Math.min(...owned.map(([ox, oy]) => Math.abs(ox - rx) + Math.abs(oy - ry))) : -(Math.abs(rx - (w.S - 1) / 2) + Math.abs(ry - (w.S - 1) / 2)) }; }).sort((a, b) => b.d - a.d);
-    for (const c of cands) {
-      const ctrl = ctrlOfRoom(w, c.k), srcs = w.sources.filter(s => roomKey(s.x, s.y) === c.k);
-      let best = null, bs = Infinity;
+    const w = this.w, owned = ownedMap(w), own = Object.keys(owned).map(k => k.split(',').map(Number)), cands = [];
+    for (let ry = 0; ry < w.S; ry++) for (let rx = 0; rx < w.S; rx++) if (roomStatus(w.S, owned, rx, ry, pid) === 'free')
+      cands.push({ rx, ry, d: own.length ? Math.min(...own.map(([ox, oy]) => Math.max(Math.abs(ox - rx), Math.abs(oy - ry)))) : -(Math.abs(rx - 2.5) + Math.abs(ry - 2.5)) });
+    cands.sort((a, b) => b.d - a.d || a.ry - b.ry || a.rx - b.rx);
+    for (const c of cands.slice(0, 20)) {
+      ensureRoom(w, c.rx, c.ry); const k = c.rx + ',' + c.ry, ctrl = ctrlOfRoom(w, k), srcs = w.sources.filter(s => roomKey(s.x, s.y) === k); if (!ctrl) continue;
+      const tiles = [];
       for (let ly = 4; ly < 46; ly++) for (let lx = 4; lx < 46; lx++) {
         const x = c.rx * ROOM + lx, y = c.ry * ROOM + ly; let ok = true;
         for (let dy = -1; dy <= 1 && ok; dy++) for (let dx = -1; dx <= 1 && ok; dx++) if (this.solid(x + dx, y + dy)) ok = false;
-        if (!ok) continue;
-        const sc = dist({ x, y }, ctrl) + srcs.reduce((a, s) => a + dist({ x, y }, s), 0);
-        if (dist({ x, y }, ctrl) >= 3 && sc < bs && this.findPath({ x, y }, ctrl, 1).length) { bs = sc; best = { x, y }; }
+        if (ok && dist({ x, y }, ctrl) >= 3) tiles.push({ x, y, sc: dist({ x, y }, ctrl) + srcs.reduce((a, s) => a + dist({ x, y }, s), 0) });
       }
-      if (!best) continue;
-      c.r.owner = pid; ctrl.owner = pid; ctrl.level = 1; ctrl.progress = 0; ctrl.downgradeTime = w.time + SC.CONTROLLER_DOWNGRADE[1] + 1; ctrl.safeModeAvailable = 1;
-for (const s of srcs) { s.cap = s.energy = SC.SOURCE_ENERGY_CAPACITY; s.regenAt = null; }
-      w.spawns.push(this.makeSpawn(pid, 'Spawn1', best.x, best.y, SC.SPAWN_ENERGY_START)); this._objVer++; return;
+      tiles.sort((a, b) => a.sc - b.sc);
+      for (const t of tiles.slice(0, 8)) if (this.findPath(t, ctrl, 1).length && !this.placeSpawnAt(pid, t.x, t.y)) return true;
     }
-    ensureSize(w, w.S + 1); return this.placeSpawn(pid);
+    ensureSize(w, w.S + 10); return this.placeSpawn(pid);
+  }
+  // 重新出生（官方 respawn）：清除该玩家的一切，回到选点状态
+  respawn(pid) {
+    const w = this.w, mine = o => o.owner === pid; if (!w.players[pid]) return;
+    w.creeps = w.creeps.filter(c => !mine(c)); w.spawns = w.spawns.filter(s => !mine(s)); w.structures = w.structures.filter(s => !mine(s)); w.sites = w.sites.filter(s => !mine(s)); w.flags = w.flags.filter(f => !mine(f));
+    for (const c of w.controllers) if (c.owner === pid) Object.assign(c, { owner: null, level: 0, progress: 0, downgradeTime: null, safeMode: null, safeModeAvailable: 0 });
+    for (const c of w.controllers) if (c.reservation && c.reservation.owner === pid) c.reservation = null;
+    for (const k in w.rooms) if (w.rooms[k].owner === pid) w.rooms[k].owner = null;
+    w.memory[pid] = { creeps: {}, spawns: {}, rooms: {}, flags: {} }; Object.assign(w.players[pid], { needsSpawn: true, gcl: 0 });
+    this._o = null; this._objVer++; w.roomsVer++; this.log(pid, '已重新出生，请在世界地图上选择出生点');
   }
   makeSpawn(owner, name, x, y, energy) { return { kind: 'spawn', id: 'sp' + (this.w.nextId++), name, owner, x, y, store: { energy }, hits: SC.SPAWN_HITS, hitsMax: SC.SPAWN_HITS, spawning: null }; }
   makeStruct(type, owner, x, y) {
@@ -174,6 +216,8 @@ for (const s of srcs) { s.cap = s.energy = SC.SOURCE_ENERGY_CAPACITY; s.regenAt 
   // ===== 一个 tick：运行代码（动作立即结算）→ 移动 → 寿命/伤亡 → 各类建筑 tick =====
   tick() {
     const w = this.w; w.time++; this.events = []; this._o = null;
+    if (!this._near) this._near = new Set();
+    for (const c of w.creeps) { const k = roomKey(c.x, c.y); if (!this._near.has(k)) { this._near.add(k); ensureNear(w, Math.floor(c.x / ROOM), Math.floor(c.y / ROOM)); } }
     for (const c of w.creeps) { c._did = {}; c.px = c.x; c.py = c.y; }
     for (const pid in w.players) {
       const f = this.fns[pid]; if (!f) continue; const api = this.buildApi(pid), t0 = Date.now();
@@ -319,7 +363,7 @@ for (const s of srcs) { s.cap = s.energy = SC.SOURCE_ENERGY_CAPACITY; s.regenAt 
 // 快照：渲染/联机用的扁平只读视图（渲染层也可直接传入原始 world）
 function worldSnapshot(w, events) {
     const en = s => (s.store && s.store.energy) || 0;
-    return { time: w.time, S: w.S, roomsVer: w.roomsVer, players: Object.fromEntries(Object.entries(w.players).map(([k, p]) => [k, { name: p.name, color: p.color }])),
+    return { time: w.time, S: w.S, roomsVer: w.roomsVer, players: Object.fromEntries(Object.entries(w.players).map(([k, p]) => [k, { name: p.name, color: p.color, needsSpawn: !!p.needsSpawn, gcl: p.gcl || 0 }])), owned: ownedMap(w),
       sources: w.sources.map(s => ({ id: s.id, x: s.x, y: s.y, energy: s.energy, cap: s.cap })),
       minerals: w.minerals.map(m => ({ id: m.id, x: m.x, y: m.y, type: m.type, amount: m.amount })),
       controllers: w.controllers.map(c => ({ id: c.id, x: c.x, y: c.y, owner: c.owner, level: c.level, progress: c.progress, progressTotal: SC.CONTROLLER_LEVELS[c.level] || 0, ticksToDowngrade: c.downgradeTime ? c.downgradeTime - w.time : 0 })),
@@ -332,7 +376,7 @@ function worldSnapshot(w, events) {
       flags: (w.flags || []).map(f => ({ id: f.id, x: f.x, y: f.y, owner: f.owner, name: f.name, color: f.color, secondaryColor: f.secondaryColor })),
       events: events || [] };
 }
-function roomsDataOf(w) { return { roomsVer: w.roomsVer, S: w.S, rooms: Object.fromEntries(Object.entries(w.rooms).map(([k, r]) => [k, { tiles: r.tiles.join(''), owner: r.owner, name: r.name }])) }; }
+function roomsDataOf(w) { return { roomsVer: w.roomsVer, S: w.S, rooms: Object.fromEntries(Object.entries(w.rooms).map(([k, r]) => [k, { tiles: r.tiles.join(''), owner: r.owner, name: r.name, type: r.type }])) }; }
 Engine.prototype.saveData = function () { const w = this.w; return JSON.stringify(w, (k, v) => (k[0] === '_' ? undefined : v)); };
 if (typeof module !== 'undefined') module.exports = { Engine, newWorld, countStruct, rclOf };
 
@@ -702,7 +746,7 @@ function buildApi(E, pid) {
 
   // ---- Room ----
   const rooms = new Map();
-  class RoomTerrain { constructor(name) { this.roomName = name; const p = parseRoomName(name); this._k = p && p[0] + ',' + p[1]; if (!w.rooms[this._k]) throw new Error('Could not access room ' + name); }
+  class RoomTerrain { constructor(name) { this.roomName = name; const p = parseRoomName(name); this._k = p && p[0] + ',' + p[1]; if (p) ensureRoom(w, p[0], p[1]); if (!w.rooms[this._k]) throw new Error('Could not access room ' + name); }
     get(x, y) { const t = w.rooms[this._k].tiles[y * ROOM + x]; return t === T_WALL ? SC.TERRAIN_MASK_WALL : t === T_SWAMP ? SC.TERRAIN_MASK_SWAMP : 0; }
     getRawBuffer() { const b = new Uint8Array(2500); for (let i = 0; i < 2500; i++) { const t = w.rooms[this._k].tiles[i]; b[i] = t === T_WALL ? 1 : t === T_SWAMP ? 2 : 0; } return b; } }
   const noopVisual = new Proxy({}, { get: (t, k) => k === 'roomName' ? undefined : (() => noopVisual) });
@@ -762,7 +806,7 @@ function buildApi(E, pid) {
     getObjectById: id => { for (const L of [w.creeps, w.spawns, w.structures, w.controllers, w.sources, w.minerals, w.sites, w.resources, w.tombstones, w.flags]) { const o = L.find(o => o.id === id); if (o) return wrap(o); } return null; },
     notify: (msg) => { E.log(pid, '[notify]', msg); return OK; },
     map: {
-      describeExits: n => { const p = parseRoomName(n); if (!p || !w.rooms[p[0] + ',' + p[1]]) return null; const out = {}; const t = w.rooms[p[0] + ',' + p[1]].tiles, open = (f) => { for (let i = 0; i < 50; i++) if (f(i) !== T_WALL) return true; return false; };
+      describeExits: n => { const p = parseRoomName(n); if (p) ensureRoom(w, p[0], p[1]); if (!p || !w.rooms[p[0] + ',' + p[1]]) return null; const out = {}; const t = w.rooms[p[0] + ',' + p[1]].tiles, open = (f) => { for (let i = 0; i < 50; i++) if (f(i) !== T_WALL) return true; return false; };
         if (open(i => t[i])) out[SC.TOP] = roomNameXY(p[0], p[1] - 1); if (open(i => t[i * 50 + 49])) out[SC.RIGHT] = roomNameXY(p[0] + 1, p[1]); if (open(i => t[49 * 50 + i])) out[SC.BOTTOM] = roomNameXY(p[0], p[1] + 1); if (open(i => t[i * 50])) out[SC.LEFT] = roomNameXY(p[0] - 1, p[1]); return out; },
       findRoute: (from, to, opts = {}) => { from = typeof from === 'string' ? from : from.name; to = typeof to === 'string' ? to : to.name; if (from === to) return [];
         const prev = { [from]: null }, q = [from]; while (q.length) { const n = q.shift(); if (n === to) break; const ex = Game.map.describeExits(n) || {}; for (const d in ex) { const m = ex[d]; if (m in prev) continue; if (opts.routeCallback && opts.routeCallback(m, n) === Infinity) continue; prev[m] = { n, exit: +d }; q.push(m); } }
@@ -770,7 +814,7 @@ function buildApi(E, pid) {
       findExit: (from, to, opts) => { const r = Game.map.findRoute(from, to, opts); return Array.isArray(r) ? (r.length ? r[0].exit : ERR_INVALID_ARGS) : r; },
       getRoomLinearDistance: (a, b, cont) => { const p = parseRoomName(a), q = parseRoomName(b); return p && q ? Math.max(Math.abs(p[0] - q[0]), Math.abs(p[1] - q[1])) : Infinity; },
       getRoomTerrain: n => new RoomTerrain(n), getTerrainAt: (a, b, n) => { const pos = typeof a === 'number' ? { x: a, y: b, roomName: n } : a; return ['plain', 'wall', 'swamp'][[0, 1, 2][[0, 1, 2].indexOf(new RoomTerrain(pos.roomName).get(pos.x, pos.y))] ?? 0] || 'plain'; },
-      getWorldSize: () => w.S, getRoomStatus: n => { const p = parseRoomName(n); return p && w.rooms[p[0] + ',' + p[1]] ? { status: 'normal', timestamp: null } : undefined; },
+      getWorldSize: () => w.S, getRoomStatus: n => { const p = parseRoomName(n); return p && p[0] >= 0 && p[1] >= 0 && p[0] < w.S && p[1] < w.S ? { status: 'normal', timestamp: null } : undefined; },
       isRoomAvailable: n => !!Game.map.getRoomStatus(n), visual: noopVisual,
     },
     createConstructionSite(x, y, type, name) { // 兼容 v1.2 积木（非官方）：坐标按第一个 Spawn 所在房间解释

@@ -12,8 +12,9 @@ function loadEngine() {
   let w = null; try { w = JSON.parse(localStorage.getItem(SAVE_W)); } catch (e) {}
   if (!w || w.v !== 3) w = newWorld();
   engine = new Engine(w); engine.onLog = (pid, s) => { if (pid === myPid) log(s); };
-  engine.addPlayer(myPid, nick); engine.setCode(myPid, code);
+  engine.addPlayer(myPid, nick, true); engine.setCode(myPid, code);
   renderer.reset(); renderer.setView(engine.w, 500 / speed);
+  const sp = engine.w.spawns.find(s => s.owner === myPid); if (sp) renderer.focus(sp.x, sp.y); else renderer.focus(5 * ROOM + 24, 5 * ROOM + 24);
 }
 function save() { if (engine && mode !== 'client') localStorage.setItem(SAVE_W, engine.saveData()); }
 
@@ -103,6 +104,7 @@ function stats() {
     H = chip(mode === 'solo' ? 'device-gamepad-2' : mode === 'host' ? 'home' : 'wifi', mode === 'client' ? '客户端' : running ? '运行' : '暂停') + chip('refresh', `<b>${v.time}</b>`) + chip('bolt', `<b>${sp ? sp.energy + '/' + sp.cap : '-'}</b>`) + chip('bug', `<b>${n}</b>`) + chip('users', `${np}`) + chip('map', `${v.S}×${v.S}`);
   }
   if (showFps) H += chip('gauge', `${renderer.fps.toFixed(0)} fps · ${tickMs.toFixed(1)}ms`);
+  if (v && v.players[myPid]?.needsSpawn && !wm.auto && $('start').classList.contains('hidden') && $('wmap').classList.contains('hidden') && !build.on) openWorldMap(true);
   if (H !== stats._h) $('hud').innerHTML = stats._h = H;
 }
 let tickMs = 0, hudT = 0;
@@ -202,7 +204,7 @@ function renderInspect() {
   $('insTitle').innerHTML = t; $('insBody').innerHTML = b; $('inspect').classList.remove('hidden');
 }
 renderer.onTap = (x, y) => {
-  if (build.on) return buildTap(x, y);
+  if (build.on) return build.type === 'spawn1' ? spawnTap(x, y) : buildTap(x, y);
   const v = view(); if (!v) return; const f = a => a.find(o => o.x === x && o.y === y);
   const c = f(v.creeps), sp = f(v.spawns), s = f(v.sources), st = f(v.sites), mi = f(v.minerals || []), rs = f(v.resources || []), tb = f(v.tombstones || []);
   const ctrl = (v.controllers||[]).find(o => o.x === x && o.y === y), stt = (v.structures||[]).find(o => o.x === x && o.y === y);
@@ -261,4 +263,66 @@ function confirmBuild() {
 }
 $('btnBuild').onclick = () => build.on ? endBuild() : ($('buildPick').classList.contains('hidden') ? openBuildPicker() : $('buildPick').classList.add('hidden'));
 $('bpClose').onclick = () => $('buildPick').classList.add('hidden');
-$('bbOk').onclick = confirmBuild; $('bbCancel').onclick = endBuild;
+$('bbOk').onclick = () => build.type === 'spawn1' ? confirmSpawn() : confirmBuild(); $('bbCancel').onclick = () => { const sp = build.type === 'spawn1'; endBuild(); if (sp) { wm.auto = false; openWorldMap(true); } };
+
+// ===== 世界地图 / 选择出生点（同官方：先选空闲房间，再点格子放 Spawn1） =====
+const wm = { sel: null, auto: false, pick: false };
+const WM_COL = { free: '#3d4a3a', close: '#5a2b2b', mine: '#6dc1ff', owned: '#c46b6b', highway: '#1d1d1d', center: '#4a4325' };
+function wmData() { const v = view(); if (!v) return null; return { S: v.S, owned: v.owned || {}, players: v.players }; }
+function drawWorldMap() {
+  const d = wmData(), c = $('wmCanvas'); if (!d) return; const r = c.getBoundingClientRect(), dpr = Math.min(2, devicePixelRatio || 1);
+  c.width = r.width * dpr; c.height = r.height * dpr; const g = c.getContext('2d'); g.scale(dpr, dpr); g.fillStyle = '#141414'; g.fillRect(0, 0, r.width, r.height);
+  const cs = Math.floor(Math.min(r.width - 16, r.height - 16) / d.S), ox = (r.width - cs * d.S) / 2, oy = (r.height - cs * d.S) / 2; wm.geo = { cs, ox, oy, S: d.S };
+  for (let ry = 0; ry < d.S; ry++) for (let rx = 0; rx < d.S; rx++) {
+    const st = roomStatus(d.S, d.owned, rx, ry, myPid), x = ox + rx * cs, y = oy + ry * cs, o = d.owned[rx + ',' + ry];
+    g.fillStyle = st === 'owned' && d.players[o] ? '#' + (d.players[o].color >>> 0).toString(16).padStart(6, '0') : WM_COL[st];
+    g.fillRect(x + 1, y + 1, cs - 2, cs - 2);
+    if (st === 'close') { g.strokeStyle = 'rgba(255,255,255,.08)'; g.beginPath(); for (let i = -cs; i < cs; i += 5) { g.moveTo(x + i, y + cs); g.lineTo(x + i + cs, y); } g.save(); g.rect(x + 1, y + 1, cs - 2, cs - 2); g.clip(); g.stroke(); g.restore(); }
+    if (wm.sel && wm.sel[0] === rx && wm.sel[1] === ry) { g.strokeStyle = '#fff'; g.lineWidth = 2; g.strokeRect(x + 2, y + 2, cs - 4, cs - 4); g.lineWidth = 1; }
+    if (cs >= 30) { g.fillStyle = 'rgba(255,255,255,.45)'; g.font = '9px sans-serif'; g.fillText(roomNameXY(rx, ry), x + 3, y + 11); }
+  }
+  const me = Object.keys(d.owned).filter(k => d.owned[k] === myPid).length, free = (() => { let n = 0; for (let ry = 0; ry < d.S; ry++) for (let rx = 0; rx < d.S; rx++) if (roomStatus(d.S, d.owned, rx, ry, myPid) === 'free') n++; return n; })();
+  $('wmInfo').textContent = `${d.S}×${d.S} · 空闲 ${free} · 我的 ${me}`;
+}
+function openWorldMap(pick) {
+  wm.pick = !!pick; wm.auto = true; wm.sel = null; $('wmTitle').textContent = pick ? '选择出生房间' : '世界地图'; $('wmClose').style.display = pick ? 'none' : '';
+  $('wmGo').disabled = true; $('wmGo').textContent = pick ? '进入房间' : '前往'; $('wmSel').textContent = pick ? '点选一个空闲（绿色）房间' : '点选一个房间';
+  $('wmap').classList.remove('hidden'); requestAnimationFrame(drawWorldMap);
+}
+window.openWorldMap = openWorldMap;
+$('wmClose').onclick = () => $('wmap').classList.add('hidden');
+$('wmCanvas').addEventListener('click', e => {
+  const G = wm.geo; if (!G) return; const r = $('wmCanvas').getBoundingClientRect(), rx = Math.floor((e.clientX - r.left - G.ox) / G.cs), ry = Math.floor((e.clientY - r.top - G.oy) / G.cs);
+  if (rx < 0 || ry < 0 || rx >= G.S || ry >= G.S) return; const d = wmData(), st = roomStatus(d.S, d.owned, rx, ry, myPid);
+  const ZH = { free: '空闲，可出生', close: '离其他玩家太近', mine: '我的房间', owned: '已被 ' + (d.players[d.owned[rx + ',' + ry]]?.name || '其他玩家') + ' 占领', highway: '高速公路（无 Controller）', center: '扇区中心（无 Controller）' };
+  wm.sel = [rx, ry]; $('wmSel').textContent = `${roomNameXY(rx, ry)} · ${ZH[st]}`; $('wmGo').disabled = wm.pick && st !== 'free'; drawWorldMap();
+});
+$('wmGo').onclick = () => {
+  const [rx, ry] = wm.sel; $('wmap').classList.add('hidden');
+  if (mode === 'client') client.gen(rx, ry); else { ensureNear(engine.w, rx, ry, 0); renderer.setView(engine.w, 1); _snap = null; }
+  renderer.focus(rx * ROOM + 24.5, ry * ROOM + 24.5); renderer.scale = Math.max(renderer.scale, 1.2);
+  if (!wm.pick) return;
+  build.on = true; build.type = 'spawn1'; build.at = null; $('buildBar').classList.remove('hidden'); $('bbOk').disabled = true; $('bbOk').textContent = '放置 Spawn1'; $('bbCancel').textContent = '返回地图';
+  $('bbMsg').textContent = `点 ${roomNameXY(rx, ry)} 里的空地放置 Spawn1`; wm.room = [rx, ry];
+};
+function localSpawnCheck(x, y) {
+  if (Math.floor(x / ROOM) !== wm.room[0] || Math.floor(y / ROOM) !== wm.room[1]) return '请在所选房间内放置';
+  if (mode !== 'client') return engine.checkSpawnAt(myPid, x, y);
+  const rm = client.rooms && client.rooms[wm.room.join(',')]; if (!rm) return '地形加载中…'; const lx = x % ROOM, ly = y % ROOM, T = (a, b) => rm.tiles[b * ROOM + a];
+  if (lx < 1 || ly < 1 || lx > 48 || ly > 48) return '不能放在房间边缘'; if (T(lx, ly) === T_WALL) return '不能放在墙上';
+  for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) { const X = lx + dx, Y = ly + dy; if ((X === 0 || Y === 0 || X === 49 || Y === 49) && T(X, Y) !== T_WALL) return '不能紧挨出口'; }
+  return null;
+}
+function spawnTap(x, y) {
+  const err = localSpawnCheck(x, y); build.at = { x, y }; renderer.preview = { x, y, ok: !err }; renderer.drawSel();
+  $('bbMsg').textContent = err ? err : `Spawn1 · x ${x % ROOM}, y ${y % ROOM}`; $('bbOk').disabled = !!err;
+}
+function spawnDone() { endBuild(); $('bbCancel').textContent = '退出'; wm.auto = false; toastMsg('Spawn1 已放下，Controller 已占领（RCL 1）'); if (!running && mode !== 'client') { running = true; setRunUI(); } }
+function confirmSpawn() {
+  const a = build.at; if (!a) return;
+  if (mode === 'client') { client.onSpawnRes = err => err ? toastMsg('无法放置：' + err) : spawnDone(); client.spawnAt(a.x, a.y); return; }
+  const err = engine.placeSpawnAt(myPid, a.x, a.y); if (err) return toastMsg('无法放置：' + err);
+  _snap = null; renderer.setView(engine.w, 1); hostS && hostS.pushAll(); save(); spawnDone();
+}
+window.doRespawn = () => { endBuild(); wm.auto = false; if (mode === 'client') client.respawn(); else { engine.respawn(myPid); _snap = null; renderer.reset(); renderer.setView(engine.w, 1); hostS && hostS.pushAll(); save(); } toastMsg('已重新出生，请选择新的出生点'); };
+addEventListener('resize', () => { if (!$('wmap').classList.contains('hidden')) drawWorldMap(); });

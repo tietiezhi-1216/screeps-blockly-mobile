@@ -10,11 +10,11 @@ const p = require('puppeteer-core'), port = process.argv[2] || 8766, sleep = ms 
   const act = a => pg.evaluate(a => document.querySelector(`#start [data-act="${a}"]`).click(), a);
   await shot('home');
   // 跑一会儿产生统计
-  await act('play'); await pg.evaluate(() => { running = true; speed = 8; setRunUI(); }); await sleep(6000); await shot('game');
+  await act('play'); await pg.evaluate(() => { engine.placeSpawn(myPid); _snap = null; $('wmap').classList.add('hidden'); }); await pg.evaluate(() => { running = true; speed = 8; setRunUI(); }); await sleep(6000); await shot('game');
   await pg.evaluate(() => $('btnMenu').click()); await act('go:profile'); await shot('profile');
   await act('go:badge'); await pg.evaluate(() => { document.querySelector('[data-t="5"]').click(); }); await pg.evaluate(() => document.querySelector('[data-k="color2"][data-c="12"]').click()); await shot('badge'); await act('bsave');
   await act('editName'); await pg.evaluate(() => { document.querySelector('.shDlg input').value = 'TieTie'; document.querySelector('.shDlg [data-r="1"]').click(); });
-  await act('go:stats'); await shot('stats'); await act('back');
+  await pg.evaluate(() => document.querySelector('[data-act="ptab"][data-t="stats"]').click()); await shot('stats'); await pg.evaluate(() => document.querySelector('[data-act="ptab"][data-t="overview"]').click());
   await act('go:worlds'); await act('wSave'); await pg.evaluate(() => document.querySelector('.shDlg [data-r="1"]').click()); await shot('worlds');
   await act('wExport'); await shot('export'); await pg.evaluate(() => document.querySelector('.shDlg [data-r="0"]').click()); await act('back');
   await act('go:snippets'); await act('snSave'); await pg.evaluate(() => document.querySelector('.shDlg [data-r="1"]').click()); await shot('snippets'); await act('back'); await act('back');

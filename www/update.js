@@ -41,7 +41,7 @@ const Upd = {
     const P = nativePlugin('AppUpdater'); if (!P) return openUrl(this.apk.browser_download_url);
     if (this.path) return this.tryInstall();
     this.busy = true; this.$('updGo').disabled = true; this.$('updLink').classList.add('hidden'); this.$('updBarWrap').classList.remove('hidden'); this.progress(0, this.apk.size);
-    const sha = (this.apk.digest || '').startsWith('sha256:') ? this.apk.digest.slice(7) : '';
+    const sha = (this.apk.digest || '').startsWith('sha256:') ? this.apk.digest.slice(7) : (((this.rel && this.rel.body) || '').match(/SHA-?256[^0-9a-fA-F]*([0-9a-fA-F]{64})/i) || [])[1]?.toLowerCase() || ''; // GitHub 资产摘要，或发布说明里的 SHA-256
     try { const r = await P.download({ url: this.apk.browser_download_url, size: this.apk.size, sha256: sha }); this.path = r.path; this.busy = false; this.$('updMsg').textContent = `下载完成，已校验${sha ? ' SHA-256' : '大小'}`; this.tryInstall(); }
     catch (e) { this.fail(e.message || String(e)); }
   },

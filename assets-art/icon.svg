@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- Screeps World 图标：扁平极简，炭黑底 + 一个“creep”几何标记（外圈两段身体部件弧 + 中心能量核）。原创，不使用 Screeps 商标图形 -->
+  <rect width="1024" height="1024" fill="#1a1a1c"/>
+  <g fill="none" stroke-linecap="butt">
+    <circle cx="512" cy="512" r="300" stroke="#2c2c2e" stroke-width="56"/>
+    <path d="M 251.2 360 A 300 300 0 0 1 772.8 360" stroke="#f2f2f2" stroke-width="56"/>
+    <path d="M 724.1 724.1 A 300 300 0 0 1 299.9 724.1" stroke="#8d8d92" stroke-width="56"/>
+  </g>
+  <circle cx="512" cy="512" r="150" fill="#f2f2f2"/>
+  <rect x="452" y="452" width="120" height="120" rx="14" fill="#1a1a1c" transform="rotate(45 512 512)"/>
+</svg>

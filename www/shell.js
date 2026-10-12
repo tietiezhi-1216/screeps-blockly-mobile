@@ -39,15 +39,27 @@
     </div><div id="startVer" class="foot">版本 ${esc(window.APP_VERSION || 'dev')} · MIT 开源</div></div>`;
   };
 
+  // 个人中心：对照官方网页客户端账户页（徽章 + 名字 + GCL 进度条；概览 / 房间 / 统计 三个标签）
+  let ptab = 'overview';
+  const gclInfo = pts => { const M = SC.GCL_MULTIPLY, P = SC.GCL_POW, lv = Math.floor(Math.pow((pts || 0) / M, 1 / P)) + 1, base = Math.pow(lv - 1, P) * M, next = Math.pow(lv, P) * M; return { lv, cur: (pts || 0) - base, need: next - base }; };
+  const myRooms = () => { const v = typeof view === 'function' ? view() : null; if (!v) return []; return (v.controllers || []).filter(c => c.owner === myPid).map(c => ({ name: roomName(c.x, c.y), lvl: c.level, p: c.progress, t: c.progressTotal,
+    sp: v.spawns.filter(s => s.owner === myPid && roomName(s.x, s.y) === roomName(c.x, c.y)).length, cr: v.creeps.filter(k => k.owner === myPid && roomName(k.x, k.y) === roomName(c.x, c.y)).length })); };
   pages.profile = () => {
-    const p = prof(), s = Stats.get();
-    return head('个人中心') + `<div class="shBody">
-      <div class="prof">${badge(p.badge, 72)}<div class="pc"><div class="pn">${esc(nick)}</div><div class="ps">ID ${esc(myPid)}</div></div></div>
-      ${sec('玩家')}${row('editName', 'edit', '昵称', esc(nick))}${row('go:badge', 'palette', '徽章与颜色')}
-      ${sec('数据')}<div class="grid">${[['总 tick', s.ticks], ['creep', s.creeps], ['能量', s.energy], ['最高 RCL', s.rclMax], ['建造', s.built], ['存档', J('sbm_worlds', []).length]].map(([k, v]) => `<div class="cell"><div class="k">${k}</div><div class="n">${fmt(v)}</div></div>`).join('')}</div>
-      ${row('go:stats', 'chart-bar', '详细统计')}
-      ${sec('内容')}${row('go:worlds', 'world', '存档管理', J('sbm_worlds', []).length + ' 个')}${row('go:snippets', 'code', '代码片段库', J('sbm_snips', []).length + ' 个')}
-      ${sec('更多')}${row('go:settings', 'settings', '设置')}${row('go:about', 'info-circle', '关于')}</div>`;
+    const p = prof(), s = Stats.get(), v = typeof view === 'function' ? view() : null, me = v && v.players[myPid], g = gclInfo(me ? me.gcl : 0), rooms = myRooms();
+    const tile = (k, n, ic) => `<div class="cell"><div class="k"><span class="ic">${icon(ic)}</span>${k}</div><div class="n">${n}</div></div>`;
+    const tabs = [['overview', '概览'], ['rooms', '房间'], ['stats', '统计']].map(([k, t]) => `<button class="tab${ptab === k ? ' on' : ''}" data-act="ptab" data-t="${k}">${t}</button>`).join('');
+    let body = '';
+    if (ptab === 'overview') body = `<div class="grid">${tile('房间', rooms.length, 'home')}${tile('creep', v ? v.creeps.filter(c => c.owner === myPid).length : 0, 'bug')}${tile('最高 RCL', Math.max(s.rclMax, ...rooms.map(r => r.lvl), 0), 'trophy')}${tile('世界', v ? v.S + '×' + v.S : '-', 'map')}${tile('总 tick', fmt(s.ticks), 'clock')}${tile('采集能量', fmt(s.energy), 'bolt')}</div>
+      ${sec('玩家')}${row('editName', 'edit', '昵称', esc(nick))}${row('go:badge', 'palette', '徽章')}${row('worldMap', 'map', '世界地图')}${row('respawn', 'refresh', '重新出生', '', 'danger')}
+      ${sec('更多')}${row('go:worlds', 'world', '存档管理', J('sbm_worlds', []).length + ' 个')}${row('go:snippets', 'code', '代码片段库', J('sbm_snips', []).length + ' 个')}${row('go:settings', 'settings', '设置')}`;
+    else if (ptab === 'rooms') body = rooms.length ? `<div class="rlist">${rooms.map(r => `<div class="rrow"><div class="rn">${esc(r.name)}</div><div class="rl">RCL <b>${r.lvl}</b></div><div class="rbar"><i style="width:${r.lvl >= 8 ? 100 : Math.round(100 * r.p / (r.t || 1))}%"></i></div><div class="rs">${r.sp} Spawn · ${r.cr} creep</div></div>`).join('')}</div>`
+      : `<p class="note">还没有房间。在世界地图上选择一个空闲房间放下 Spawn。</p>${row('worldMap', 'map', '打开世界地图')}`;
+    else body = `<div class="grid">${[['总运行 tick', s.ticks, 'clock'], ['生产 creep', s.creeps, 'bug'], ['采集能量', s.energy, 'bolt'], ['最高 RCL', s.rclMax, 'trophy'], ['建成建筑', s.built, 'building'], ['存档', J('sbm_worlds', []).length, 'world']].map(([k, n, ic]) => tile(k, fmt(n), ic)).join('')}</div>
+      <p class="note">统计自 ${dt(s.since)}，只统计本机玩家在本机运行（单机 / 房主）时的数据。</p>${row('statReset', 'eraser', '清零统计', '', 'danger')}`;
+    return head('个人中心') + `<div class="shBody acct">
+      <div class="acHead">${badge(p.badge, 76)}<div class="pc"><div class="pn">${esc(nick)}</div>
+        <div class="gcl"><span class="gl">GCL <b>${g.lv}</b></span><div class="gbar"><i style="width:${Math.min(100, 100 * g.cur / g.need).toFixed(1)}%"></i></div><span class="gn">${fmt(Math.floor(g.cur))} / ${fmt(Math.ceil(g.need))}</span></div></div></div>
+      <div class="tabs">${tabs}</div>${body}</div>`;
   };
 
   let draft = null;
@@ -89,7 +101,7 @@
     return head('设置') + `<div class="shBody">${sec('通用')}${row('none', 'language', '语言', '简体中文', 'static')}${row('sound', 'volume-off', '音效', s.sound ? '开' : '关')}
       ${sec('游戏')}${row('fps', 'gauge', '显示 FPS', showFps ? '开' : '关')}${row('defSpeed', 'player-track-next', '默认运行速度', s.speed + 'x')}${row('intro', 'help', '新手提示')}${row('resetCode', 'arrow-back-up', '恢复默认积木')}
       ${sec('更新')}${row('update', 'download', '检查更新', 'V' + esc(window.APP_VERSION || 'dev'))}
-      ${sec('数据')}${row('saveNow', 'device-floppy', '立即保存世界')}${row('resetWorld', 'refresh', '重置世界', '', 'danger')}${row('clearAll', 'trash', '清除全部数据', '', 'danger')}</div>`;
+      ${sec('数据')}${row('saveNow', 'device-floppy', '立即保存世界')}${row('respawn', 'refresh', '重新出生', '', 'danger')}${row('resetWorld', 'refresh', '重置世界', '', 'danger')}${row('clearAll', 'trash', '清除全部数据', '', 'danger')}</div>`;
   };
 
   pages.about = () => head('关于') + `<div class="shBody"><div class="aboutTop"><img src="art/logo.png" alt=""><div class="bt">Screeps <b>World</b></div><div class="bs">版本 ${esc(window.APP_VERSION || 'dev')}</div></div>
@@ -128,6 +140,9 @@
     bflip() { draft.flip = !draft.flip; const y = S.scrollTop; show('badge', false); S.scrollTop = y; },
     bcol(b) { draft[b.dataset.k] = +b.dataset.c; const y = S.scrollTop; show('badge', false); S.scrollTop = y; },
     bsave() { const p = prof(); p.badge = draft; draft = null; saveList('sbm_profile', p); toast('徽章已保存'); back(); },
+    ptab(b) { ptab = b.dataset.t; show('profile', false); },
+    worldMap() { hide(); window.openWorldMap && window.openWorldMap(false); },
+    respawn() { if (!confirm('重新出生？你的所有 creep、建筑和房间都会被清除，然后在世界地图上重新选择出生点。')) return; window.doRespawn && window.doRespawn(); hide(); },
     statReset() { if (confirm('清零全部统计？')) { Stats.reset(); show('stats', false); } },
     wSave() { if (mode === 'client') return toast('客户端没有本地世界'); save(); ask('存档名称', '世界 ' + dt(Date.now()), name => { const L = J('sbm_worlds', []); L.unshift({ name: name || '未命名', ts: Date.now(), time: engine.w.time, data: engine.saveData() }); try { saveList('sbm_worlds', L); toast('已保存'); } catch (e) { toast('存储空间不足'); } show('worlds', false); }); },
     wLoad(b) { const w = J('sbm_worlds', [])[b.dataset.i]; if (!w || !confirm(`载入「${w.name}」？当前世界未保存的进度会丢失。`)) return; if (mode === 'client') return toast('请先回到单机'); LS.setItem(SAVE_W, w.data); loadEngine(); if (hostS) { hostS.e = engine; rebindHost(); } toast('已载入'); startGame(); },

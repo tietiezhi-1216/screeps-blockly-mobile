@@ -40,16 +40,15 @@ function genExit(r) {
 // 边的出口：横向边 (ax,ay)-(ax+1,ay) 与纵向边 (ax,ay)-(ax,ay+1)
 function edgeExits(seed, ax, ay, vertical) { return genExit(rngFrom(hash32(seed, ax, ay, vertical ? 2 : 1, 4242))); }
 
-function smooth(cells, factor, key) { // key: 'wall' | 'swamp'; cells: {wall, swamp, forceOpen} 的扁平数组
-  const out = new Array(2500);
+function smooth(cells, factor, key) { // key: 'wall' | 'swamp'；先取出布尔网格再计数（避免逐邻居属性查找）
+  const out = new Array(2500), v = new Uint8Array(52 * 52), isW = key === 'wall';
+  if (isW) v.fill(1);
+  for (let y = 0; y < 50; y++) for (let x = 0; x < 50; x++) v[(y + 1) * 52 + x + 1] = cells[y * 50 + x][key] ? 1 : 0;
   for (let y = 0; y < 50; y++) for (let x = 0; x < 50; x++) {
-    let cnt = 0;
-    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
-      const X = x + dx, Y = y + dy, outside = X < 0 || Y < 0 || X > 49 || Y > 49;
-      if ((key === 'wall' && outside) || (!outside && cells[Y * 50 + X][key])) cnt++;
-    }
+    const i = (y + 1) * 52 + x + 1;
+    const cnt = v[i - 53] + v[i - 52] + v[i - 51] + v[i - 1] + v[i] + v[i + 1] + v[i + 51] + v[i + 52] + v[i + 53];
     const o = Object.assign({}, cells[y * 50 + x]); o[key] = cnt >= factor;
-    if (key === 'wall') { if (x === 0 || x === 49 || y === 0 || y === 49) o.wall = true; if (o.forceOpen) o.wall = false; }
+    if (isW) { if (x === 0 || x === 49 || y === 0 || y === 49) o.wall = true; if (o.forceOpen) o.wall = false; }
     out[y * 50 + x] = o;
   }
   return out;
@@ -66,9 +65,20 @@ function checkFlood(cells) {
 const passNearby = (cells, x, y) => { for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) { const X = x + dx, Y = y + dy; if (X < 0 || Y < 0 || X > 49 || Y > 49) continue; if (!cells[Y * 50 + X].wall) return true; } return false; };
 
 // 生成一个 50x50 房间。exits = {top, right, bottom, left} 各为出口坐标数组
+// 官方扇区：每 10 个房间一条"高速公路"（x 或 y 为 10 的倍数，无 Controller/能量源，地形开阔）；扇区中心 (5,5) 有 3 个能量源、无 Controller
+function roomType(rx, ry) { const m = v => ((v % 10) + 10) % 10; if (m(rx) === 0 || m(ry) === 0) return 'highway'; if (m(rx) === 5 && m(ry) === 5) return 'center'; return 'normal'; }
+// 地图上某房间对玩家 pid 的状态（主机与客户端共用）：owned = { 'rx,ry': ownerPid }
+function roomStatus(S, owned, rx, ry, pid) {
+  if (rx < 0 || ry < 0 || rx >= S || ry >= S) return 'out';
+  const t = roomType(rx, ry); if (t !== 'normal') return t;
+  const o = owned[rx + ',' + ry]; if (o) return o === pid ? 'mine' : 'owned';
+  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const p = owned[(rx + dx) + ',' + (ry + dy)]; if (p && p !== pid) return 'close'; }
+  return 'free';
+}
 function genRoom(seed, rx, ry, exits) {
-  const r = rngFrom(hash32(seed, rx, ry, 5));
-  let wallType = Math.floor(r() * 27) + 1; const swampType = Math.floor(r() * 14), nSources = r() > 0.5 ? 1 : 2;
+  const r = rngFrom(hash32(seed, rx, ry, 5)), type = roomType(rx, ry);
+  let wallType = Math.floor(r() * 27) + 1; const swampType = Math.floor(r() * 14); let nSources = r() > 0.5 ? 1 : 2;
+  if (type === 'highway') { wallType = 28; nSources = 0; } else if (type === 'center') nSources = 3;
   const gen = () => {
     let cells, tries = 0;
     do {
@@ -90,6 +100,7 @@ function genRoom(seed, rx, ry, exits) {
       while (!cells[y * 50 + x].wall || !passNearby(cells, x, y) || cells[y * 50 + x].source);
       cells[y * 50 + x].source = true; sources.push({ x, y });
     }
+    if (type !== 'normal') return { cells, sources, controller: null };
     let cx, cy, n = 0; // Controller：同样在墙格上，旁边有可走格
     do { if (++n > 5000) return null; cx = Math.floor(r() * 40) + 5; cy = Math.floor(r() * 40) + 5; }
     while (!cells[cy * 50 + cx].wall || !passNearby(cells, cx, cy) || cells[cy * 50 + cx].source);
@@ -102,23 +113,24 @@ function genRoom(seed, rx, ry, exits) {
     tiles[y * 50 + x] = c.wall ? T_WALL : (c.swamp && passNearby(g.cells, x, y)) ? T_SWAMP : T_PLAIN;
   }
   // 矿物：墙格、旁边有可走格、离能量源/Controller 至少 5 格
-  const objs = g.sources.concat([g.controller]); let mx, my, n = 0;
+  if (type === 'highway') return { tiles, sources: [], controller: null, mineral: null, type };
+  const objs = g.sources.concat(g.controller ? [g.controller] : []); let mx, my, n = 0;
   do { mx = 4 + Math.floor(r() * 42); my = 4 + Math.floor(r() * 42); n++; }
   while (n < 20000 && (tiles[my * 50 + mx] !== T_WALL || !passNearby(g.cells, mx, my) || objs.some(o => Math.abs(o.x - mx) < 5 && Math.abs(o.y - my) < 5)));
   const rd = r(), dp = SC.MINERAL_DENSITY_PROBABILITY; let density = 4; for (const d in dp) if (rd <= dp[d]) { density = +d; break; }
   const mineral = n < 20000 ? { x: mx, y: my, type: MINERAL_TYPES[Math.floor(r() * MINERAL_TYPES.length)], density, amount: SC.MINERAL_DENSITY[density] } : null;
-  return { tiles, sources: g.sources, controller: g.controller, mineral };
+  return { tiles, sources: g.sources, controller: g.controller, mineral, type };
 }
 function roomExits(seed, rx, ry) {
   return { top: edgeExits(seed, rx, ry - 1, true), bottom: edgeExits(seed, rx, ry, true), left: edgeExits(seed, rx - 1, ry, false), right: edgeExits(seed, rx, ry, false) };
 }
-// 世界边缘（没有相邻房间的一侧）封闭成墙；扩容出现新邻居时恢复原始出口
+// 世界边界外一侧封成墙；世界扩大后恢复原始出口
 function applyBorders(world, rx, ry) {
-  const room = world.rooms[rx + ',' + ry], t = room.tiles, base = room.base, has = (x, y) => !!world.rooms[x + ',' + y];
-  const open = { top: has(rx, ry - 1), bottom: has(rx, ry + 1), left: has(rx - 1, ry), right: has(rx + 1, ry) };
+  const room = world.rooms[rx + ',' + ry], t = room.tiles, base = room.base, S = world.S, inb = (x, y) => x >= 0 && y >= 0 && x < S && y < S;
+  const open = { top: inb(rx, ry - 1), bottom: inb(rx, ry + 1), left: inb(rx - 1, ry), right: inb(rx + 1, ry) };
   for (let i = 0; i < 50; i++) {
     t[i] = open.top ? base[i] : T_WALL; t[49 * 50 + i] = open.bottom ? base[49 * 50 + i] : T_WALL;
     t[i * 50] = open.left ? base[i * 50] : T_WALL; t[i * 50 + 49] = open.right ? base[i * 50 + 49] : T_WALL;
   }
 }
-if (typeof module !== 'undefined') Object.assign(globalThis, { ROOM, T_PLAIN, T_WALL, T_SWAMP, genRoom, roomExits, applyBorders, hash32, rngFrom, vnoise, roomNameXY, parseRoomName });
+if (typeof module !== 'undefined') Object.assign(globalThis, { roomType, roomStatus, ROOM, T_PLAIN, T_WALL, T_SWAMP, genRoom, roomExits, applyBorders, hash32, rngFrom, vnoise, roomNameXY, parseRoomName });

@@ -18,19 +18,24 @@ function loadEngine() {
 function save() { if (engine && mode !== 'client') localStorage.setItem(SAVE_W, engine.saveData()); }
 
 function initBlockly() {
-  // 竖屏手机：顶部单行分类 chips + 底部水平 flyout（底部抽屉），默认收起
-  ws = Blockly.inject('blocklyDiv', { toolbox: { kind: 'flyoutToolbox', contents: [] }, trashcan: true,
-    zoom: { controls: true, wheel: true, pinch: true, startScale: 0.8, minScale: 0.4, maxScale: 2 },
-    move: { scrollbars: false, drag: true, wheel: true }, grid: { spacing: 24, length: 2, colour: '#ddd', snap: true },
-    renderer: 'zelos', horizontalLayout: true, toolboxPosition: 'end' });
+  // 竖屏手机：顶部一行（分类 chips + 完成）+ 左侧竖向 flyout（≤45% 宽），默认收起
+  ws = Blockly.inject('blocklyDiv', { toolbox: { kind: 'flyoutToolbox', contents: [] }, trashcan: false,
+    zoom: { controls: false, wheel: true, pinch: true, startScale: 0.8, minScale: 0.4, maxScale: 2 },
+    move: { scrollbars: true, drag: true, wheel: true }, grid: { spacing: 24, length: 2, colour: '#ddd', snap: true },
+    renderer: 'zelos', horizontalLayout: false, toolboxPosition: 'start' });
   fly = ws.getFlyout();
   fly.getFlyoutScale = () => 0.7;
+  // 限制抽屉宽度 ≤ 45% 屏宽，超长积木被裁切（仍可点/拖）
+  const reflow = fly.reflowInternal_.bind(fly);
+  fly.reflowInternal_ = function () { reflow(); const max = Math.round(ws.getParentSvg().getBoundingClientRect().width * 0.45);
+    if (this.width_ > max) { this.width_ = max; this.setBackgroundPath(max, this.height_ || 0); this.position(); ws.resize(); } };
   fly.hide(); buildCatBar();
   let saved = null; try { saved = JSON.parse(localStorage.getItem(SAVE_C)); } catch (e) {}
   try { Blockly.serialization.workspaces.load(saved || DEFAULT_WS, ws); } catch (e) { console.warn('旧积木存档不兼容，已恢复默认', e); ws.clear(); Blockly.serialization.workspaces.load(DEFAULT_WS, ws); }
   ws.addChangeListener(e => {
     if (e.type === Blockly.Events.BLOCK_DRAG) { // 从抽屉拖出后自动收起
-      if (e.isStart) dragFromFly = fly.isVisible(); else if (dragFromFly) { dragFromFly = false; closeFlyout(); }
+      if (e.isStart && fly.isVisible()) closeFlyout(); // 一开始拖就收起
+      if (!e.isStart) { const hot = overTrash(); $('edTrash').classList.remove('hot'); const b = ws.getBlockById(e.blockId); if (hot && b) setTimeout(() => b.dispose(true, true), 0); }
     }
     if (!e.isUiEvent) { regen(false); localStorage.setItem(SAVE_C, JSON.stringify(Blockly.serialization.workspaces.save(ws))); }
   });
@@ -38,7 +43,12 @@ function initBlockly() {
   fly.getWorkspace().addChangeListener(e => { if (e.type === Blockly.Events.CLICK && e.blockId && fly.isVisible()) setTimeout(() => tapAdd(e.blockId), 0); });
   regen(false);
 }
-let fly = null, activeCat = null, dragFromFly = false;
+let fly = null, activeCat = null, dragFromFly = false, lastPt = [0, 0];
+// 小号工具按钮（32px）：缩放 / 居中 / 垃圾桶（拖到上面删除，点一下删除选中积木）
+document.addEventListener('pointermove', e => { lastPt = [e.clientX, e.clientY]; if (ws && ws.isDragging && ws.isDragging()) $('edTrash').classList.toggle('hot', overTrash()); }, true);
+function overTrash() { const r = $('edTrash').getBoundingClientRect(); return lastPt[0] >= r.left - 8 && lastPt[0] <= r.right + 8 && lastPt[1] >= r.top - 8 && lastPt[1] <= r.bottom + 8; }
+$('edZin').onclick = () => ws.zoomCenter(1); $('edZout').onclick = () => ws.zoomCenter(-1); $('edCenter').onclick = () => ws.scrollCenter();
+$('edTrash').onclick = () => { const s = Blockly.getSelected && Blockly.getSelected(); if (s && s.workspace === ws && s.isDeletable()) s.dispose(true, true); };
 function buildCatBar() {
   const bar = $('catBar');
   if (bar.children.length) { for (const b of bar.children) b.classList.toggle('on', b.dataset.cat === activeCat); return; }
@@ -76,7 +86,7 @@ function tapAdd(blockId) {
   closeFlyout();
 }
 function regen(push = true) {
-  code = Blockly.JavaScript.workspaceToCode(ws); $('jsView').textContent = '// 每个 tick 执行一次（等价于 Screeps 的 module.exports.loop）\n' + code;
+  code = Blockly.JavaScript.workspaceToCode(ws); 
   try { compileUser(code); } catch (e) { log('[错误] 编译失败: ' + e.message); return; }
   if (push) applyCode();
 }
@@ -113,7 +123,6 @@ $('btnSpeed').onclick = () => { speed = speed >= 8 ? 1 : speed * 2; setLabel('bt
 $('btnLog').onclick = () => $('log').classList.toggle('hidden');
 $('btnCode').onclick = () => { $('editor').classList.remove('hidden'); renderer.pause(true); Blockly.svgResize(ws); };
 $('edClose').onclick = () => { $('editor').classList.add('hidden'); renderer.pause(false); regen(true); log('[代码] 已应用'); };
-document.querySelectorAll('#edTabs [data-t]').forEach(b => b.onclick = () => { document.querySelectorAll('#edTabs [data-t]').forEach(x => x.classList.toggle('on', x === b)); const js = b.dataset.t === 'js'; $('jsView').classList.toggle('hidden', !js); $('blocklyDiv').classList.toggle('hidden', js); if (!js) Blockly.svgResize(ws); });
 $('btnMenu').onclick = () => $('menu').classList.remove('hidden');
 $('mClose').onclick = () => $('menu').classList.add('hidden');
 $('mSave').onclick = () => { save(); alert('已保存'); };

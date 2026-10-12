@@ -78,3 +78,16 @@ pre.mem{margin:var(--sp-1) 0 0;max-height:120px;overflow:auto;background:#0008;p
 .blocklyFlyout .blocklyScrollbarHandle{fill:#999}
 .blocklyMainWorkspaceScrollbar{display:none}
 #blocklyDiv svg,#blocklyDiv .blocklyWidgetDiv *{filter:none}
+/* v1.3.1 编辑器：顶部单行（分类 + 完成），左侧竖向抽屉，小按钮，最大化工作区 */
+#edTabs{gap:6px;padding:4px 6px;padding-top:calc(var(--top) + 4px);align-items:center}
+#edTabs #catBar{flex:1 1 auto;min-width:0;padding:0;border:0;background:transparent}
+#catBar .cat{height:28px;padding:0 8px;font-size:12px}
+#edTabs #edClose{flex:0 0 auto;height:28px;padding:0 10px;font-size:12px;gap:4px}
+#edTabs #edClose svg{width:14px;height:14px}
+#blocklyDiv{touch-action:none}
+.blocklyScrollbarHorizontal,.blocklyScrollbarVertical{opacity:0;pointer-events:none}
+.blocklyFlyout .blocklyScrollbarVertical{opacity:1;pointer-events:auto}
+#edTools{position:absolute;right:8px;bottom:12px;display:flex;flex-direction:column;gap:6px;z-index:5}
+#edTools button{width:32px;height:32px;padding:0;border:0;border-radius:6px;background:#2a2f3a;color:#fff;display:flex;align-items:center;justify-content:center}
+#edTools button .ic{display:flex;font-size:18px}
+#edTools #edTrash.hot{background:#c44}

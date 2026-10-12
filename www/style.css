@@ -74,7 +74,6 @@ pre.mem{margin:var(--sp-1) 0 0;max-height:120px;overflow:auto;background:#0008;p
 .blocklyMainBackground{stroke:none!important}
 
 /* 底部积木抽屉（水平 flyout），扁平无阴影 */
-.blocklyFlyoutBackground{fill:#e9ecf1!important;fill-opacity:1!important}
 .blocklyFlyout .blocklyScrollbarHandle{fill:#999}
 .blocklyMainWorkspaceScrollbar{display:none}
 #blocklyDiv svg,#blocklyDiv .blocklyWidgetDiv *{filter:none}
@@ -126,3 +125,17 @@ pre.mem{margin:var(--sp-1) 0 0;max-height:120px;overflow:auto;background:#0008;p
 .ri .bar{height:5px;background:#2b2b2b;border-radius:3px;margin:4px 0 2px}.ri .bar i{display:block;height:100%;background:#ffe56d;border-radius:3px}
 .mem details{margin-left:12px}.mem summary{cursor:pointer;color:#9cdcfe}.mem .mk{color:#9cdcfe}.mem .mv{color:#ce9178}.mem .ln{margin-left:12px;font:12px monospace;white-space:nowrap}
 .lyr label{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #242424}
+/* 1.4.2 全屏积木列表 + 夜间模式 */
+#flyHead{display:none;flex:1 1 auto;min-width:0;align-items:center;gap:8px}
+#edTabs.flyOpen #catBar{display:none}#edTabs.flyOpen #flyHead{display:flex}
+#edTabs #flyBack{height:28px;padding:0 10px;font-size:12px;gap:4px;background:#2a2f3a;border:0;border-radius:4px;color:#fff;display:flex;align-items:center}
+#flyTitle{font-size:14px;font-weight:600;color:#fff;white-space:nowrap}
+#flyHead .fh{font-size:11px;color:#8b93a1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#edTabs.flyOpen ~ #blocklyDiv #edTools{display:none}
+#editor.dark{background:#1e1f24}
+#editor.dark .blocklyGridPattern line{stroke:#34363d}
+#bar button.hidden{display:none}
+#btnRun{position:relative}#btnRun[data-speed]::after{content:attr(data-speed);position:absolute;top:4px;right:calc(50% - 22px);font-size:9px;color:#8b93a1}
+#speedPop{position:fixed;left:8px;bottom:calc(68px + var(--bot));display:flex;gap:6px;background:#14171d;border:1px solid #ffffff1a;border-radius:6px;padding:6px;z-index:9}
+#speedPop button{width:48px;height:32px;border:0;border-radius:4px;background:#2a2f3a;color:#e6e6e6;font-size:13px}
+#speedPop button.on{background:#ffe066;color:#111}

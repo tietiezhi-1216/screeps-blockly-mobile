@@ -16,7 +16,7 @@ const p = require('puppeteer-core');
   await pg.goto('http://localhost:8765/index.html'); await new Promise(r => setTimeout(r, 2500));
   await pg.screenshot({ path: '/tmp/start.png' }); await pg.click('#sPlay'); await new Promise(r => setTimeout(r, 300));
   await pg.screenshot({ path: '/tmp/intro.png' });
-  await pg.click('#introOk'); await pg.click('#btnNet'); await pg.click('#nHost'); await new Promise(r => setTimeout(r, 500));
+  await pg.click('#introOk'); await pg.evaluate(() => document.getElementById('btnNet').click()); await pg.click('#nHost'); await new Promise(r => setTimeout(r, 500));
   await pg.click('#nScan'); await new Promise(r => setTimeout(r, 500)); await pg.screenshot({ path: '/tmp/net.png' });
   const res = await pg.evaluate(() => ({ calls: window.__calls, mode, status: document.getElementById('netStatus').textContent, hosts: document.getElementById('hosts').textContent }));
   console.log(JSON.stringify(res, null, 1));

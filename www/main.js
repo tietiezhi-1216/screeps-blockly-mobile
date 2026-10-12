@@ -20,24 +20,47 @@ function loadEngine() {
 }
 function save() { if (engine && mode !== 'client') localStorage.setItem(SAVE_W, engine.saveData()); }
 
+// 代码编辑器夜间模式（设置里切换，持久化；默认跟随深色界面 = 开）
+const DARK_THEME = Blockly.Theme.defineTheme('sbmDark', { name: 'sbmDark', base: Blockly.Themes.Classic,
+  componentStyles: { workspaceBackgroundColour: '#1e1f24', toolboxBackgroundColour: '#25272d', toolboxForegroundColour: '#e6e6e6', flyoutBackgroundColour: '#25272d', flyoutForegroundColour: '#e6e6e6', flyoutOpacity: 1, scrollbarColour: '#555', scrollbarOpacity: 0.6, insertionMarkerColour: '#ffffff', insertionMarkerOpacity: 0.3, cursorColour: '#d0d0d0' } });
+const LIGHT_THEME = Blockly.Theme.defineTheme('sbmLight', { name: 'sbmLight', base: Blockly.Themes.Classic,
+  componentStyles: { workspaceBackgroundColour: '#ffffff', flyoutBackgroundColour: '#eef0f3', flyoutOpacity: 1 } });
+function edDark() { return localStorage.getItem('sbm_ed_dark') !== '0'; }
+function applyEdTheme() { const d = edDark(); $('editor').classList.toggle('dark', d); if (ws) ws.setTheme(d ? DARK_THEME : LIGHT_THEME); }
+window.setEdDark = v => { localStorage.setItem('sbm_ed_dark', v ? '1' : '0'); applyEdTheme(); };
+window.edDark = edDark;
 function initBlockly() {
   // 竖屏手机：顶部一行（分类 chips + 完成）+ 左侧竖向 flyout（≤45% 宽），默认收起
   ws = Blockly.inject('blocklyDiv', { toolbox: { kind: 'flyoutToolbox', contents: [] }, trashcan: false,
     zoom: { controls: false, wheel: true, pinch: true, startScale: 0.8, minScale: 0.4, maxScale: 2 },
     move: { scrollbars: true, drag: true, wheel: true }, grid: { spacing: 24, length: 2, colour: '#ddd', snap: true },
-    renderer: 'zelos', horizontalLayout: false, toolboxPosition: 'start' });
+    renderer: 'zelos', horizontalLayout: false, toolboxPosition: 'start', theme: edDark() ? DARK_THEME : LIGHT_THEME });
+  $('editor').classList.toggle('dark', edDark());
   fly = ws.getFlyout();
-  fly.getFlyoutScale = () => 0.7;
-  // 限制抽屉宽度 ≤ 45% 屏宽，超长积木被裁切（仍可点/拖）
+  // 全屏积木列表：flyout 铺满编辑区，按最宽积木缩放到屏宽，竖向滚动
+  fly.getFlyoutScale = () => flyScale;
   const reflow = fly.reflowInternal_.bind(fly);
-  fly.reflowInternal_ = function () { reflow(); const max = Math.round(ws.getParentSvg().getBoundingClientRect().width * 0.45);
-    if (this.width_ > max) { this.width_ = max; this.setBackgroundPath(max, this.height_ || 0); this.position(); ws.resize(); } };
+  fly.reflowInternal_ = function () { reflow(); const W = Math.round($('blocklyDiv').getBoundingClientRect().width);
+    if (W > 0 && this.width_ !== W) { this.width_ = W; this.setBackgroundPath(W, this.height_ || 0); this.position(); ws.resize(); } };
+  fly.dragAngleRange_ = 0; // 列表内滑动只滚动；长按后才允许拖出
+  fly.isScrollable = () => true; // 短列表也不要一碰就拖出
+  fly.wouldDelete = () => false; // 全屏列表收起后不能再当删除区（否则拖出的积木被吞）
+  fly.getClientRect = (orig => function () { return this.isVisible() ? orig.call(this) : null; })(fly.getClientRect);
+  const fsvg = $('blocklyDiv'); let lpT = null, lp0 = null;
+  fsvg.addEventListener('pointerdown', e => { if (!fly.isVisible() || !e.target.closest('.blocklyFlyout .blocklyDraggable')) return; lp0 = [e.clientX, e.clientY];
+    clearTimeout(lpT); lpT = setTimeout(() => { fly.dragAngleRange_ = 180; lpArmed = true; navigator.vibrate && navigator.vibrate(20); }, 380); }, true);
+  fsvg.addEventListener('pointermove', e => { if (lp0 && !lpArmed && Math.hypot(e.clientX - lp0[0], e.clientY - lp0[1]) > 8) { clearTimeout(lpT); lp0 = null; } }, true);
+  const lpEnd = () => { clearTimeout(lpT); lp0 = null; setTimeout(() => { fly.dragAngleRange_ = 0; lpArmed = false; }, 0); };
+  fsvg.addEventListener('pointerup', lpEnd, true); fsvg.addEventListener('pointercancel', lpEnd, true);
+  // 返回按钮：按下与抬起都在按钮上才算（避免打开列表那一下的 click 落到同位置的返回键上）
+  { const fb = $('flyBack'); let d = false; fb.addEventListener('pointerdown', () => { d = true; }); fb.addEventListener('pointerup', () => { if (d) closeFlyout(); d = false; }); fb.addEventListener('pointercancel', () => { d = false; }); }
+  window.addEventListener('popstate', () => { if (fly && fly.isVisible()) closeFlyout(true); });
   fly.hide(); buildCatBar();
   let saved = null; try { saved = JSON.parse(localStorage.getItem(SAVE_C)); } catch (e) {}
   try { Blockly.serialization.workspaces.load(saved || DEFAULT_WS, ws); } catch (e) { console.warn('旧积木存档不兼容，已恢复默认', e); ws.clear(); Blockly.serialization.workspaces.load(DEFAULT_WS, ws); }
   ws.addChangeListener(e => {
     if (e.type === Blockly.Events.BLOCK_DRAG) { // 从抽屉拖出后自动收起
-      if (e.isStart && fly.isVisible()) closeFlyout(); // 一开始拖就收起
+      if (e.isStart && fly.isVisible()) closeFlyout(); // 长按拖出：列表收起，积木继续跟手
       if (!e.isStart) { const hot = overTrash(); $('edTrash').classList.remove('hot'); const b = ws.getBlockById(e.blockId); if (hot && b) setTimeout(() => b.dispose(true, true), 0); }
     }
     if (!e.isUiEvent) { regen(false); localStorage.setItem(SAVE_C, JSON.stringify(Blockly.serialization.workspaces.save(ws))); }
@@ -46,7 +69,7 @@ function initBlockly() {
   fly.getWorkspace().addChangeListener(e => { if (e.type === Blockly.Events.CLICK && e.blockId && fly.isVisible()) setTimeout(() => tapAdd(e.blockId), 0); });
   regen(false);
 }
-let fly = null, activeCat = null, dragFromFly = false, lastPt = [0, 0];
+let fly = null, activeCat = null, dragFromFly = false, lastPt = [0, 0], flyScale = 0.7, lpArmed = false;
 // 小号工具按钮（32px）：缩放 / 居中 / 垃圾桶（拖到上面删除，点一下删除选中积木）
 document.addEventListener('pointermove', e => { lastPt = [e.clientX, e.clientY]; if (ws && ws.isDragging && ws.isDragging()) $('edTrash').classList.toggle('hot', overTrash()); }, true);
 function overTrash() { const r = $('edTrash').getBoundingClientRect(); return lastPt[0] >= r.left - 8 && lastPt[0] <= r.right + 8 && lastPt[1] >= r.top - 8 && lastPt[1] <= r.bottom + 8; }
@@ -63,17 +86,23 @@ function buildCatBar() {
     b.addEventListener('pointercancel', () => { d0 = null; }); bar.appendChild(b);
   }
 }
-function closeFlyout() { if (!fly) return; fly.hide(); activeCat = null; buildCatBar(); Blockly.svgResize(ws); }
+function closeFlyout(fromPop) { if (!fly) return; const was = fly.isVisible(); fly.hide(); activeCat = null; buildCatBar(); $('edTabs').classList.remove('flyOpen'); Blockly.svgResize(ws);
+  if (was && !fromPop && history.state && history.state.fly) history.back(); }
 function selectCat(id) {
   const c = CATS.find(x => x.id === id); if (!c || !ws) return;
   if (activeCat === id && fly.isVisible()) return closeFlyout(); // 再点一次当前分类 = 收起
   activeCat = id; buildCatBar();
-  fly.show(flyoutFor(c));
+  $('edTabs').classList.add('flyOpen'); $('flyTitle').textContent = c.name; Blockly.svgResize(ws);
+  if (!(history.state && history.state.fly)) history.pushState({ fly: 1 }, ''); // 安卓返回键 = 返回工作区
+  flyScale = 0.8; fly.show(flyoutFor(c));
+  // 按最宽积木缩放，保证完整显示
+  const W = $('blocklyDiv').getBoundingClientRect().width - 24; let maxW = 0;
+  for (const b of fly.getWorkspace().getTopBlocks(false)) maxW = Math.max(maxW, b.getHeightWidth().width);
+  const sc = Math.max(0.4, Math.min(0.8, W / (maxW || 1))); if (Math.abs(sc - flyScale) > 0.01) { flyScale = sc; fly.show(flyoutFor(c)); }
   // 抽屉里的字段不可编辑：点任何位置都 = 添加积木（拖出后再编辑）
   for (const b of fly.getWorkspace().getAllBlocks(false)) for (const inp of b.inputList) for (const f of inp.fieldRow) if (f.setEnabled) f.setEnabled(false);
   fly.scrollToStart && fly.scrollToStart();
   Blockly.svgResize(ws);
-  const btn = document.querySelector(`#catBar [data-cat="${id}"]`); if (btn) btn.scrollIntoView({ inline: 'nearest', block: 'nearest' });
 }
 function tapAdd(blockId) {
   const src = fly.getWorkspace().getBlockById(blockId); if (!src) return;
@@ -126,6 +155,20 @@ function setLabel(btn, ic, text) { const b = $(btn); b.querySelector('.ic').inne
 function setRunUI() { setLabel('btnRun', running && mode !== 'client' ? 'player-pause' : 'player-play', mode === 'client' ? '房主控制' : running ? '暂停' : '运行'); $('btnRun').classList.toggle('on', running && mode !== 'client'); $('btnRun').disabled = mode === 'client'; $('btnSpeed').disabled = mode === 'client'; }
 $('btnRun').onclick = () => { running = !running; setRunUI(); if (!running) save(); };
 $('btnSpeed').onclick = () => { speed = speed >= 8 ? 1 : speed * 2; setLabel('btnSpeed', 'player-track-next', speed + 'x'); };
+// 底栏精简：速度并入「运行」长按弹出菜单
+(function runSpeedPopup() {
+  const pop = document.createElement('div'); pop.id = 'speedPop'; pop.className = 'hidden';
+  pop.innerHTML = [1, 2, 4, 8].map(v => `<button data-v="${v}">${v}x</button>`).join(''); document.body.appendChild(pop);
+  const sync = () => pop.querySelectorAll('button').forEach(b => b.classList.toggle('on', +b.dataset.v === speed));
+  pop.onclick = e => { const b = e.target.closest('button'); if (!b) return; speed = +b.dataset.v; setLabel('btnSpeed', 'player-track-next', speed + 'x'); $('btnRun').dataset.speed = speed + 'x'; pop.classList.add('hidden'); };
+  const r = $('btnRun'); let t = null, fired = false;
+  r.addEventListener('pointerdown', () => { fired = false; t = setTimeout(() => { fired = true; sync(); pop.classList.remove('hidden'); }, 450); });
+  ['pointerup', 'pointercancel', 'pointerleave'].forEach(k => r.addEventListener(k, () => clearTimeout(t)));
+  r.addEventListener('click', e => { if (fired) { e.stopImmediatePropagation(); e.preventDefault(); fired = false; } }, true);
+  r.addEventListener('contextmenu', e => e.preventDefault());
+  document.addEventListener('pointerdown', e => { if (!pop.contains(e.target) && e.target.closest('#btnRun') == null) pop.classList.add('hidden'); });
+  window.openSpeedPop = () => { sync(); pop.classList.remove('hidden'); };
+})();
 $('btnLog').onclick = () => $('panel').classList.contains('hidden') ? openPanel(panelTab) : $('panel').classList.add('hidden');
 $('btnCode').onclick = () => { $('editor').classList.remove('hidden'); renderer.pause(true); Blockly.svgResize(ws); };
 $('edClose').onclick = () => { $('editor').classList.add('hidden'); renderer.pause(false); regen(true); log('[代码] 已应用'); };

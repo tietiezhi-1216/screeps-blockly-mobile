@@ -14,9 +14,9 @@
   <button id="btnRun" data-icon="player-play"><span class="lb">运行</span></button>
   <button id="btnCode" data-icon="puzzle"><span class="lb">代码</span></button>
   <button id="btnBuild" data-icon="hammer"><span class="lb">建造</span></button>
-  <button id="btnSpeed" data-icon="player-track-next"><span class="lb">1x</span></button>
+  <button id="btnSpeed" data-icon="player-track-next" class="hidden"><span class="lb">1x</span></button>
   <button id="btnLog" data-icon="terminal-2"><span class="lb">面板</span></button>
-  <button id="btnNet" data-icon="broadcast"><span class="lb">联机</span></button>
+  <button id="btnNet" data-icon="broadcast" class="hidden"><span class="lb">联机</span></button>
   <button id="btnMenu" data-icon="settings"><span class="lb">设置</span></button>
 </nav>
 <div id="log" class="hidden"></div>
@@ -27,7 +27,7 @@
 <div class="wmBar"><span id="wmSel">点选一个空闲房间</span><button id="wmGo" class="primary" disabled>进入房间</button></div></div>
 <div id="inspect" class="hidden"><div class="insHead"><span id="insTitle"></span><button id="insClose" data-icon="x" class="iconbtn"></button></div><div id="insBody"></div></div>
 <div id="editor" class="hidden">
-  <div id="edTabs"><div id="catBar"></div><button id="edClose" data-icon="check" class="primary"><span class="lb">完成</span></button></div>
+  <div id="edTabs"><div id="catBar"></div><div id="flyHead"><button id="flyBack" data-icon="arrow-left"><span class="lb">返回</span></button><span id="flyTitle"></span><span class="fh">点击添加 · 长按拖动</span></div><button id="edClose" data-icon="check" class="primary"><span class="lb">完成</span></button></div>
   <div id="blocklyDiv"><div id="edTools"><button id="edZin" data-icon="zoom-in"></button><button id="edZout" data-icon="zoom-out"></button><button id="edCenter" data-icon="focus-centered"></button><button id="edTrash" data-icon="trash"></button></div></div>
 </div>
 <div id="net" class="hidden panel">

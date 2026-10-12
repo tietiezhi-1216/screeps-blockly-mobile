@@ -99,7 +99,7 @@
   pages.settings = () => {
     const s = st();
     return head('设置') + `<div class="shBody">${sec('通用')}${row('none', 'language', '语言', '简体中文', 'static')}${row('sound', 'volume-off', '音效', s.sound ? '开' : '关')}
-      ${sec('游戏')}${row('fps', 'gauge', '显示 FPS', showFps ? '开' : '关')}${row('defSpeed', 'player-track-next', '默认运行速度', s.speed + 'x')}${row('intro', 'help', '新手提示')}${row('resetCode', 'arrow-back-up', '恢复默认积木')}
+      ${sec('游戏')}${row('fps', 'gauge', '显示 FPS', showFps ? '开' : '关')}${row('defSpeed', 'player-track-next', '默认运行速度', s.speed + 'x')}${row('edDark', 'moon', '代码编辑器夜间模式', window.edDark && window.edDark() ? '开' : '关')}${row('speedPick', 'player-track-next', '当前运行速度', speed + 'x')}${row('net', 'broadcast', '局域网联机')}${row('intro', 'help', '新手提示')}${row('resetCode', 'arrow-back-up', '恢复默认积木')}
       ${sec('更新')}${row('update', 'download', '检查更新', 'V' + esc(window.APP_VERSION || 'dev'))}
       ${sec('数据')}${row('saveNow', 'device-floppy', '立即保存世界')}${row('respawn', 'refresh', '重新出生', '', 'danger')}${row('resetWorld', 'refresh', '重置世界', '', 'danger')}${row('clearAll', 'trash', '清除全部数据', '', 'danger')}</div>`;
   };
@@ -130,7 +130,7 @@
 
   const saveList = (k, L) => LS.setItem(k, JSON.stringify(L));
   const countBlocks = j => { let n = 0; const walk = o => { if (o && typeof o === 'object') { if (o.type && o.id) n++; Object.values(o).forEach(walk); } }; walk(j); return n; };
-  function startGame() { hide(); const s = st(); if (!startGame.done) { startGame.done = 1; speed = s.speed || 1; setLabel('btnSpeed', 'player-track-next', speed + 'x'); } if (!LS.getItem('sbm_intro')) $('intro').classList.remove('hidden'); }
+  function startGame() { hide(); const s = st(); if (!startGame.done) { startGame.done = 1; speed = s.speed || 1; setLabel('btnSpeed', 'player-track-next', speed + 'x'); $('btnRun').dataset.speed = speed + 'x'; } if (!LS.getItem('sbm_intro')) $('intro').classList.remove('hidden'); }
 
   const acts = {
     play: startGame,
@@ -157,6 +157,8 @@
     sound() { const s = st(); s.sound = !s.sound; saveList('sbm_settings', s); toast('当前版本暂无音效'); show('settings', false); },
     fps() { $('mFps').click(); show('settings', false); },
     defSpeed() { const s = st(); s.speed = s.speed >= 8 ? 1 : s.speed * 2; saveList('sbm_settings', s); show('settings', false); },
+    edDark() { window.setEdDark(!window.edDark()); show('settings', false); },
+    speedPick() { speed = speed >= 8 ? 1 : speed * 2; setLabel('btnSpeed', 'player-track-next', speed + 'x'); $('btnRun').dataset.speed = speed + 'x'; show('settings', false); },
     intro() { hide(); $('intro').classList.remove('hidden'); },
     resetCode() { $('mResetCode').click(); },
     update() { checkUpdate(true); },

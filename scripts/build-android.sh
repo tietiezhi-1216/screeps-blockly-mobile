@@ -36,5 +36,7 @@ public class MainActivity extends BridgeActivity {
 JAVA
 # 局域网 ws:// 明文连接
 sed -i 's/<application/<application android:usesCleartextTraffic="true"/' android/app/src/main/AndroidManifest.xml
+# 横屏（v1.5.0 起整个应用横屏，随重力在两个横向之间切换）
+sed -i "s/<activity/<activity android:screenOrientation=\"sensorLandscape\"/" android/app/src/main/AndroidManifest.xml
 grep -E "versionCode|versionName" android/app/build.gradle
 (cd android && ./gradlew assembleRelease --no-daemon -q)

@@ -169,7 +169,7 @@ $('btnSpeed').onclick = () => { speed = speed >= 8 ? 1 : speed * 2; setLabel('bt
   document.addEventListener('pointerdown', e => { if (!pop.contains(e.target) && e.target.closest('#btnRun') == null) pop.classList.add('hidden'); });
   window.openSpeedPop = () => { sync(); pop.classList.remove('hidden'); };
 })();
-$('btnLog').onclick = () => $('panel').classList.contains('hidden') ? openPanel(panelTab) : $('panel').classList.add('hidden');
+$('btnLog').onclick = () => $('panel').classList.contains('hidden') ? (infoRoom = null, openPanel(panelTab)) : $('panel').classList.add('hidden');
 $('btnCode').onclick = () => { $('editor').classList.remove('hidden'); renderer.pause(true); Blockly.svgResize(ws); };
 $('edClose').onclick = () => { $('editor').classList.add('hidden'); renderer.pause(false); regen(true); log('[代码] 已应用'); };
 $('btnMenu').onclick = () => $('menu').classList.remove('hidden');
@@ -251,12 +251,13 @@ function renderInspect() {
   $('insTitle').innerHTML = t; $('insBody').innerHTML = b; $('inspect').classList.remove('hidden');
 }
 renderer.onTap = (x, y) => {
+  if (renderer.lod === 'mini') return showRoomInfo(Math.floor(x / ROOM), Math.floor(y / ROOM));
   if (build.on) return build.type === 'spawn1' ? spawnTap(x, y) : buildTap(x, y);
   const v = view(); if (!v) return; const f = a => a.find(o => o.x === x && o.y === y);
   const c = f(v.creeps), sp = f(v.spawns), s = f(v.sources), st = f(v.sites), mi = f(v.minerals || []), rs = f(v.resources || []), tb = f(v.tombstones || []);
   const ctrl = (v.controllers||[]).find(o => o.x === x && o.y === y), stt = (v.structures||[]).find(o => o.x === x && o.y === y);
   sel = c ? { kind: 'creep', id: c.id } : sp ? { kind: 'spawn', id: sp.id } : ctrl ? { kind: 'controller', id: ctrl.id } : stt ? { kind: 'structure', id: stt.id } : s ? { kind: 'source', id: s.id } : st ? { kind: 'site', id: st.id } : rs ? { kind: 'resource', id: rs.id } : tb ? { kind: 'tombstone', id: tb.id } : mi ? { kind: 'mineral', id: mi.id } : null;
-  renderer.select(sel); if (sel) renderInspect(); else $('inspect').classList.add('hidden');
+  renderer.select(sel); if (sel) renderInspect(); else { $('inspect').classList.add('hidden'); showRoomInfo(Math.floor(x / ROOM), Math.floor(y / ROOM)); }
 };
 $('insClose').onclick = () => { sel = null; renderer.select(null); $('inspect').classList.add('hidden'); };
 renderer.onTick = () => renderInspect();
@@ -377,8 +378,8 @@ addEventListener('resize', () => { if (!$('wmap').classList.contains('hidden')) 
 
 
 // ===== 房间导航（同官方客户端：四边箭头到相邻房间、返回世界地图、顶栏房间名） =====
-function roomEnergy(v) { // 当前房间（若是我的）否则我的第一个房间：energyAvailable / energyCapacityAvailable
-  const [rx, ry] = renderer.curRoom(), mineIn = k => v.owned && v.owned[k] === myPid; let k = rx + ',' + ry;
+function roomEnergy(v, kk) { // 当前房间（若是我的）否则我的第一个房间：energyAvailable / energyCapacityAvailable
+  const [rx, ry] = renderer.curRoom(), mineIn = k => v.owned && v.owned[k] === myPid; let k = kk || rx + ',' + ry;
   if (!mineIn(k)) { const sp = v.spawns.find(s => s.owner === myPid); if (!sp) return null; k = roomKey(sp.x, sp.y); }
   const inR = o => roomKey(o.x, o.y) === k && o.owner === myPid; let a = 0, c = 0;
   for (const s of v.spawns) if (inR(s)) { a += s.energy || 0; c += s.cap || 300; }
@@ -393,20 +394,17 @@ function edgeOpen(rx, ry, dx, dy) {
   return false;
 }
 function updateRoomNav(v) {
-  const [rx, ry] = renderer.curRoom(), name = roomNameXY(rx, ry), o = v && v.owned && v.owned[rx + ',' + ry];
-  const lbl = name + (o ? ' · ' + (o === myPid ? '我的' : (v.players[o]?.name || '')) : ''); if ($('rbName').textContent !== lbl) $('rbName').textContent = lbl;
-  const hide = !v || !$('panel').classList.contains('hidden') || !$('wmap').classList.contains('hidden') || !$('start').classList.contains('hidden');
-  for (const [id, dx, dy, ar] of [['navT', 0, -1, '▲'], ['navB', 0, 1, '▼'], ['navL', -1, 0, '◀'], ['navR', 1, 0, '▶']]) {
-    const b = $(id); b.classList.toggle('hidden', hide); if (hide) continue; const ok = edgeOpen(rx, ry, dx, dy), t = ar + ' ' + roomNameXY(rx + dx, ry + dy);
-    if (b.textContent !== t) b.textContent = t; b.disabled = !ok;
-  }
+  const [rx, ry] = renderer.curRoom(), o = v && v.owned && v.owned[rx + ',' + ry];
+  const lbl = renderer.lod === 'mini' ? `世界 ${v ? v.S + '×' + v.S : ''}` : roomNameXY(rx, ry) + (o ? ' · ' + (o === myPid ? '我的' : (v.players[o]?.name || '')) : '');
+  if ($('rbName').textContent !== lbl) $('rbName').textContent = lbl;
 }
-function gotoRoom(rx, ry) {
-  if (mode === 'client') client.gen(rx, ry); else if (engine) { ensureNear(engine.w, rx, ry, 0); _snap = null; renderer.setView(engine.w, 1); }
-  renderer.fitRoom(rx, ry); updateRoomNav(view());
-}
-for (const id of ['navT', 'navB', 'navL', 'navR']) $(id).onclick = () => { const [dx, dy] = $(id).dataset.d.split(',').map(Number), [rx, ry] = renderer.curRoom(); gotoRoom(rx + dx, ry + dy); };
-$('rbMap').onclick = () => openWorldMap(false);
+function gotoRoom(rx, ry) { needRoom(rx, ry); renderer.fitRoom(rx, ry); updateRoomNav(view()); }
+const _asked = new Set();
+function needRoom(rx, ry) { const k = rx + ',' + ry; if (mode === 'client') { if (!_asked.has(k)) { _asked.add(k); client.gen(rx, ry); } } else if (engine && !engine.w.rooms[k]) { ensureRoom(engine.w, rx, ry); _snap = null; renderer.setView(engine.w, 1); } }
+renderer.onNeedRoom = needRoom;
+renderer.onLod = () => updateRoomNav(view());
+$('rbMap').onclick = () => { const v = view(); if (v) renderer.fitWorld(v.S); };
+$('rbHome').onclick = () => { const v = view(), sp = v && v.spawns.find(s => s.owner === myPid); if (sp) gotoRoom(Math.floor(sp.x / ROOM), Math.floor(sp.y / ROOM)); else toastMsg('还没有房间'); };
 $('rbSpawn').onclick = () => { wm.auto = false; openWorldMap(true); };
 
 // 世界地图：双指缩放 / 拖动；点房间选择，「前往」进入
@@ -435,22 +433,33 @@ function openPanel(t) {
 document.querySelectorAll('.pnTabs button').forEach(b => b.onclick = () => openPanel(b.dataset.pt));
 $('pnClose').onclick = () => $('panel').classList.add('hidden');
 const kvr = (k, v) => `<div class="kv"><span class="k">${k}</span><span class="v">${v}</span></div>`;
+let infoRoom = null;
+function showRoomInfo(rx, ry) { const v = view(); if (!v || rx < 0 || ry < 0 || rx >= v.S || ry >= v.S) return; infoRoom = [rx, ry]; openPanel('room'); }
+// 官方风格房间信息：名称、所属（徽章）、RCL 与进度、能量源、矿物、安全模式、预定、creep/建筑数量、出口
 function roomInfoHTML() {
-  const v = view(); if (!v) return '<p>无数据</p>'; const [rx, ry] = renderer.curRoom(), k = rx + ',' + ry, inR = o => roomKey(o.x, o.y) === k;
+  const v = view(); if (!v) return '<p>无数据</p>'; const [rx, ry] = infoRoom || renderer.curRoom(), k = rx + ',' + ry, inR = o => roomKey(o.x, o.y) === k;
   const t = roomType(rx, ry), o = v.owned && v.owned[k], ctrl = (v.controllers || []).find(inR), srcs = v.sources.filter(inR), mins = (v.minerals || []).filter(inR);
-  const cr = v.creeps.filter(inR), my = cr.filter(c => c.owner === myPid).length, st = (v.structures || []).filter(inR), sites = v.sites.filter(inR), re = o === myPid ? roomEnergy(v) : null;
+  const tiles = roomTiles(rx, ry), gen = !!tiles;
+  const cr = v.creeps.filter(inR), my = cr.filter(c => c.owner === myPid).length, st = (v.structures || []).filter(inR), sites = v.sites.filter(inR), re = o === myPid ? roomEnergy(v, k) : null;
   const cnt = {}; for (const s of st) cnt[s.type] = (cnt[s.type] || 0) + 1; for (const s of v.spawns.filter(inR)) cnt.spawn = (cnt.spawn || 0) + 1;
   const TZ = { normal: '普通房间', highway: '高速公路', center: '扇区中心' };
-  let h = `<div class="ri">${kvr('房间', roomNameXY(rx, ry) + ' · ' + TZ[t])}${kvr('所属', o ? esc(v.players[o]?.name || o) + (o === myPid ? '（我）' : '') : '无主')}`;
+  const ex = [['上', 0, -1], ['右', 1, 0], ['下', 0, 1], ['左', -1, 0]].filter(([, dx, dy]) => edgeOpen(rx, ry, dx, dy)).map(([n, dx, dy]) => `${n} ${roomNameXY(rx + dx, ry + dy)}`);
+  const pc = o && v.players[o], badgeH = o === myPid && window.Shell ? Shell.badge(JSON.parse(localStorage.getItem('sbm_profile') || '{}').badge, 36) : `<span class="pdot" style="background:${pc ? '#' + (pc.color >>> 0).toString(16).padStart(6, '0') : '#444'}"></span>`;
+  let h = `<div class="ri"><div class="riHead">${badgeH}<div><div class="riName">${roomNameXY(rx, ry)}</div><div class="riSub">${TZ[t]} · ${o ? esc(pc?.name || o) + (o === myPid ? '（我）' : '') : '无主'}</div></div></div>
+    <div class="riBtns"><button class="primary" id="riZoom">放大进入房间</button><button id="riWorld">全图</button></div>`;
+  if (!gen) h += `<p class="note">尚未探索：放大进入后生成地形。</p>`;
   if (ctrl) { const p = ctrl.level && ctrl.level < 8 ? ctrl.progress / (ctrl.progressTotal || 1) : ctrl.level ? 1 : 0;
-    h += `<h4>Controller</h4>${kvr('等级', 'RCL ' + ctrl.level)}${ctrl.level ? kvr('升级进度', `${ctrl.progress} / ${ctrl.progressTotal || '-'}`) + `<div class="bar"><i style="width:${(p * 100).toFixed(1)}%"></i></div>` + kvr('降级倒计时', ctrl.ticksToDowngrade ?? '-') : ''}`; }
+    h += `<h4>Controller</h4>${kvr('等级', ctrl.level ? 'RCL ' + ctrl.level : '未占领')}${ctrl.level ? kvr('升级进度', `${ctrl.progress} / ${ctrl.progressTotal || '-'}`) + `<div class="bar"><i style="width:${(p * 100).toFixed(1)}%"></i></div>` + kvr('降级倒计时', ctrl.ticksToDowngrade ?? '-') : ''}
+      ${kvr('安全模式', ctrl.safeMode ? '生效中（剩 ' + ctrl.safeMode + '）' : '未开启' + (ctrl.safeModeAvailable ? ' · 可用 ' + ctrl.safeModeAvailable : ''))}${kvr('预定', ctrl.reservation ? esc(v.players[ctrl.reservation.username || ctrl.reservation.owner]?.name || '其他玩家') + ' · ' + (ctrl.reservation.ticksToEnd ?? '') : '无')}`; }
+  else if (gen) h += `<h4>Controller</h4>${kvr('Controller', '无（' + TZ[t] + '）')}`;
   if (re) h += `<h4>能量</h4>${kvr('energyAvailable', re[0])}${kvr('energyCapacityAvailable', re[1])}`;
-  h += `<h4>资源</h4>${srcs.map((s, i) => kvr('能量源 ' + (i + 1), `${s.energy} / ${s.cap}`)).join('') || kvr('能量源', '无')}${mins.map(m => kvr('矿物 ' + esc(m.type), m.amount)).join('')}`;
-  h += `<h4>单位</h4>${kvr('creep', `${cr.length}（我的 ${my}，其他 ${cr.length - my}）`)}${kvr('工地', sites.length)}`;
-  h += `<h4>建筑</h4>${Object.keys(cnt).length ? Object.entries(cnt).map(([a, b]) => kvr(ST_ZH[a] || a, b)).join('') : kvr('建筑', '无')}`;
+  if (gen) h += `<h4>资源</h4>${kvr('能量源', srcs.length + ' 个' + (srcs.length ? '（' + srcs.map(s => s.energy + '/' + s.cap).join('，') + '）' : ''))}${kvr('矿物', mins.length ? mins.map(m => esc(m.type) + ' · ' + m.amount).join('，') : '无')}`;
+  if (gen) h += `<h4>单位与建筑</h4>${kvr('creep', `${cr.length}（我的 ${my}，其他 ${cr.length - my}）`)}${kvr('工地', sites.length)}${Object.entries(cnt).map(([a, b]) => kvr(ST_ZH[a] || a, b)).join('') || kvr('建筑', '无')}`;
+  h += `<h4>出口</h4>${kvr('相邻房间', ex.length ? ex.join(' · ') : '无')}`;
   h += `<h4>运行</h4>${kvr('Game.time', v.time)}${kvr('本机 tick 耗时', mode === 'client' ? '房主计算' : tickMs.toFixed(2) + ' ms')}${kvr('世界', v.S + '×' + v.S + ' 房间')}</div>`;
   return h;
 }
+document.addEventListener('click', e => { if (e.target.id === 'riZoom' && infoRoom) { gotoRoom(...infoRoom); $('panel').classList.add('hidden'); } if (e.target.id === 'riWorld') { const v = view(); v && renderer.fitWorld(v.S); } });
 function memHTML(o, depth = 0) {
   if (o === null || typeof o !== 'object') return `<span class="mv">${esc(JSON.stringify(o))}</span>`;
   const ks = Object.keys(o); if (!ks.length) return `<span class="mv">${Array.isArray(o) ? '[]' : '{}'}</span>`;

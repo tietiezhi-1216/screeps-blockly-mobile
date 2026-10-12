@@ -101,3 +101,7 @@
 #wmap .wmLegend{display:flex;flex-wrap:wrap;gap:6px 12px;padding:8px 14px;font-size:12px;color:#999}
 #wmap .wmLegend i{display:inline-block;width:10px;height:10px;margin-right:4px;vertical-align:-1px;border-radius:2px}
 #wmap .wmBar{display:flex;align-items:center;gap:8px;padding:10px 14px 16px;border-top:1px solid #2a2a2a}#wmSel{flex:1;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media (orientation:landscape){
+  .home{display:grid;grid-template-columns:1fr 1fr;column-gap:28px;row-gap:14px;padding:calc(var(--top) + 20px) 28px 16px;align-content:start;max-width:900px;margin:0 auto}
+  .home .menu{grid-column:2;grid-row:1/span 4}.home .foot{grid-column:1/3}
+}

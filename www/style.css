@@ -107,9 +107,6 @@ pre.mem{margin:var(--sp-1) 0 0;max-height:120px;overflow:auto;background:#0008;p
 #roomBar>*{pointer-events:auto}#roomBar button{height:30px;padding:0 10px;font-size:13px;display:inline-flex;align-items:center;gap:4px;background:#222d;border-radius:4px}
 #roomBar .ic{width:16px;height:16px}#rbName{font:600 14px sans-serif;color:#eee;background:#000a;padding:5px 10px;border-radius:4px;white-space:nowrap}
 #roomBar .hidden{display:none}
-.navArrow{position:fixed;z-index:5;background:#000b;color:#ddd;font-size:12px;border-radius:4px;padding:6px 8px;white-space:nowrap;display:flex;align-items:center;gap:2px}
-.navArrow:disabled{opacity:.25}.navArrow.hidden{display:none}
-#navT{top:calc(var(--top) + 78px);left:50%;transform:translateX(-50%)}#navB{bottom:calc(68px + var(--bot));left:50%;transform:translateX(-50%)}
 #navL{left:4px;top:50%;transform:translateY(-50%);writing-mode:vertical-rl}#navR{right:4px;top:50%;transform:translateY(-50%);writing-mode:vertical-rl}
 #panel{position:fixed;left:0;right:0;bottom:calc(60px + var(--bot));height:52%;background:#181818f2;border-top:1px solid #333;z-index:8;display:flex;flex-direction:column;color:#ddd}
 #panel.hidden{display:none}.pnHead{display:flex;align-items:center;border-bottom:1px solid #2c2c2c}.pnTabs{flex:1;display:flex}
@@ -139,3 +136,19 @@ pre.mem{margin:var(--sp-1) 0 0;max-height:120px;overflow:auto;background:#0008;p
 #speedPop{position:fixed;left:8px;bottom:calc(68px + var(--bot));display:flex;gap:6px;background:#14171d;border:1px solid #ffffff1a;border-radius:6px;padding:6px;z-index:9}
 #speedPop button{width:48px;height:32px;border:0;border-radius:4px;background:#2a2f3a;color:#e6e6e6;font-size:13px}
 #speedPop button.on{background:#ffe066;color:#111}
+/* v1.5.0 横屏布局（约 915×412）：面板改为右侧抽屉，弹层限高，外壳页面居中限宽 */
+.ri .riHead{display:flex;align-items:center;gap:10px;margin:2px 0 8px}.ri .riName{font:600 18px sans-serif;color:#fff}.ri .riSub{font-size:12px;color:#999}
+.ri .pdot{width:28px;height:28px;border-radius:50%;display:inline-block}.ri .riBtns{display:flex;gap:8px;margin-bottom:6px}.ri .riBtns button{padding:6px 12px;font-size:13px}.ri .note{color:#888;font-size:12px}
+@media (orientation:landscape){
+  #panel{left:auto;top:calc(var(--top) + 40px);width:min(420px,46vw);height:auto;border-top:0;border-left:1px solid #333}
+  #inspect{bottom:calc(64px + var(--bot));max-height:calc(100vh - 120px);overflow:auto}
+  #buildPick{left:auto;width:min(460px,55vw);max-height:calc(100vh - 120px)}
+  #buildBar{left:50%;transform:translateX(-50%);width:min(560px,70vw)}
+  #roomBar{top:calc(var(--top) + 36px)}
+  #log{height:auto;top:calc(var(--top) + 40px)}
+  #start.shell .home,#start.shell .shBody,#start.shell .shHead{max-width:720px;margin-left:auto;margin-right:auto}
+  .panel{max-height:calc(100vh - 24px);overflow:auto}
+  #wmap .wmLegend{position:absolute;left:8px;bottom:64px;flex-direction:column;background:#000a;padding:6px 10px;border-radius:4px}
+}
+#roomBar{right:auto}
+#stage,#world{background:#0a0a0a}

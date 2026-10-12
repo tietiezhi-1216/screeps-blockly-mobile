@@ -14,7 +14,7 @@ class Renderer {
     host.appendChild(this.app.view); this.app.view.id = 'world';
     this.world = new PIXI.Container(); this.app.stage.addChild(this.world);
     const L = () => { const c = new PIXI.Container(); this.world.addChild(c); return c; };
-    this.terrainL = L(); this.roadG = new PIXI.Graphics(); this.world.addChild(this.roadG); this.groundL = L(); this.objL = L(); this.beamG = new PIXI.Graphics(); this.world.addChild(this.beamG); this.creepL = L(); this.topL = L(); this.labelL = L(); this.selG = new PIXI.Graphics(); this.world.addChild(this.selG);
+    this.bgG = new PIXI.Graphics(); this.world.addChild(this.bgG); this.terrainL = L(); this.miniG = new PIXI.Graphics(); this.roadG = new PIXI.Graphics(); this.world.addChild(this.roadG); this.groundL = L(); this.objL = L(); this.beamG = new PIXI.Graphics(); this.world.addChild(this.beamG); this.creepL = L(); this.topL = L(); this.labelL = L(); this.selG = new PIXI.Graphics(); this.world.addChild(this.selG); this.world.addChildAt(this.miniG, 2); this.lod = 'full'; this._bgS = 0;
     this.scale = 1.6; this.cx = 25 * TS; this.cy = 25 * TS; this.view = null; this.roomsVer = -1; this.sprites = new Map(); this.tickAt = performance.now(); this.dt = 500;
     this.texCache = new Map(); this.rooms = []; this.onTap = null; this.selected = null; this.myPid = null; this._roadSig = '';
     this.fps = 60; this._fpsN = 0; this._fpsT = performance.now();
@@ -28,7 +28,7 @@ class Renderer {
   // 图层开关：grid 网格 / names 房间名 / owner 领地着色
   setOverlay(k, on) {
     this.ov = this.ov || {}; this.ov[k] = on;
-    if (k === 'grid') { this.showGrid = on; for (const e of this.rooms) if (e.drawn) { e.drawn = false; } }
+    if (k === 'grid') { this.showGrid = on; for (const e of this.rooms) if (e.full) { if (e.sp.texture === e.full) e.sp.texture = this.miniTex(e); e.full.destroy(true); e.full = null; } }
     if (k === 'names') this.labelL.visible = on;
     if (k === 'owner') { this.roomsVer = -1; if (this.view) this.setView(this.view, 1); }
   }
@@ -131,11 +131,11 @@ class Renderer {
       const r = v.rooms[k], own = r.owner && v.players[r.owner], sig = (this.ov && this.ov.owner ? 'o' : '') + (r.owner || '') + (own ? own.name : '') + '|' + r.tiles.slice(0, 50).join('') + r.tiles.slice(2450).join('') + r.tiles.filter((_, i) => i % 50 === 0 || i % 50 === 49).join('');
       let e = this.roomSp.get(k); if (e && e.sig === sig) continue;
       const [rx, ry] = k.split(',').map(Number);
-      if (e) { e.sp.texture !== PIXI.Texture.EMPTY && e.sp.texture.destroy(true); e.sp.destroy(); e.tx.destroy(); }
+      if (e) { e.full && e.full.destroy(true); e.miniT && e.miniT.destroy(true); e.sp.destroy(); e.tx.destroy(); }
       const sp = new PIXI.Sprite(PIXI.Texture.EMPTY); sp.x = rx * ROOM * TS; sp.y = ry * ROOM * TS; sp.width = sp.height = ROOM * TS; this.terrainL.addChild(sp);
       const tx = new PIXI.Text((r.name || roomNameXY(rx, ry)) + (own ? '  ' + own.name : ''), { fontFamily: 'sans-serif', fontSize: 20, fill: own ? own.color : 0x888888 }); tx.alpha = .6; tx.x = sp.x + 6; tx.y = sp.y + 4; this.labelL.addChild(tx);
       if (own && this.ov && this.ov.owner) { const og = new PIXI.Graphics(); og.beginFill(own.color, .12).drawRect(0, 0, ROOM * TS, ROOM * TS).endFill(); og.lineStyle(3, own.color, .6).drawRect(1.5, 1.5, ROOM * TS - 3, ROOM * TS - 3); sp.addChild(og); og.scale.set(1 / sp.scale.x); }
-      e = { sp, tx, sig, rx, ry, tiles: r.tiles, drawn: false }; this.roomSp.set(k, e);
+      e = { sp, tx, sig, rx, ry, tiles: r.tiles, full: null, miniT: null }; this.roomSp.set(k, e);
     }
     this.rooms = [...this.roomSp.values()]; this.roomsVer = v.roomsVer;
   }
@@ -152,6 +152,7 @@ class Renderer {
     if (v && v.gen !== undefined) { const raw = v; v = worldSnapshot(raw, typeof engine !== 'undefined' && engine && engine.w === raw ? engine.events : []); v.rooms = raw.rooms; } // 原始 world → 快照
     const first = !this.view; this.view = v; this.dt = dt; this.tickAt = performance.now();
     if (v.roomsVer !== this.roomsVer && v.rooms) this.rebuildTerrain(v);
+    if (this.lod === 'mini') this.drawMini(v);
     if (first) { const me = v.spawns.find(s => s.owner === this.myPid) || v.spawns[0]; if (me) this.focus(me.x, me.y); }
     const me = this.myPid, mine = o => !o.owner || o.owner === me, col = o => v.players[o]?.color ?? 0xffffff, seen = new Set();
     const ent = (id, make) => { seen.add(id); let s = this.sprites.get(id); if (!s) { s = make(); this.sprites.set(id, s); } return s; };
@@ -221,9 +222,21 @@ class Renderer {
     const now = performance.now(); this._fpsN++; if (now - this._fpsT > 500) { this.fps = this._fpsN * 1000 / (now - this._fpsT); this._fpsN = 0; this._fpsT = now; }
     const s = this.scale; this.world.scale.set(s); this.world.x = innerWidth / 2 - this.cx * s; this.world.y = innerHeight / 2 - this.cy * s;
     const vx0 = this.cx - innerWidth / 2 / s, vy0 = this.cy - innerHeight / 2 / s, vx1 = this.cx + innerWidth / 2 / s, vy1 = this.cy + innerHeight / 2 / s, RS = ROOM * TS;
-    let built = 0;
-    for (const e of this.rooms) { const vis = !(e.sp.x > vx1 || e.sp.y > vy1 || e.sp.x + RS < vx0 || e.sp.y + RS < vy0); e.sp.visible = e.tx.visible = vis;
-      if (vis && !e.drawn && built < 2) { built++; e.drawn = true; const old = e.sp.texture; e.sp.texture = this.roomTexture(e.rx, e.ry, e.tiles); if (old && old !== PIXI.Texture.EMPTY) old.destroy(true); e.sp.width = e.sp.height = RS; for (const ch of e.sp.children) ch.scale.set(1 / e.sp.scale.x); } }
+    // LOD：房间在屏幕上小于 ~300px 用低精度贴图 + 点；大于 ~380px 用完整细节（带滞回，避免抖动）
+    const px = s * RS, lod = this.lod === 'full' ? (px < 300 ? 'mini' : 'full') : (px > 380 ? 'full' : 'mini');
+    if (lod !== this.lod) { this.lod = lod; const full = lod === 'full'; for (const L of [this.roadG, this.groundL, this.objL, this.beamG, this.creepL, this.topL, this.selG]) L.visible = full; this.drawMini(this.view); this.onLod && this.onLod(lod); }
+    if (this.view && this._bgS !== this.view.S) this.drawBg(this.view.S);
+    let built = 0, fulls = 0; const ts = Math.max(1, 11 / (20 * s));
+    for (const e of this.rooms) { const vis = !(e.sp.x > vx1 || e.sp.y > vy1 || e.sp.x + RS < vx0 || e.sp.y + RS < vy0); e.sp.visible = vis; e.tx.visible = vis && px > 90 && (!this.ov || this.ov.names !== false);
+      if (e.full) fulls++;
+      if (!vis) continue; e.tx.scale.set(lod === 'mini' ? ts : 1);
+      if (lod === 'mini' || (!e.full && built >= 2)) { const m = this.miniTex(e); if (e.sp.texture !== m) { e.sp.texture = m; e.sp.width = e.sp.height = RS; } continue; }
+      if (!e.full) { built++; e.full = this.roomTexture(e.rx, e.ry, e.tiles); }
+      if (e.sp.texture !== e.full) { e.sp.texture = e.full; e.sp.width = e.sp.height = RS; for (const ch of e.sp.children) ch.scale.set(1 / e.sp.scale.x); }
+    }
+    if (fulls > 24) for (const e of this.rooms) if (!e.sp.visible && e.full) { if (e.sp.texture === e.full) e.sp.texture = this.miniTex(e); e.full.destroy(true); e.full = null; if (--fulls <= 20) break; }
+    // 放大到完整细节时，视野里尚未生成的房间按需生成（每帧最多 1 个）
+    if (lod === 'full' && this.onNeedRoom && this.view) { const S = this.view.S; outer: for (let ry = Math.max(0, Math.floor(vy0 / RS)); ry <= Math.min(S - 1, Math.floor(vy1 / RS)); ry++) for (let rx = Math.max(0, Math.floor(vx0 / RS)); rx <= Math.min(S - 1, Math.floor(vx1 / RS)); rx++) if (!this.roomSp?.has(rx + ',' + ry)) { this.onNeedRoom(rx, ry); break outer; } }
     const a = Math.min(1, (now - this.tickAt) / this.dt);
     for (const c of this.creepL.children) { const d = c.data; if (!d) continue; const px = d.px ?? d.x, py = d.py ?? d.y; c.x = (px + (d.x - px) * a + .5) * TS; c.y = (py + (d.y - py) * a + .5) * TS; }
     this.beamG.alpha = 1 - a;
@@ -242,5 +255,26 @@ class Renderer {
     el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
     el.addEventListener('wheel', e => { this.zoom(e.deltaY < 0 ? 1.1 : 0.9); e.preventDefault(); }, { passive: false });
   }
-  zoom(f) { this.scale = Math.min(4, Math.max(0.2, this.scale * f)); }
+  zoom(f) { this.scale = Math.min(4, Math.max(0.015, this.scale * f)); }
+  fitWorld(S) { const RS = ROOM * TS; this.scale = Math.min(innerWidth / (S * RS), (innerHeight - 70) / (S * RS)) * .96; this.cx = this.cy = S * RS / 2; }
+  // 低精度房间：每格 1 像素（墙 #111 / 平原 #2b2b2b / 沼泽 #292b18），缩小时使用并缓存
+  miniTex(e) {
+    if (e.miniT) return e.miniT; const c = document.createElement('canvas'); c.width = c.height = ROOM; const g = c.getContext('2d'), img = g.createImageData(ROOM, ROOM), d = img.data;
+    for (let i = 0; i < ROOM * ROOM; i++) { const t = +e.tiles[i], col = t === T_WALL ? [17, 17, 17] : t === T_SWAMP ? [41, 43, 24] : [43, 43, 43]; d[i * 4] = col[0]; d[i * 4 + 1] = col[1]; d[i * 4 + 2] = col[2]; d[i * 4 + 3] = 255; }
+    g.putImageData(img, 0, 0); const t = PIXI.Texture.from(c); t.baseTexture.scaleMode = PIXI.SCALE_MODES.NEAREST; return (e.miniT = t);
+  }
+  // 世界底图：所有房间（包括未生成）按类型着色
+  drawBg(S) {
+    const g = this.bgG, RS = ROOM * TS; g.clear(); this._bgS = S;
+    for (let ry = 0; ry < S; ry++) for (let rx = 0; rx < S; rx++) { const t = roomType(rx, ry); g.beginFill(t === 'highway' ? 0x1a1a1a : t === 'center' ? 0x24221a : 0x202020).drawRect(rx * RS + 8, ry * RS + 8, RS - 16, RS - 16).endFill(); }
+  }
+  // 缩小视图里的对象：建筑/creep 画成玩家颜色的点，能量源黄点，Controller 白点，房间按所属着色
+  drawMini(v) {
+    const g = this.miniG; g.clear(); if (this.lod !== 'mini' || !v) return; const RS = ROOM * TS, col = id => v.players[id]?.color ?? 0xe05050, dot = (o, c, r) => g.beginFill(c).drawRect((o.x + .5) * TS - r, (o.y + .5) * TS - r, r * 2, r * 2).endFill();
+    for (const k in v.owned || {}) { const [rx, ry] = k.split(',').map(Number), c = col(v.owned[k]); g.beginFill(c, .16).lineStyle(24, c, .7).drawRect(rx * RS + 12, ry * RS + 12, RS - 24, RS - 24).endFill().lineStyle(0); }
+    for (const s of v.sources) dot(s, 0xffe56d, 22); for (const m of v.minerals || []) dot(m, 0xcccccc, 20);
+    for (const c of v.controllers || []) dot(c, c.owner ? col(c.owner) : 0xffffff, 26);
+    for (const s of v.structures || []) if (s.type !== 'road') dot(s, s.owner ? col(s.owner) : 0x777777, 14); else dot(s, 0x555555, 8);
+    for (const s of v.spawns) dot(s, col(s.owner), 30); for (const c of v.creeps) dot(c, col(c.owner), 18);
+  }
 }

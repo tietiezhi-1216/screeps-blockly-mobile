@@ -175,8 +175,9 @@ let sel = null;
 const PARTC = { work: '#ffe56d', carry: '#777', move: '#a9b7c6' };
 const kv = (k, v) => `<div class="kv"><span class="k">${k}</span><span class="v">${v}</span></div>`;
 const esc = s => String(s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+const findIn = (v, o) => { if (!v || !o) return null; const L = { creep: v.creeps, spawn: v.spawns, source: v.sources, site: v.sites, controller: v.controllers, structure: v.structures, mineral: v.minerals, resource: v.resources, tombstone: v.tombstones }[o.kind]; return L ? L.find(x => x.id === o.id) : null; };
 function renderInspect() {
-  if (!sel) return; const v = view(), o = renderer.find(sel); if (!v || !o) { $('inspect').classList.add('hidden'); return; }
+  if (!sel) return; const v = view(), o = findIn(v, sel); if (!v || !o) { $('inspect').classList.add('hidden'); return; }
   const pn = id => esc(v.players[id]?.name || id || '-'); let t = '', b = kv('位置', `x ${((o.x % 50) + 50) % 50}, y ${((o.y % 50) + 50) % 50} · ${roomName(o.x, o.y)}`);
   if (sel.kind === 'creep') { t = 'Creep ' + esc(o.name); const cap = o.body.filter(p => p === 'carry').length * 50;
     b += kv('所属', pn(o.owner)) + kv('身体', `<span class="body">${o.body.map(p => `<span class="part" style="background:${PARTC[p]}"></span>`).join('')}</span>`) + kv('hits', `${o.hits ?? o.body.length * 100} / ${o.body.length * 100}`) + kv('能量', `${o.energy} / ${cap}`) + kv('ticksToLive', o.ttl);

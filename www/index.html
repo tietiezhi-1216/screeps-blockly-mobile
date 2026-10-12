@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
-<title>Screeps 积木</title><link rel="stylesheet" href="style.css"></head>
+<title>Screeps World</title><link rel="stylesheet" href="style.css"><link rel="stylesheet" href="shell.css"></head>
 <body>
 <div id="stage"></div>
 <div id="hud"></div>
@@ -53,18 +53,11 @@
   <div id="ver" class="muted"></div>
   <button id="mClose" data-icon="x" class="ghost"><span class="lb">关闭</span></button>
 </div>
-<div id="start">
-  <div class="startTitle"><div class="t1">Screeps 积木</div><div class="t2">用积木编程，经营你的殖民地</div></div>
-  <div class="startBtns">
-    <button id="sPlay" class="primary big" data-icon="player-play"><span class="lb">开始游戏</span></button>
-    <button id="sNet" class="big" data-icon="broadcast"><span class="lb">联机</span></button>
-    <button id="sSet" class="big" data-icon="settings"><span class="lb">设置</span></button>
-  </div>
-  <div id="startVer" class="muted"></div>
-</div>
+<div id="start" class="shell"><button id="sPlay"></button><button id="sNet"></button><button id="sSet"></button><div id="startVer"></div></div>
 <script src="version.js"></script>
 <script src="vendor/capacitor.js"></script>
 <script src="icons.js"></script>
+<script src="icons-shell.js"></script>
 <script src="vendor/blockly_compressed.js"></script>
 <script src="vendor/blocks_compressed.js"></script>
 <script src="vendor/javascript_compressed.js"></script>
@@ -73,9 +66,11 @@
 <script src="screeps-const.js"></script>
 <script src="worldgen.js"></script>
 <script src="engine.js"></script>
+<script src="stats.js"></script>
 <script src="render.js"></script>
 <script src="blocks.js"></script>
 <script src="net.js"></script>
 <script src="update.js"></script>
 <script src="main.js"></script>
+<script src="shell.js"></script>
 </body></html>

@@ -12,4 +12,4 @@ async function checkUpdate(manual) {
     } else if (manual) alert(`已是最新版本（${cur}）`);
   } catch (e) { if (manual) alert('检查更新失败：' + e.message); }
 }
-function openUrl(u) { const B = window.Capacitor?.Plugins?.Browser; if (B) B.open({ url: u }); else window.open(u, '_system'); }
+function openUrl(u) { const B = window.Capacitor?.isNativePlatform?.() && window.Capacitor.registerPlugin ? window.Capacitor.registerPlugin('Browser') : null; if (B) B.open({ url: u }); else window.open(u, '_system'); }

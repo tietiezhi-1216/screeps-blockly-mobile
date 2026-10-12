@@ -4,7 +4,7 @@
 <title>Screeps 积木</title><link rel="stylesheet" href="style.css"></head>
 <body>
 <div id="stage"></div>
-<div id="hud"><span id="stats"></span></div>
+<div id="hud"></div>
 <div id="bar">
   <button id="btnRun">▶ 运行</button>
   <button id="btnCode">🧩 代码</button>
@@ -30,15 +30,25 @@
   <button id="nSolo">🎮 回到单机</button>
   <button id="nClose">关闭</button>
 </div>
+<div id="intro" class="hidden panel">
+  <h3 style="margin:0;text-align:center">欢迎来到 Screeps 积木 👋</h3>
+  <div>① 这是一个持续运行的开放世界。白色圆环是你的 <b>Spawn</b>，黄色菱形是 <b>能量源</b>，小圆点是你的 <b>creep</b>。</div>
+  <div>② 点 <b>🧩 代码</b>，从左侧彩色分类里拖积木，拼出 creep 的行为（默认只会“生产 + 采集”）。</div>
+  <div>③ 点 <b>✔ 完成</b> 应用代码，再点 <b>▶ 运行</b> 让世界动起来。可切到“生成的 JS”看真实代码。</div>
+  <div>④ 单指拖动地图、双指缩放、点格子查看信息；<b>📡 联机</b> 可在同一 WiFi 下和朋友一起玩。</div>
+  <button id="introOk">开始玩</button>
+</div>
 <div id="menu" class="hidden panel">
   <button id="mSave">💾 立即保存</button>
   <button id="mReset">🌍 重置世界</button>
   <button id="mResetCode">🧩 恢复默认积木</button>
+  <button id="mIntro">❓ 新手提示</button>
   <button id="mUpdate">⬆ 检查更新</button>
   <div id="ver"></div>
   <button id="mClose">关闭</button>
 </div>
 <script src="version.js"></script>
+<script src="vendor/capacitor.js"></script>
 <script src="vendor/blockly_compressed.js"></script>
 <script src="vendor/blocks_compressed.js"></script>
 <script src="vendor/javascript_compressed.js"></script>

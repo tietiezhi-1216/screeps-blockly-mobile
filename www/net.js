@@ -43,10 +43,14 @@ class ClientSession {
   close() { try { this.ws.close(); } catch (e) {} }
 }
 // 安卓原生插件适配
+let _lanPlugin = null;
+function lanPlugin() { const C = window.Capacitor; if (!C || !C.isNativePlatform || !C.isNativePlatform() || !C.registerPlugin) return null; return _lanPlugin || (_lanPlugin = C.registerPlugin('LanServer')); }
+let _transport = null;
 function nativeTransport() {
-  const P = window.Capacitor?.registerPlugin?.('LanServer'); if (!P || !window.Capacitor.isNativePlatform()) return null;
+  if (_transport) return _transport;
+  const P = lanPlugin(); if (!P) return null;
   const t = { plugin: P, send: (id, data) => P.send({ id, data }), broadcast: data => P.broadcast({ data }), kick: id => P.kick({ id }) };
   P.addListener('connect', e => t.onConnect && t.onConnect(e.id)); P.addListener('message', e => t.onMessage && t.onMessage(e.id, e.data)); P.addListener('close', e => t.onClose && t.onClose(e.id));
-  return t;
+  return (_transport = t);
 }
 if (typeof module !== 'undefined') module.exports = { HostSession, ClientSession };

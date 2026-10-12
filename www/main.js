@@ -16,11 +16,15 @@ function loadEngine() {
 function save() { if (engine && mode !== 'client') localStorage.setItem(SAVE_W, engine.saveData()); }
 
 function initBlockly() {
-  ws = Blockly.inject('blocklyDiv', { toolbox: TOOLBOX, trashcan: true, zoom: { controls: true, wheel: true, startScale: 0.75 }, move: { scrollbars: true, drag: true, wheel: true }, renderer: 'zelos' });
+  ws = Blockly.inject('blocklyDiv', { toolbox: TOOLBOX, trashcan: true, zoom: { controls: true, wheel: true, pinch: true, startScale: 0.8, minScale: 0.4, maxScale: 2 }, move: { scrollbars: true, drag: true, wheel: true }, grid: { spacing: 24, length: 2, colour: '#ddd', snap: true }, renderer: 'zelos' });
+  colorizeToolbox();
   let saved = null; try { saved = JSON.parse(localStorage.getItem(SAVE_C)); } catch (e) {}
   Blockly.serialization.workspaces.load(saved || DEFAULT_WS, ws);
   ws.addChangeListener(e => { if (!e.isUiEvent) { regen(false); localStorage.setItem(SAVE_C, JSON.stringify(Blockly.serialization.workspaces.save(ws))); } });
   regen(false);
+}
+function colorizeToolbox() { // 让分类按钮整块着色
+  try { for (const it of ws.getToolbox().getToolboxItems()) { const d = it.getDiv && it.getDiv(), row = d && d.querySelector('.blocklyTreeRow'), col = it.colour_ || (it.getColour && it.getColour()); if (row && col) { row.style.background = col; row.style.borderLeftColor = '#ffffff55'; } } } catch (e) { console.warn(e); }
 }
 function regen(push = true) {
   code = Blockly.JavaScript.workspaceToCode(ws); $('jsView').textContent = '// 每个 tick 执行一次（等价于 Screeps 的 module.exports.loop）\n' + code;
@@ -31,9 +35,9 @@ function applyCode() { if (mode === 'client') client && client.sendCode(code); e
 
 function view() { return mode === 'client' ? client?.view : engine?.w; }
 function stats() {
-  const v = view(); if (!v) { $('stats').textContent = mode === 'client' ? '等待房主数据…' : ''; return; }
+  const v = view(); if (!v) { $('hud').innerHTML = `<span class="chip">${mode === 'client' ? '等待房主数据…' : ''}</span>`; return; }
   const sp = v.spawns.find(s => s.owner === myPid), n = v.creeps.filter(c => c.owner === myPid).length, np = Object.keys(v.players).length;
-  $('stats').textContent = `Tick ${v.time} | 能量 ${sp ? sp.energy + '/' + sp.cap : '-'} | 我的 creep ${n} | 玩家 ${np} | 世界 ${v.S}×${v.S} | ${mode === 'solo' ? '单机' : mode === 'host' ? '房主' : '客户端'} ${mode === 'client' ? '' : running ? '▶' : '⏸'}`;
+  const H = `<span class="chip">${mode === 'solo' ? '🎮 单机' : mode === 'host' ? '🏠 房主' : '📱 客户端'} ${mode === 'client' ? '' : running ? '▶' : '⏸'}</span><span class="chip">Tick <b>${v.time}</b></span><span class="chip">⚡ <b>${sp ? sp.energy + '/' + sp.cap : '-'}</b></span><span class="chip">🐜 <b>${n}</b></span><span class="chip">👥 ${np} · 🗺 ${v.S}×${v.S}</span>`; if (H !== stats._h) { $('hud').innerHTML = stats._h = H; }
 }
 let acc = 0, lastT = performance.now();
 function loop(t) {
@@ -57,6 +61,9 @@ $('mClose').onclick = () => $('menu').classList.add('hidden');
 $('mSave').onclick = () => { save(); alert('已保存'); };
 $('mReset').onclick = () => { if (mode === 'client') return alert('客户端不能重置房主的世界'); if (confirm('确定重置整个世界？（代码会保留）')) { localStorage.removeItem(SAVE_W); const peers = hostS ? Object.keys(engine.w.players) : []; loadEngine(); if (hostS) { hostS.e = engine; rebindHost(); } $('menu').classList.add('hidden'); } };
 $('mResetCode').onclick = () => { if (confirm('恢复默认积木程序？')) { ws.clear(); Blockly.serialization.workspaces.load(DEFAULT_WS, ws); regen(true); } };
+$('mIntro').onclick = () => { $('menu').classList.add('hidden'); $('intro').classList.remove('hidden'); };
+$('introOk').onclick = () => { $('intro').classList.add('hidden'); localStorage.setItem('sbm_intro', '1'); };
+if (!localStorage.getItem('sbm_intro')) $('intro').classList.remove('hidden');
 $('mUpdate').onclick = () => checkUpdate(true);
 $('ver').textContent = '版本 ' + (window.APP_VERSION || 'dev');
 
@@ -76,7 +83,7 @@ $('nHost').onclick = async () => {
   mode = 'host'; rebindHost(); netStatus(hostInfo()); setRunUI(); log('🏠 已开房，其他手机在同一 WiFi/热点下点“搜索”或输入 IP 加入');
 };
 $('nScan').onclick = async () => {
-  const P = window.Capacitor?.registerPlugin?.('LanServer'); if (!P || !window.Capacitor.isNativePlatform()) return alert('搜索需要安卓 App；也可手动输入 IP');
+  const P = lanPlugin(); if (!P) return alert('搜索需要安卓 App；也可手动输入 IP');
   $('hosts').textContent = '搜索中…'; try { const r = await P.discover({ timeout: 3500 }); $('hosts').textContent = r.hosts.length ? '' : '没找到（可手动输入 IP）';
     for (const h of r.hosts) { const b = document.createElement('button'); b.textContent = `加入 ${h.name} (${h.ip})`; b.onclick = () => join(h.ip + ':' + h.port); $('hosts').appendChild(b); } } catch (e) { $('hosts').textContent = '搜索失败：' + e.message; }
 };

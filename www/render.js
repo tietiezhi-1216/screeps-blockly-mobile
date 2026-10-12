@@ -7,7 +7,7 @@ class Renderer {
     this.world = new PIXI.Container(); this.app.stage.addChild(this.world);
     this.terrainL = new PIXI.Container(); this.structL = new PIXI.Container(); this.objL = new PIXI.Container(); this.creepL = new PIXI.Container(); this.fxL = new PIXI.Container(); this.labelL = new PIXI.Container();
     this.world.addChild(this.terrainL, this.structL, this.objL, this.creepL, this.fxL, this.labelL);
-    this.scale = 1; this.cx = 37 * TS; this.cy = 37 * TS; this.view = null; this.roomsVer = -1; this.sprites = new Map(); this.particles = []; this.tickAt = performance.now(); this.dt = 500;
+    this.scale = 1.6; this.cx = 37 * TS; this.cy = 37 * TS; this.view = null; this.roomsVer = -1; this.sprites = new Map(); this.particles = []; this.tickAt = performance.now(); this.dt = 500;
     this.tex = this.makeTextures(); this.bindInput(); this.onTap = null;
     this.app.ticker.add(() => this.frame());
   }
@@ -55,7 +55,7 @@ class Renderer {
   }
   // ===== 每 tick 喂入新视图 =====
   setView(v, dt) {
-    if (!this.view) { const me = v.spawns.find(s => s.owner === this.myPid) || v.spawns[0]; if (me) this.focus(me.x, me.y); }
+    if (!this.view || this._refocus) { this._refocus = false; const me = v.spawns.find(s => s.owner === this.myPid) || v.spawns[0]; if (me) this.focus(me.x, me.y); }
     this.view = v; this.dt = dt; this.tickAt = performance.now();
     if (v.roomsVer !== this.roomsVer) this.rebuildTerrain(v);
     for (const e of v.events || []) this.effect(e);

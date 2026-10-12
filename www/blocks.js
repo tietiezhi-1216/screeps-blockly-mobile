@@ -44,14 +44,14 @@ for (const k in G) JS.forBlock[k] = G[k];
 JS.INFINITE_LOOP_TRAP = '__loopGuard();\n';
 
 const TOOLBOX = { kind: 'categoryToolbox', contents: [
-  { kind: 'category', name: '🐜 Creep', colour: C, contents: ['sc_each_creep', 'sc_harvest', 'sc_transfer_spawn', 'sc_build', 'sc_moveto', 'sc_say', 'sc_is', 'sc_mem_get', 'sc_mem_set', 'sc_creep_prop'].map(t => ({ kind: 'block', type: t })) },
-  { kind: 'category', name: '🏠 基地', colour: S, contents: ['sc_spawn', 'sc_spawn_energy', 'sc_creep_count', 'sc_site_count', 'sc_site', 'sc_time', 'sc_log'].map(t => ({ kind: 'block', type: t })) },
-  { kind: 'category', name: '❓ 逻辑', categorystyle: 'logic_category', contents: ['controls_if', 'logic_compare', 'logic_operation', 'logic_negate', 'logic_boolean'].map(t => ({ kind: 'block', type: t })) },
-  { kind: 'category', name: '🔁 循环', categorystyle: 'loop_category', contents: ['controls_repeat_ext', 'controls_whileUntil', 'controls_for'].map(t => ({ kind: 'block', type: t })) },
-  { kind: 'category', name: '🔢 数学', categorystyle: 'math_category', contents: ['math_number', 'math_arithmetic', 'math_random_int', 'math_modulo'].map(t => ({ kind: 'block', type: t })) },
-  { kind: 'category', name: '🔤 文本', categorystyle: 'text_category', contents: ['text', 'text_join'].map(t => ({ kind: 'block', type: t })) },
-  { kind: 'category', name: '📦 变量', categorystyle: 'variable_category', custom: 'VARIABLE' },
-  { kind: 'category', name: '🧩 函数', categorystyle: 'procedure_category', custom: 'PROCEDURE' },
+  { kind: 'category', name: 'Creep', colour: C, contents: ['sc_each_creep', 'sc_harvest', 'sc_transfer_spawn', 'sc_build', 'sc_moveto', 'sc_say', 'sc_is', 'sc_mem_get', 'sc_mem_set', 'sc_creep_prop'].map(t => ({ kind: 'block', type: t })) },
+  { kind: 'category', name: '基地', colour: S, contents: ['sc_spawn', 'sc_spawn_energy', 'sc_creep_count', 'sc_site_count', 'sc_site', 'sc_time', 'sc_log'].map(t => ({ kind: 'block', type: t })) },
+  { kind: 'category', name: '逻辑', categorystyle: 'logic_category', contents: ['controls_if', 'logic_compare', 'logic_operation', 'logic_negate', 'logic_boolean'].map(t => ({ kind: 'block', type: t })) },
+  { kind: 'category', name: '循环', categorystyle: 'loop_category', contents: ['controls_repeat_ext', 'controls_whileUntil', 'controls_for'].map(t => ({ kind: 'block', type: t })) },
+  { kind: 'category', name: '数学', categorystyle: 'math_category', contents: ['math_number', 'math_arithmetic', 'math_random_int', 'math_modulo'].map(t => ({ kind: 'block', type: t })) },
+  { kind: 'category', name: '文本', categorystyle: 'text_category', contents: ['text', 'text_join'].map(t => ({ kind: 'block', type: t })) },
+  { kind: 'category', name: '变量', categorystyle: 'variable_category', custom: 'VARIABLE' },
+  { kind: 'category', name: '函数', categorystyle: 'procedure_category', custom: 'PROCEDURE' },
 ] };
 
 // 默认程序：故意保持最小——只生产 creep 并让它们采集，剩下的交给玩家

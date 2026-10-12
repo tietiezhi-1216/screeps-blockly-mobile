@@ -3,3 +3,4 @@ android/
 www/vendor/
 www/version.js
 *.p12
+assets-art/start_bg.png

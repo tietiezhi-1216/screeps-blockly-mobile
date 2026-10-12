@@ -5,50 +5,66 @@
 <body>
 <div id="stage"></div>
 <div id="hud"></div>
-<div id="bar">
-  <button id="btnRun">▶ 运行</button>
-  <button id="btnCode">🧩 代码</button>
-  <button id="btnSpeed">1x</button>
-  <button id="btnLog">📜 日志</button>
-  <button id="btnNet">📡 联机</button>
-  <button id="btnMenu">⚙</button>
-</div>
+<nav id="bar">
+  <button id="btnRun" data-icon="player-play"><span class="lb">运行</span></button>
+  <button id="btnCode" data-icon="puzzle"><span class="lb">代码</span></button>
+  <button id="btnSpeed" data-icon="player-track-next"><span class="lb">1x</span></button>
+  <button id="btnLog" data-icon="terminal-2"><span class="lb">日志</span></button>
+  <button id="btnNet" data-icon="broadcast"><span class="lb">联机</span></button>
+  <button id="btnMenu" data-icon="settings"><span class="lb">设置</span></button>
+</nav>
 <div id="log" class="hidden"></div>
-<div id="inspect" class="hidden"></div>
+<div id="inspect" class="hidden"><div class="insHead"><span id="insTitle"></span><button id="insClose" data-icon="x" class="iconbtn"></button></div><div id="insBody"></div></div>
 <div id="editor" class="hidden">
-  <div id="edTabs"><button data-t="blocks" class="on">积木</button><button data-t="js">生成的 JS</button><span style="flex:1"></span><button id="edClose">✔ 完成</button></div>
+  <div id="edTabs"><button data-t="blocks" class="on" data-icon="puzzle"><span class="lb">积木</span></button><button data-t="js" data-icon="code"><span class="lb">生成的 JS</span></button><span style="flex:1"></span><button id="edClose" data-icon="check" class="primary"><span class="lb">完成</span></button></div>
   <div id="blocklyDiv"></div>
   <pre id="jsView" class="hidden"></pre>
 </div>
 <div id="net" class="hidden panel">
-  <div id="netStatus">当前：单机</div>
+  <div class="pTitle">局域网联机</div>
+  <div id="netStatus" class="status">当前：单机</div>
+  <div id="ipList"></div>
   <input id="nick" placeholder="你的昵称" maxlength="16">
-  <button id="nHost">🏠 开房（本机做房主）</button>
-  <button id="nScan">🔍 搜索局域网房间</button>
+  <button id="nHost" data-icon="home"><span class="lb">开房（本机做房主）</span></button>
+  <button id="nScan" data-icon="search"><span class="lb">搜索局域网房间</span></button>
   <div id="hosts"></div>
-  <div style="display:flex;gap:6px"><input id="ip" placeholder="房主 IP，如 192.168.1.5" style="flex:1"><button id="nJoin" style="flex:0 0 auto">加入</button></div>
-  <button id="nSolo">🎮 回到单机</button>
-  <button id="nClose">关闭</button>
+  <div class="row"><input id="ip" placeholder="房主 IP，如 192.168.1.5"><button id="nJoin" data-icon="login" class="narrow"><span class="lb">加入</span></button></div>
+  <button id="nSolo" data-icon="device-gamepad-2"><span class="lb">回到单机</span></button>
+  <button id="nClose" data-icon="x" class="ghost"><span class="lb">关闭</span></button>
 </div>
 <div id="intro" class="hidden panel">
-  <h3 style="margin:0;text-align:center">欢迎来到 Screeps 积木 👋</h3>
-  <div>① 这是一个持续运行的开放世界。白色圆环是你的 <b>Spawn</b>，黄色菱形是 <b>能量源</b>，小圆点是你的 <b>creep</b>。</div>
-  <div>② 点 <b>🧩 代码</b>，从左侧彩色分类里拖积木，拼出 creep 的行为（默认只会“生产 + 采集”）。</div>
-  <div>③ 点 <b>✔ 完成</b> 应用代码，再点 <b>▶ 运行</b> 让世界动起来。可切到“生成的 JS”看真实代码。</div>
-  <div>④ 单指拖动地图、双指缩放、点格子查看信息；<b>📡 联机</b> 可在同一 WiFi 下和朋友一起玩。</div>
-  <button id="introOk">开始玩</button>
+  <div class="pTitle">新手提示</div>
+  <ol class="tips">
+    <li>持续运行的开放世界：白色圆环是你的 Spawn，黄色方块是能量源，带彩色环的小圆是你的 creep。</li>
+    <li>点「代码」，从左侧彩色分类拖积木，拼出 creep 的行为（默认只会“生产 + 采集”）。</li>
+    <li>点「完成」应用代码，再点「运行」让世界按 tick 运转，「1x」切换速度。</li>
+    <li>单指拖动、双指缩放，点 creep / 建筑查看详情；「联机」可在同一 WiFi 下一起玩。</li>
+  </ol>
+  <button id="introOk" class="primary" data-icon="rocket"><span class="lb">开始玩</span></button>
 </div>
 <div id="menu" class="hidden panel">
-  <button id="mSave">💾 立即保存</button>
-  <button id="mReset">🌍 重置世界</button>
-  <button id="mResetCode">🧩 恢复默认积木</button>
-  <button id="mIntro">❓ 新手提示</button>
-  <button id="mUpdate">⬆ 检查更新</button>
-  <div id="ver"></div>
-  <button id="mClose">关闭</button>
+  <div class="pTitle">设置</div>
+  <button id="mSave" data-icon="device-floppy"><span class="lb">立即保存</span></button>
+  <button id="mFps" data-icon="gauge"><span class="lb">显示 FPS：关</span></button>
+  <button id="mIntro" data-icon="help"><span class="lb">新手提示</span></button>
+  <button id="mUpdate" data-icon="download"><span class="lb">检查更新</span></button>
+  <button id="mResetCode" data-icon="arrow-back-up"><span class="lb">恢复默认积木</span></button>
+  <button id="mReset" data-icon="trash" class="danger"><span class="lb">重置世界</span></button>
+  <div id="ver" class="muted"></div>
+  <button id="mClose" data-icon="x" class="ghost"><span class="lb">关闭</span></button>
+</div>
+<div id="start">
+  <div class="startTitle"><div class="t1">Screeps 积木</div><div class="t2">用积木编程，经营你的殖民地</div></div>
+  <div class="startBtns">
+    <button id="sPlay" class="primary big" data-icon="player-play"><span class="lb">开始游戏</span></button>
+    <button id="sNet" class="big" data-icon="broadcast"><span class="lb">联机</span></button>
+    <button id="sSet" class="big" data-icon="settings"><span class="lb">设置</span></button>
+  </div>
+  <div id="startVer" class="muted"></div>
 </div>
 <script src="version.js"></script>
 <script src="vendor/capacitor.js"></script>
+<script src="icons.js"></script>
 <script src="vendor/blockly_compressed.js"></script>
 <script src="vendor/blocks_compressed.js"></script>
 <script src="vendor/javascript_compressed.js"></script>

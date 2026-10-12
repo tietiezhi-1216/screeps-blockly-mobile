@@ -9,11 +9,11 @@ const Upd = {
   el: null, rel: null, apk: null, path: null, busy: false, waitingPerm: false,
   ui() {
     if (this.el) return this.el;
-    const d = document.createElement('div'); d.id = 'upd'; d.className = 'panel hidden'; d.style.zIndex = 40;
+    const d = document.createElement('div'); d.id = 'upd'; d.className = 'panel hidden'; d.style.zIndex = 60;
     d.innerHTML = `<h3 id="updTitle" style="margin:0;text-align:center"></h3><div id="updNotes" style="font-size:13px;white-space:pre-wrap;max-height:30vh;overflow:auto;color:#ccc"></div>
       <div id="updBarWrap" class="hidden" style="background:#111;border-radius:8px;height:18px;overflow:hidden"><div id="updBar" style="height:100%;width:0;background:linear-gradient(90deg,#2e8b57,#7bd88f);transition:width .15s"></div></div>
       <div id="updMsg" style="text-align:center;font-size:13px;color:#9f9;min-height:1em"></div>
-      <button id="updGo">⬇ 立即更新</button><button id="updLink" class="hidden" style="background:#555">🌐 用浏览器下载</button><button id="updLater" style="background:#444">稍后</button>`;
+      <button id="updGo">立即更新</button><button id="updLink" class="hidden" style="background:#555">用浏览器下载</button><button id="updLater" style="background:#444">稍后</button>`;
     document.body.appendChild(d); this.el = d;
     d.querySelector('#updGo').onclick = () => this.start();
     d.querySelector('#updLater').onclick = () => { if (this.busy) { const P = nativePlugin('AppUpdater'); P && P.cancel(); } d.classList.add('hidden'); };
@@ -31,22 +31,22 @@ const Upd = {
     this.$('updTitle').textContent = `发现新版本 ${rel.tag_name}（当前 ${cur}）`;
     this.$('updNotes').textContent = (rel.body || '').slice(0, 800);
     this.$('updMsg').textContent = `安装包 ${fmtMB(apk.size)}`; this.$('updBarWrap').classList.add('hidden');
-    this.$('updGo').textContent = '⬇ 立即更新'; this.$('updGo').disabled = false;
+    this.$('updGo').textContent = '立即更新'; this.$('updGo').disabled = false;
     this.$('updLink').classList.toggle('hidden', !!nativePlugin('AppUpdater'));
     this.el.classList.remove('hidden');
   },
   progress(got, total) { const p = total > 0 ? Math.min(100, got / total * 100) : 0; this.$('updBar').style.width = p.toFixed(1) + '%'; this.$('updMsg').textContent = `下载中 ${fmtMB(got)} / ${total > 0 ? fmtMB(total) : '?'}（${p.toFixed(0)}%）`; },
-  fail(msg) { this.busy = false; this.$('updMsg').textContent = '❌ ' + msg; this.$('updGo').textContent = '🔁 重试'; this.$('updGo').disabled = false; this.$('updLink').classList.remove('hidden'); },
+  fail(msg) { this.busy = false; this.$('updMsg').textContent = '' + msg; this.$('updGo').textContent = '重试'; this.$('updGo').disabled = false; this.$('updLink').classList.remove('hidden'); },
   async start() {
     const P = nativePlugin('AppUpdater'); if (!P) return openUrl(this.apk.browser_download_url);
     if (this.path) return this.tryInstall();
     this.busy = true; this.$('updGo').disabled = true; this.$('updLink').classList.add('hidden'); this.$('updBarWrap').classList.remove('hidden'); this.progress(0, this.apk.size);
     const sha = (this.apk.digest || '').startsWith('sha256:') ? this.apk.digest.slice(7) : '';
-    try { const r = await P.download({ url: this.apk.browser_download_url, size: this.apk.size, sha256: sha }); this.path = r.path; this.busy = false; this.$('updMsg').textContent = `✅ 下载完成，已校验${sha ? ' SHA-256' : '大小'}`; this.tryInstall(); }
+    try { const r = await P.download({ url: this.apk.browser_download_url, size: this.apk.size, sha256: sha }); this.path = r.path; this.busy = false; this.$('updMsg').textContent = `下载完成，已校验${sha ? ' SHA-256' : '大小'}`; this.tryInstall(); }
     catch (e) { this.fail(e.message || String(e)); }
   },
   async tryInstall() {
-    const P = nativePlugin('AppUpdater'); this.$('updGo').disabled = false; this.$('updGo').textContent = '📦 安装';
+    const P = nativePlugin('AppUpdater'); this.$('updGo').disabled = false; this.$('updGo').textContent = '安装';
     try {
       const { allowed } = await P.canInstall();
       if (!allowed) { this.waitingPerm = true; this.$('updMsg').textContent = '请在设置里允许“安装未知应用”，返回后会自动继续安装'; await P.openInstallSettings(); return; }

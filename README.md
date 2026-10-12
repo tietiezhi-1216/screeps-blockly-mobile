@@ -56,5 +56,10 @@ gh auth refresh -s workflow
 mkdir -p .github/workflows && git mv ci/android.yml .github/workflows/android.yml && git commit -m "启用 CI" && git push
 ```
 
+## 第三方资源与许可
+- 图标：[Tabler Icons](https://tabler.io/icons)（MIT），通过 [Iconify](https://iconify.design/) 的 `@iconify-json/tabler` 在构建时离线打包进 `www/icons.js`
+- [PixiJS](https://pixijs.com/)（MIT）、[Blockly](https://developers.google.com/blockly)（Apache-2.0）、[Capacitor](https://capacitorjs.com/)（MIT）、[NanoHTTPD](https://github.com/NanoHttpd/nanohttpd)（BSD-3）
+- 开始界面插画：AI 生成，位于 `assets-art/`
+
 ## 许可证
 MIT

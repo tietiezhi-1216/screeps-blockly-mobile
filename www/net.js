@@ -5,7 +5,7 @@ class HostSession {
     this.e = engine; this.t = transport; this.hostPid = hostPid; this.clients = new Map(); this.sentRoomsVer = -1; this.onLocalLog = null; this.onPeers = null;
     engine.onLog = (pid, s) => { if (pid === this.hostPid || !pid) this.onLocalLog && this.onLocalLog(s); for (const [id, c] of this.clients) if (c.pid === pid) this.t.send(id, JSON.stringify({ t: 'log', s })); };
     transport.onConnect = id => { this.clients.set(id, { pid: null }); };
-    transport.onClose = id => { const c = this.clients.get(id); this.clients.delete(id); if (c?.pid) this.e.log(this.hostPid, '📴', this.e.w.players[c.pid]?.name, '断开（其 creep 继续按代码运行）'); this.onPeers && this.onPeers(); };
+    transport.onClose = id => { const c = this.clients.get(id); this.clients.delete(id); if (c?.pid) this.e.log(this.hostPid, '', this.e.w.players[c.pid]?.name, '断开（其 creep 继续按代码运行）'); this.onPeers && this.onPeers(); };
     transport.onMessage = (id, raw) => { let m; try { m = JSON.parse(raw); } catch (e) { return; } this.handle(id, m); };
   }
   handle(id, m) {
@@ -16,7 +16,7 @@ class HostSession {
       this.t.send(id, JSON.stringify({ t: 'welcome', pid })); this.t.send(id, JSON.stringify(Object.assign({ t: 'rooms' }, this.e.roomsData())));
       this.t.send(id, JSON.stringify(Object.assign({ t: 'tick', dt: this.dt || 500 }, this.e.snapshot())));
       this.onPeers && this.onPeers();
-    } else if (m.t === 'code' && c.pid) { this.e.setCode(c.pid, String(m.code || '')); this.e.log(c.pid, '✅ 代码已更新到房主'); }
+    } else if (m.t === 'code' && c.pid) { this.e.setCode(c.pid, String(m.code || '')); this.e.log(c.pid, '代码已更新到房主'); }
   }
   afterTick(dt) {
     this.dt = dt; if (!this.clients.size) return;

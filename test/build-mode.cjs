@@ -1,0 +1,32 @@
+const p = require('puppeteer-core');
+(async () => { const b = await p.launch({ executablePath: '/usr/bin/google-chrome', args: ['--no-sandbox'] });
+  const pg = await b.newPage(); await pg.setViewport({ width: 412, height: 915, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+  const errs = []; pg.on('pageerror', e => errs.push(e.message));
+  await pg.evaluateOnNewDocument(() => { localStorage.clear(); localStorage.setItem('sbm_intro', '1'); });
+  await pg.goto('http://localhost:8765/index.html'); await new Promise(r => setTimeout(r, 1800));
+  await pg.tap('#sPlay'); await new Promise(r => setTimeout(r, 400)); await pg.evaluate(() => document.getElementById('introOk')?.click());
+  await pg.tap('#btnBuild'); await new Promise(r => setTimeout(r, 300));
+  const items = await pg.evaluate(() => [...document.querySelectorAll('#bpList button')].map(b => b.textContent + (b.disabled ? '(禁)' : '')));
+  await pg.screenshot({ path: '/workspace/shots/build-1-picker.png' });
+  await pg.tap('#bpList [data-t="road"]');
+  const sp = await pg.evaluate(() => { const s = engine.w.spawns.find(s => s.owner === myPid); return [s.x, s.y]; });
+  // 找一个 spawn 旁边的平地
+  const spot = await pg.evaluate(([x, y]) => { for (let d = 2; d < 6; d++) for (let dx = -d; dx <= d; dx++) { const X = x + dx, Y = y + d; if (+engine.tile(X, Y) === 0) return [X, Y]; } }, sp);
+  await pg.evaluate(([x, y]) => renderer.onTap(x, y), spot); await new Promise(r => setTimeout(r, 200));
+  await pg.screenshot({ path: '/workspace/shots/build-2-preview.png' });
+  await pg.tap('#bbOk'); await new Promise(r => setTimeout(r, 300));
+  const placed = await pg.evaluate(() => engine.w.sites.filter(s => s.owner === myPid).map(s => s.type + '@' + s.x + ',' + s.y));
+  await pg.screenshot({ path: '/workspace/shots/build-3-placed.png' });
+  // 无效：墙上放 extension → RCL 不足
+  await pg.tap('#bbCancel'); await pg.tap('#btnBuild'); await new Promise(r => setTimeout(r, 200));
+  const ext = await pg.$('#bpList [data-t="extension"]');
+  await pg.tap('#bpList [data-t="road"]');
+  await pg.evaluate(([x, y]) => { renderer.onTap(x, y); }, spot); await new Promise(r => setTimeout(r, 200));
+  const rmMsg = await pg.evaluate(() => document.getElementById('bbMsg').textContent);
+  await pg.tap('#bbOk'); await new Promise(r => setTimeout(r, 300));
+  const after = await pg.evaluate(() => engine.w.sites.filter(s => s.owner === myPid).length);
+  await pg.evaluate(([x, y]) => { startBuild('extension'); renderer.onTap(x, y + 1); }, spot); await pg.tap('#bbOk'); await new Promise(r => setTimeout(r, 200));
+  const err = await pg.evaluate(() => document.getElementById('toast')?.textContent);
+  await pg.screenshot({ path: '/workspace/shots/build-4-error.png' });
+  console.log(JSON.stringify({ items, placed, rmMsg, afterRemove: after, toastAfterSpawnAtRCL1: err, hasExtension: !!ext }), errs);
+  await b.close(); })();

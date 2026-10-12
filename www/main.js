@@ -202,6 +202,7 @@ function renderInspect() {
   $('insTitle').innerHTML = t; $('insBody').innerHTML = b; $('inspect').classList.remove('hidden');
 }
 renderer.onTap = (x, y) => {
+  if (build.on) return buildTap(x, y);
   const v = view(); if (!v) return; const f = a => a.find(o => o.x === x && o.y === y);
   const c = f(v.creeps), sp = f(v.spawns), s = f(v.sources), st = f(v.sites), mi = f(v.minerals || []), rs = f(v.resources || []), tb = f(v.tombstones || []);
   const ctrl = (v.controllers||[]).find(o => o.x === x && o.y === y), stt = (v.structures||[]).find(o => o.x === x && o.y === y);
@@ -219,3 +220,45 @@ setTimeout(() => checkUpdate(false), 2000);
 const qj = new URLSearchParams(location.search).get('join'); if (qj) join(qj);
 if (new URLSearchParams(location.search).get('run')) { hideStart(); running = true; speed = 4; setRunUI(); }
 if (qj) hideStart();
+
+// ===== 手动建造（同官方客户端）：选建筑 → 点格子预览 → 放置；点自己的工地可移除 =====
+const ST_ZH = { spawn: 'Spawn', extension: '扩展', road: '道路', constructedWall: '墙', rampart: '城墙', link: '链路', storage: '仓库', tower: '防御塔', observer: '观察者', powerSpawn: '能量中心', extractor: '采矿机', lab: '实验室', terminal: '终端', container: '容器', nuker: '核弹', factory: '工厂' };
+const ERR_ZH = { '-1': '不是你的房间', '-3': '名字已存在', '-7': '位置无效', '-8': '工地数量已达上限', '-10': '参数无效', '-14': 'RCL 不足或房间不归你', '-15': 'GCL 不足' };
+const build = { on: false, type: null, at: null };
+function toastMsg(m) { let t = $('toast'); if (!t) { t = document.createElement('div'); t.id = 'toast'; document.body.appendChild(t); } t.textContent = m; t.classList.add('on'); clearTimeout(toastMsg._t); toastMsg._t = setTimeout(() => t.classList.remove('on'), 1800); }
+function myRoomCtx() { const w = engine.w, sp = w.spawns.find(s => s.owner === myPid); if (!sp) return null; const k = roomKey(sp.x, sp.y), c = ctrlOfRoom(w, k); return { k, lvl: c && c.owner === myPid ? c.level : 0 }; }
+function openBuildPicker() {
+  if (mode === 'client') return toastMsg('联机客户端暂不支持手动建造');
+  if (!engine) return; const r = myRoomCtx(); $('bpTitle').textContent = r ? `建造 · RCL ${r.lvl}` : '建造';
+  const w = engine.w; let h = '';
+  for (const t of Object.keys(ST_ZH)) { if (!SC.CONTROLLER_STRUCTURES[t]) continue; const lim = r ? SC.CONTROLLER_STRUCTURES[t][r.lvl] || 0 : 0; if (!lim) continue;
+    const used = r ? countStruct(w, myPid, t, r.k) : 0;
+    h += `<button data-t="${t}" ${used >= lim ? 'disabled' : ''}><span class="n">${ST_ZH[t]}</span><span class="d">${used}/${lim > 1000 ? '∞' : lim} · ${SC.CONSTRUCTION_COST[t]} 能量</span></button>`; }
+  h += `<button data-t="flag"><span class="n">旗帜</span><span class="d">标记位置</span></button>`;
+  $('bpList').innerHTML = h; $('bpList').querySelectorAll('button').forEach(b => b.onclick = () => startBuild(b.dataset.t));
+  $('buildPick').classList.remove('hidden'); $('inspect').classList.add('hidden');
+}
+function startBuild(t) { build.on = true; build.type = t; build.at = null; $('buildPick').classList.add('hidden'); $('buildBar').classList.remove('hidden'); $('bbOk').disabled = true; $('bbOk').textContent = '放置'; $('bbMsg').textContent = `点地图选择${t === 'flag' ? '旗帜' : ST_ZH[t]}的位置`; $('btnBuild').classList.add('on'); }
+function endBuild() { build.on = false; build.at = null; renderer.preview = null; renderer.drawSel(); $('buildBar').classList.add('hidden'); $('btnBuild').classList.remove('on'); }
+function apiPos(A, x, y) { return new A.RoomPosition(x % ROOM, y % ROOM, roomName(x, y)); }
+function buildTap(x, y) {
+  const w = engine.w, site = w.sites.find(s => s.x === x && s.y === y && s.owner === myPid);
+  if (site) { build.at = { x, y, remove: site.id }; renderer.preview = { x, y, ok: false }; $('bbMsg').textContent = `移除${ST_ZH[site.type] || site.type}工地？`; $('bbOk').textContent = '移除'; $('bbOk').disabled = false; renderer.drawSel(); return; }
+  if (build.at && build.at.x === x && build.at.y === y && !build.at.remove) return confirmBuild();
+  const ok = +engine.tile(x, y) !== T_WALL || build.type === 'road' || build.type === 'flag';
+  build.at = { x, y }; renderer.preview = { x, y, ok }; renderer.drawSel();
+  $('bbOk').textContent = '放置'; $('bbOk').disabled = false; $('bbMsg').textContent = `${build.type === 'flag' ? '旗帜' : ST_ZH[build.type]} · x ${x % ROOM}, y ${y % ROOM}`;
+}
+function confirmBuild() {
+  const a = build.at; if (!a) return; const A = buildApi(engine, myPid); let r;
+  if (a.remove) { const o = A.Game.getObjectById(a.remove); r = o ? o.remove() : -7; if (r === 0) toastMsg('已移除工地'); }
+  else if (build.type === 'flag') { r = apiPos(A, a.x, a.y).createFlag(); if (typeof r === 'string') { toastMsg('已放置旗帜 ' + r); r = 0; } }
+  else { r = apiPos(A, a.x, a.y).createConstructionSite(build.type); if (r === 0) toastMsg(`已放置${ST_ZH[build.type]}工地`); }
+  if (r !== 0) { toastMsg('无法放置：' + (ERR_ZH[r] || ('错误 ' + r))); renderer.preview = { x: a.x, y: a.y, ok: false }; }
+  else { renderer.preview = null; renderer.setView(engine.w, 1); }
+  build.at = null; $('bbOk').disabled = true; $('bbOk').textContent = '放置'; renderer.drawSel(); save();
+  if (r === 0) $('bbMsg').textContent = '继续点地图放置，或退出';
+}
+$('btnBuild').onclick = () => build.on ? endBuild() : ($('buildPick').classList.contains('hidden') ? openBuildPicker() : $('buildPick').classList.add('hidden'));
+$('bpClose').onclick = () => $('buildPick').classList.add('hidden');
+$('bbOk').onclick = confirmBuild; $('bbCancel').onclick = endBuild;

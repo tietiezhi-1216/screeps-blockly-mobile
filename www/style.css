@@ -91,3 +91,15 @@ pre.mem{margin:var(--sp-1) 0 0;max-height:120px;overflow:auto;background:#0008;p
 #edTools button{width:32px;height:32px;padding:0;border:0;border-radius:6px;background:#2a2f3a;color:#fff;display:flex;align-items:center;justify-content:center}
 #edTools button .ic{display:flex;font-size:18px}
 #edTools #edTrash.hot{background:#c44}
+/* 手动建造 */
+#buildPick{position:fixed;left:8px;right:8px;bottom:calc(68px + var(--bot));max-height:46vh;overflow:auto;background:#14171d;border:1px solid #ffffff1a;border-radius:6px;padding:6px 8px;z-index:8;font-size:13px}
+.bpHead{display:flex;align-items:center;justify-content:space-between;height:28px;color:#cfd3da}
+#bpList{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+#bpList button{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:6px 8px;background:#232833;border:0;border-radius:4px;color:#e6e6e6;text-align:left;min-width:0}
+#bpList button .n{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+#bpList button .d{font-size:11px;color:#8b93a1;white-space:nowrap}
+#bpList button:disabled{opacity:.4}
+#buildBar{position:fixed;left:8px;right:8px;bottom:calc(68px + var(--bot));display:flex;align-items:center;gap:6px;background:#14171d;border:1px solid #ffffff1a;border-radius:6px;padding:6px 8px;z-index:8}
+#bbMsg{flex:1;min-width:0;font-size:13px;color:#cfd3da;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#buildBar button{height:30px;padding:0 12px;border:0;border-radius:4px;background:#2a2f3a;color:#fff;font-size:13px;white-space:nowrap}
+#buildBar button:disabled{opacity:.4}

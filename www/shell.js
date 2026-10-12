@@ -36,16 +36,16 @@
 
   pages.home = () => {
     const p = prof();
-    return `<div class="home"><div class="brand"><img src="art/logo.png" alt=""><div><div class="bt">SCREEPS <b>WORLD</b></div><div class="bs">SCRIPTING CREEPS · 积木编程</div></div></div>
-    <button class="pcard" data-act="go:profile">${badge(p.badge, 44)}<div class="pc"><div class="pn">${esc(nick)}</div><div class="ps">RCL ${Stats.get().rclMax} · ${fmt(Stats.get().ticks)} TICKS</div></div><span class="ic chev">${icon('chevron-right')}</span></button>
-    <div class="grid hq">${[['TICKS', Stats.get().ticks], ['CREEPS', Stats.get().creeps], ['ENERGY', Stats.get().energy]].map(([k, v]) => `<div class="cell"><div class="k">${k}</div><div class="n">${fmt(v)}</div></div>`).join('')}</div>
+    return `<div class="home"><div class="brand"><img src="art/logo.png" alt=""><div class="bt">Screeps <b>World</b></div></div>
+    <button class="pcard" data-act="go:profile">${badge(p.badge, 44)}<div class="pc"><div class="pn">${esc(nick)}</div><div class="ps">RCL ${Stats.get().rclMax} · ${fmt(Stats.get().ticks)} tick</div></div><span class="ic chev">${icon('chevron-right')}</span></button>
+    <div class="grid hq">${[['总 tick', Stats.get().ticks], ['creep', Stats.get().creeps], ['能量', Stats.get().energy]].map(([k, v]) => `<div class="cell"><div class="k">${k}</div><div class="n">${fmt(v)}</div></div>`).join('')}</div>
     <div class="menu">
       <button id="sPlay" class="primary big" data-act="play" data-icon="player-play"><span class="lb">开始游戏</span></button>
       <button id="sNet" class="big" data-act="net" data-icon="broadcast"><span class="lb">局域网联机</span></button>
       <button class="big" data-act="go:profile" data-icon="user"><span class="lb">个人中心</span></button>
       <button id="sSet" class="big" data-act="go:settings" data-icon="settings"><span class="lb">设置</span></button>
       <button class="big" data-act="go:about" data-icon="info-circle"><span class="lb">关于</span></button>
-    </div><div id="startVer" class="foot">V${esc(window.APP_VERSION || 'dev')} · OPEN SOURCE · MIT</div></div>`;
+    </div><div id="startVer" class="foot">版本 ${esc(window.APP_VERSION || 'dev')} · MIT 开源</div></div>`;
   };
 
   pages.profile = () => {
@@ -53,7 +53,7 @@
     return head('个人中心') + `<div class="shBody">
       <div class="prof">${badge(p.badge, 72)}<div class="pc"><div class="pn">${esc(nick)}</div><div class="ps">ID ${esc(myPid)}</div></div></div>
       ${sec('玩家')}${row('editName', 'edit', '昵称', esc(nick))}${row('go:badge', 'palette', '徽章与颜色')}
-      ${sec('数据')}<div class="grid">${[['TICKS', s.ticks], ['CREEPS', s.creeps], ['ENERGY', s.energy], ['RCL MAX', s.rclMax], ['BUILT', s.built], ['SAVES', J('sbm_worlds', []).length]].map(([k, v]) => `<div class="cell"><div class="k">${k}</div><div class="n">${fmt(v)}</div></div>`).join('')}</div>
+      ${sec('数据')}<div class="grid">${[['总 tick', s.ticks], ['creep', s.creeps], ['能量', s.energy], ['最高 RCL', s.rclMax], ['建造', s.built], ['存档', J('sbm_worlds', []).length]].map(([k, v]) => `<div class="cell"><div class="k">${k}</div><div class="n">${fmt(v)}</div></div>`).join('')}</div>
       ${row('go:stats', 'chart-bar', '详细统计')}
       ${sec('内容')}${row('go:worlds', 'world', '存档管理', J('sbm_worlds', []).length + ' 个')}${row('go:snippets', 'code', '代码片段库', J('sbm_snips', []).length + ' 个')}
       ${sec('更多')}${row('go:settings', 'settings', '设置')}${row('go:about', 'info-circle', '关于')}</div>`;
@@ -98,7 +98,7 @@
       ${sec('数据')}${row('saveNow', 'device-floppy', '立即保存世界')}${row('resetWorld', 'refresh', '重置世界', '', 'danger')}${row('clearAll', 'trash', '清除全部数据', '', 'danger')}</div>`;
   };
 
-  pages.about = () => head('关于') + `<div class="shBody"><div class="aboutTop"><img src="art/logo.png" alt=""><div class="bt">SCREEPS <b>WORLD</b></div><div class="bs">版本 ${esc(window.APP_VERSION || 'dev')}</div></div>
+  pages.about = () => head('关于') + `<div class="shBody"><div class="aboutTop"><img src="art/logo.png" alt=""><div class="bt">Screeps <b>World</b></div><div class="bs">版本 ${esc(window.APP_VERSION || 'dev')}</div></div>
     <p class="note">受 Screeps（screeps.com）启发的非官方开源同人作品：用 Blockly 积木编写 creep 的 JavaScript AI，在开放世界中采集、建造、扩张。</p>
     ${sec('开源')}${row('open:https://github.com/tietiezhi-1216/screeps-blockly-mobile', 'brand-github', '源代码仓库', 'GitHub')}${row('open:https://github.com/tietiezhi-1216/screeps-blockly-mobile/releases', 'download', '版本发布')}${row('open:https://docs.screeps.com/', 'license', 'Screeps 官方文档')}
     ${sec('许可证')}${[['本项目', 'MIT'], ['Blockly', 'Apache-2.0'], ['PixiJS', 'MIT'], ['Capacitor', 'MIT'], ['Tabler Icons', 'MIT']].map(([a, b]) => row('none', 'license', a, b, 'static')).join('')}

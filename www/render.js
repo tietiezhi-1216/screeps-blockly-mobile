@@ -122,7 +122,7 @@ class Renderer {
     this.drawSel(); this.onTick && this.onTick();
   }
   select(o) { this.selected = o; this.drawSel(); }
-  drawSel() { const g = this.selG; g.clear(); const o = this.selected; if (!o || !this.view) return; const cur = this.find(o); if (!cur) return; if (!o.kind || o.kind !== 'creep') g.lineStyle(1.5, 0xffffff, .9).drawRect(cur.x * TS, cur.y * TS, TS, TS); }
+  drawSel() { const g = this.selG; g.clear(); const pv = this.preview; if (pv) g.lineStyle(2, pv.ok ? 0x7ee2a0 : 0xff6b6b, 1).beginFill(pv.ok ? 0x7ee2a0 : 0xff6b6b, .25).drawRect(pv.x * TS, pv.y * TS, TS, TS).endFill(); const o = this.selected; if (!o || !this.view) return; const cur = this.find(o); if (!cur) return; if (!o.kind || o.kind !== 'creep') g.lineStyle(1.5, 0xffffff, .9).drawRect(cur.x * TS, cur.y * TS, TS, TS); }
   find(o) { const v = this.view; if (!v || !o) return null; const L = { creep: v.creeps, spawn: v.spawns, source: v.sources, site: v.sites, controller: v.controllers, structure: v.structures, mineral: v.minerals || [], resource: v.resources || [], tombstone: v.tombstones || [] }[o.kind]; return L ? L.find(x => x.id === o.id) : null; }
   // ===== 每帧：creep 线性插值 + 镜头 =====
   frame() {

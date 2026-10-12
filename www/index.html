@@ -8,12 +8,15 @@
 <nav id="bar">
   <button id="btnRun" data-icon="player-play"><span class="lb">运行</span></button>
   <button id="btnCode" data-icon="puzzle"><span class="lb">代码</span></button>
+  <button id="btnBuild" data-icon="hammer"><span class="lb">建造</span></button>
   <button id="btnSpeed" data-icon="player-track-next"><span class="lb">1x</span></button>
   <button id="btnLog" data-icon="terminal-2"><span class="lb">日志</span></button>
   <button id="btnNet" data-icon="broadcast"><span class="lb">联机</span></button>
   <button id="btnMenu" data-icon="settings"><span class="lb">设置</span></button>
 </nav>
 <div id="log" class="hidden"></div>
+<div id="buildPick" class="hidden"><div class="bpHead"><span id="bpTitle">建造</span><button id="bpClose" data-icon="x" class="iconbtn"></button></div><div id="bpList"></div></div>
+<div id="buildBar" class="hidden"><span id="bbMsg"></span><button id="bbOk" class="primary">放置</button><button id="bbCancel">退出</button></div>
 <div id="inspect" class="hidden"><div class="insHead"><span id="insTitle"></span><button id="insClose" data-icon="x" class="iconbtn"></button></div><div id="insBody"></div></div>
 <div id="editor" class="hidden">
   <div id="edTabs"><div id="catBar"></div><button id="edClose" data-icon="check" class="primary"><span class="lb">完成</span></button></div>
@@ -35,7 +38,7 @@
   <div class="pTitle">新手提示</div>
   <ol class="tips">
     <li>持续运行的开放世界：白色圆环是你的 Spawn，黄色方块是能量源，带彩色环的小圆是你的 creep。</li>
-    <li>点「代码」，从左侧彩色分类拖积木，拼出 creep 的行为（默认只会“生产 + 采集”）。</li>
+    <li>点「代码」，从顶部分类打开积木列表，点一下或拖出积木拼出 creep 的行为；点「建造」可手动放置工地。</li>
     <li>点「完成」应用代码，再点「运行」让世界按 tick 运转，「1x」切换速度。</li>
     <li>单指拖动、双指缩放，点 creep / 建筑查看详情；「联机」可在同一 WiFi 下一起玩。</li>
   </ol>

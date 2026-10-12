@@ -81,3 +81,4 @@
 .shDlg .btns{display:flex;gap:8px}.shDlg .btns button{flex:1}
 #toast{position:fixed;left:50%;bottom:calc(90px + var(--bot));transform:translateX(-50%);z-index:95;background:#333;border:1px solid var(--sw-line);border-radius:3px;padding:8px 14px;font-size:13px;white-space:nowrap;opacity:0;pointer-events:none;transition:opacity .2s}#toast.on{opacity:1}
 .grid.hq{border-radius:3px}
+.sws.pal{display:grid;grid-template-columns:repeat(10,1fr);gap:3px}.sws.pal .sw{width:auto;height:26px;border-width:2px!important}.bparam{width:100%;margin:6px 0 4px}

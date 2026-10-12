@@ -6,20 +6,11 @@
   const dt = ts => { const d = new Date(ts), p = n => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
   const toast = m => { let t = $('toast'); if (!t) { t = document.createElement('div'); t.id = 'toast'; document.body.appendChild(t); } t.textContent = m; t.classList.add('on'); clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('on'), 1800); };
 
-  // ---- 徽章（简化版 Screeps badge）----
-  const BADGE_COLORS = ['#ffe56d', '#87bdee', '#d65d5d', '#7ec97e', '#b07ee0', '#f0a24a', '#e8e8e8', '#4f4f4f'];
-  const BADGE_TYPES = ['split', 'ring', 'quad', 'stripe', 'dot', 'tri'];
-  const badge = (b, size = 40) => {
-    const { type, c1, c2 } = b, id = 'bc' + Math.random().toString(36).slice(2, 7); let inner = '';
-    if (type === 'split') inner = `<rect x="0" y="0" width="50" height="100" fill="${c2}"/>`;
-    else if (type === 'ring') inner = `<circle cx="50" cy="50" r="28" fill="none" stroke="${c2}" stroke-width="14"/>`;
-    else if (type === 'quad') inner = `<rect width="50" height="50" fill="${c2}"/><rect x="50" y="50" width="50" height="50" fill="${c2}"/>`;
-    else if (type === 'stripe') inner = `<rect y="38" width="100" height="24" fill="${c2}"/>`;
-    else if (type === 'dot') inner = `<circle cx="50" cy="50" r="20" fill="${c2}"/>`;
-    else inner = `<path d="M50 14 L88 80 L12 80Z" fill="${c2}"/>`;
-    return `<svg viewBox="0 0 100 100" width="${size}" height="${size}"><clipPath id="${id}"><circle cx="50" cy="50" r="48"/></clipPath><g clip-path="url(#${id})"><rect width="100" height="100" fill="${c1}"/>${inner}</g><circle cx="50" cy="50" r="48" fill="none" stroke="#000" stroke-opacity=".35" stroke-width="2"/></svg>`;
-  };
-  const prof = () => J('sbm_profile', { badge: { type: 'split', c1: '#ffe56d', c2: '#4f4f4f' } });
+  // ---- 徽章：官方 Screeps 徽章（type 1–24、param -100..100、flip、color1/2/3 取官方 80 色调色板）----
+  const DEF_BADGE = { type: 1, color1: 21, color2: 0, color3: 40, param: 0, flip: false };
+  const normBadge = b => (b && typeof b.type === 'number') ? b : Object.assign({}, DEF_BADGE);
+  const badge = (b, size = 40) => ScreepsBadge.svg(normBadge(b), size);
+  const prof = () => Object.assign({}, J('sbm_profile', {}), { badge: normBadge(J('sbm_profile', {}).badge) });
 
   // ---- 页面框架 ----
   const pages = {}; let stack = [];
@@ -61,13 +52,16 @@
 
   let draft = null;
   pages.badge = () => {
-    const b = draft = draft || Object.assign({}, prof().badge);
-    const sw = (k) => BADGE_COLORS.map(c => `<button class="sw${b[k] === c ? ' on' : ''}" data-act="bcol" data-k="${k}" data-c="${c}" style="background:${c}"></button>`).join('');
+    const b = draft = draft || Object.assign({}, prof().badge), C = ScreepsBadge.colors;
+    const sw = k => `<div class="sws pal">${C.map((c, i) => `<button class="sw${b[k] === i ? ' on' : ''}" data-act="bcol" data-k="${k}" data-c="${i}" style="background:${c}"></button>`).join('')}</div>`;
     return head('徽章与颜色') + `<div class="shBody"><div class="bprev">${badge(b, 112)}</div>
-      ${sec('图案')}<div class="types">${BADGE_TYPES.map(t => `<button class="tp${b.type === t ? ' on' : ''}" data-act="btype" data-t="${t}">${badge(Object.assign({}, b, { type: t }), 40)}</button>`).join('')}</div>
-      ${sec('主色')}<div class="sws">${sw('c1')}</div>${sec('副色')}<div class="sws">${sw('c2')}</div>
+      ${sec('图案')}<div class="types">${ScreepsBadge.types.map(t => `<button class="tp${b.type === t ? ' on' : ''}" data-act="btype" data-t="${t}">${badge(Object.assign({}, b, { type: t }), 40)}</button>`).join('')}</div>
+      ${sec('变形 ' + b.param)}<input class="bparam" type="range" min="-100" max="100" step="1" value="${b.param}" data-act="none">
+      ${ScreepsBadge.flippable(b.type) ? row('bflip', 'edit', '翻转', b.flip ? '开' : '关') : ''}
+      ${sec('颜色 1')}${sw('color1')}${sec('颜色 2')}${sw('color2')}${sec('颜色 3')}${sw('color3')}
       <button class="primary wide" data-act="bsave" data-icon="check"><span class="lb">保存徽章</span></button></div>`;
   };
+  S.addEventListener('change', e => { if (e.target.classList.contains('bparam') && draft) { draft.param = +e.target.value; const y = S.scrollTop; show('badge', false); S.scrollTop = y; } });
 
   pages.stats = () => {
     const s = Stats.get(), L = [['总运行 tick', s.ticks, 'clock'], ['生产 creep', s.creeps, 'bug'], ['采集能量', s.energy, 'bolt'], ['最高 RCL', s.rclMax, 'trophy'], ['建成建筑', s.built, 'building']];
@@ -130,8 +124,9 @@
     play: startGame,
     net() { hide(); $('net').classList.remove('hidden'); },
     editName() { ask('修改昵称', nick, v => { if (!v) return; nick = v.slice(0, 16); LS.setItem('sbm_nick', nick); $('nick').value = nick; if (engine?.w.players[myPid]) engine.w.players[myPid].name = nick; show('profile', false); }); },
-    btype(b) { draft.type = b.dataset.t; show('badge', false); },
-    bcol(b) { draft[b.dataset.k] = b.dataset.c; show('badge', false); },
+    btype(b) { draft.type = +b.dataset.t; const y = S.scrollTop; show('badge', false); S.scrollTop = y; },
+    bflip() { draft.flip = !draft.flip; const y = S.scrollTop; show('badge', false); S.scrollTop = y; },
+    bcol(b) { draft[b.dataset.k] = +b.dataset.c; const y = S.scrollTop; show('badge', false); S.scrollTop = y; },
     bsave() { const p = prof(); p.badge = draft; draft = null; saveList('sbm_profile', p); toast('徽章已保存'); back(); },
     statReset() { if (confirm('清零全部统计？')) { Stats.reset(); show('stats', false); } },
     wSave() { if (mode === 'client') return toast('客户端没有本地世界'); save(); ask('存档名称', '世界 ' + dt(Date.now()), name => { const L = J('sbm_worlds', []); L.unshift({ name: name || '未命名', ts: Date.now(), time: engine.w.time, data: engine.saveData() }); try { saveList('sbm_worlds', L); toast('已保存'); } catch (e) { toast('存储空间不足'); } show('worlds', false); }); },

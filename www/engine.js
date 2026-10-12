@@ -313,8 +313,12 @@ for (const s of srcs) { s.cap = s.energy = SC.SOURCE_ENERGY_CAPACITY; s.regenAt 
 
   buildApi(pid) { return buildApi(this, pid); }
   findList(pid, type, k, wrap) { return findList(this, pid, type, k, wrap); }
-  snapshot() {
-    const w = this.w, en = s => (s.store && s.store.energy) || 0;
+  snapshot() { return worldSnapshot(this.w, this.events); }
+  roomsData() { return roomsDataOf(this.w); }
+}
+// 快照：渲染/联机用的扁平只读视图（渲染层也可直接传入原始 world）
+function worldSnapshot(w, events) {
+    const en = s => (s.store && s.store.energy) || 0;
     return { time: w.time, S: w.S, roomsVer: w.roomsVer, players: Object.fromEntries(Object.entries(w.players).map(([k, p]) => [k, { name: p.name, color: p.color }])),
       sources: w.sources.map(s => ({ id: s.id, x: s.x, y: s.y, energy: s.energy, cap: s.cap })),
       minerals: w.minerals.map(m => ({ id: m.id, x: m.x, y: m.y, type: m.type, amount: m.amount })),
@@ -325,11 +329,11 @@ for (const s of srcs) { s.cap = s.energy = SC.SOURCE_ENERGY_CAPACITY; s.regenAt 
       structures: w.structures.map(s => ({ id: s.id, type: s.type, owner: s.owner, x: s.x, y: s.y, hits: s.hits, hitsMax: s.hitsMax, energy: s.store ? en(s) : undefined, energyCapacity: s.store ? storeCap(w, s, 'energy') ?? storeCap(w, s) : undefined })),
       resources: w.resources.map(r => ({ id: r.id, x: r.x, y: r.y, resourceType: r.resourceType, amount: r.amount })),
       tombstones: w.tombstones.map(t => ({ id: t.id, x: t.x, y: t.y, owner: t.owner, creepName: t.creepName, energy: t.store.energy || 0, decay: t.decayAt - w.time })),
-      events: this.events };
-  }
-  roomsData() { return { roomsVer: this.w.roomsVer, S: this.w.S, rooms: Object.fromEntries(Object.entries(this.w.rooms).map(([k, r]) => [k, { tiles: r.tiles.join(''), owner: r.owner, name: r.name }])) }; }
-  saveData() { const w = this.w; return JSON.stringify(w, (k, v) => (k[0] === '_' ? undefined : v)); }
+      flags: (w.flags || []).map(f => ({ id: f.id, x: f.x, y: f.y, owner: f.owner, name: f.name, color: f.color, secondaryColor: f.secondaryColor })),
+      events: events || [] };
 }
+function roomsDataOf(w) { return { roomsVer: w.roomsVer, S: w.S, rooms: Object.fromEntries(Object.entries(w.rooms).map(([k, r]) => [k, { tiles: r.tiles.join(''), owner: r.owner, name: r.name }])) }; }
+Engine.prototype.saveData = function () { const w = this.w; return JSON.stringify(w, (k, v) => (k[0] === '_' ? undefined : v)); };
 if (typeof module !== 'undefined') module.exports = { Engine, newWorld, countStruct, rclOf };
 
 // ===================== 玩家 API（官方名称/语义/返回码） =====================

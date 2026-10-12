@@ -22,7 +22,7 @@ const p = require('puppeteer-core');
   console.log(JSON.stringify(res, null, 1));
   await pg.click('#nClose'); await pg.evaluate(() => { const sp = engine.w.spawns[0]; renderer.onTap(sp.x, sp.y); }); await new Promise(r => setTimeout(r, 300)); await pg.screenshot({ path: '/tmp/hud.png' });
   await pg.click('#btnCode'); await new Promise(r => setTimeout(r, 800)); await pg.screenshot({ path: '/tmp/blockly.png' });
-  const cat = await pg.$$('.blocklyTreeRow'); await cat[0].click(); await new Promise(r => setTimeout(r, 600)); await pg.screenshot({ path: '/tmp/flyout.png' });
+  const cat = await pg.$$('#catBar .cat'); await cat[0].click(); await new Promise(r => setTimeout(r, 600)); await pg.screenshot({ path: '/tmp/flyout.png' });
   const ok = res.mode === 'host' && res.calls.includes('LanServer.start') && res.calls.includes('LanServer.discover') && res.status.includes('房主中') && !res.calls.some(c => c.startsWith('ALERT'));
   console.log(ok ? 'NATIVE PATH OK' : 'NATIVE PATH FAIL'); await b.close(); process.exit(ok ? 0 : 1);
 })();

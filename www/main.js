@@ -82,7 +82,8 @@ function regen(push = true) {
 }
 function applyCode() { if (mode === 'client') client && client.sendCode(code); else engine && engine.setCode(myPid, code); }
 
-function view() { return mode === 'client' ? client?.view : engine?.w; }
+let _snap = null; // 单机/房主也用快照（字段与客户端一致：spawn.energy/cap 等）
+function view() { if (mode === 'client') return client?.view; if (!engine) return null; if (!_snap || _snap.time !== engine.w.time || _snap.S !== engine.w.S) _snap = engine.snapshot(); return _snap; }
 const chip = (ic, html) => `<span class="chip"><span class="ic">${icon(ic)}</span>${html}</span>`;
 function stats() {
   const v = view(); let H;
@@ -176,7 +177,7 @@ const kv = (k, v) => `<div class="kv"><span class="k">${k}</span><span class="v"
 const esc = s => String(s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 function renderInspect() {
   if (!sel) return; const v = view(), o = renderer.find(sel); if (!v || !o) { $('inspect').classList.add('hidden'); return; }
-  const pn = id => esc(v.players[id]?.name || id || '-'); let t = '', b = kv('位置', `${o.x}, ${o.y} · ${roomName(o.x, o.y)}`);
+  const pn = id => esc(v.players[id]?.name || id || '-'); let t = '', b = kv('位置', `x ${((o.x % 50) + 50) % 50}, y ${((o.y % 50) + 50) % 50} · ${roomName(o.x, o.y)}`);
   if (sel.kind === 'creep') { t = 'Creep ' + esc(o.name); const cap = o.body.filter(p => p === 'carry').length * 50;
     b += kv('所属', pn(o.owner)) + kv('身体', `<span class="body">${o.body.map(p => `<span class="part" style="background:${PARTC[p]}"></span>`).join('')}</span>`) + kv('hits', `${o.hits ?? o.body.length * 100} / ${o.body.length * 100}`) + kv('能量', `${o.energy} / ${cap}`) + kv('ticksToLive', o.ttl);
     if (mode !== 'client' && o.owner === myPid) b += `<pre class="mem">Memory ${esc(JSON.stringify(engine.w.memory[myPid].creeps[o.name] || {}, null, 1))}</pre>`; }
@@ -185,13 +186,16 @@ function renderInspect() {
   else if (sel.kind === 'controller') { t = 'StructureController'; b += kv('所属', o.owner ? pn(o.owner) : '未占领') + kv('等级 RCL', o.level) + kv('进度', `${o.progress} / ${o.progressTotal}`) + kv('降级倒计时', o.ticksToDowngrade || '-'); }
   else if (sel.kind === 'structure') { t = 'Structure ' + esc(o.type); b += kv('所属', pn(o.owner)) + kv('hits', `${o.hits} / ${o.hitsMax}`) + (o.energyCapacity != null ? kv('能量', `${o.energy||0} / ${o.energyCapacity}`) : ''); }
   else if (sel.kind === 'site') { t = 'ConstructionSite'; b += kv('类型', o.type) + kv('所属', pn(o.owner)) + kv('进度', `${o.progress} / ${o.total}`); }
+  else if (sel.kind === 'mineral') { t = 'Mineral ' + esc(o.type); b += kv('mineralType', esc(o.type)) + kv('mineralAmount', o.amount); }
+  else if (sel.kind === 'resource') { t = 'Resource'; b += kv('resourceType', esc(o.resourceType)) + kv('amount', o.amount); }
+  else if (sel.kind === 'tombstone') { t = 'Tombstone ' + esc(o.creepName || ''); b += kv('所属', pn(o.owner)) + kv('能量', o.energy) + kv('ticksToDecay', o.decay); }
   $('insTitle').innerHTML = t; $('insBody').innerHTML = b; $('inspect').classList.remove('hidden');
 }
 renderer.onTap = (x, y) => {
   const v = view(); if (!v) return; const f = a => a.find(o => o.x === x && o.y === y);
-  const c = f(v.creeps), sp = f(v.spawns), s = f(v.sources), st = f(v.sites);
+  const c = f(v.creeps), sp = f(v.spawns), s = f(v.sources), st = f(v.sites), mi = f(v.minerals || []), rs = f(v.resources || []), tb = f(v.tombstones || []);
   const ctrl = (v.controllers||[]).find(o => o.x === x && o.y === y), stt = (v.structures||[]).find(o => o.x === x && o.y === y);
-  sel = c ? { kind: 'creep', id: c.id } : sp ? { kind: 'spawn', id: sp.id } : ctrl ? { kind: 'controller', id: ctrl.id } : stt ? { kind: 'structure', id: stt.id } : s ? { kind: 'source', id: s.id } : st ? { kind: 'site', id: st.id } : null;
+  sel = c ? { kind: 'creep', id: c.id } : sp ? { kind: 'spawn', id: sp.id } : ctrl ? { kind: 'controller', id: ctrl.id } : stt ? { kind: 'structure', id: stt.id } : s ? { kind: 'source', id: s.id } : st ? { kind: 'site', id: st.id } : rs ? { kind: 'resource', id: rs.id } : tb ? { kind: 'tombstone', id: tb.id } : mi ? { kind: 'mineral', id: mi.id } : null;
   renderer.select(sel); if (sel) renderInspect(); else $('inspect').classList.add('hidden');
 };
 $('insClose').onclick = () => { sel = null; renderer.select(null); $('inspect').classList.add('hidden'); };

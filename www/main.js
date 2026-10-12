@@ -27,7 +27,7 @@ function initBlockly() {
   fly.getFlyoutScale = () => 0.7;
   fly.hide(); buildCatBar();
   let saved = null; try { saved = JSON.parse(localStorage.getItem(SAVE_C)); } catch (e) {}
-  Blockly.serialization.workspaces.load(saved || DEFAULT_WS, ws);
+  try { Blockly.serialization.workspaces.load(saved || DEFAULT_WS, ws); } catch (e) { console.warn('旧积木存档不兼容，已恢复默认', e); ws.clear(); Blockly.serialization.workspaces.load(DEFAULT_WS, ws); }
   ws.addChangeListener(e => {
     if (e.type === Blockly.Events.BLOCK_DRAG) { // 从抽屉拖出后自动收起
       if (e.isStart) dragFromFly = fly.isVisible(); else if (dragFromFly) { dragFromFly = false; closeFlyout(); }
@@ -55,7 +55,7 @@ function selectCat(id) {
   const c = CATS.find(x => x.id === id); if (!c || !ws) return;
   if (activeCat === id && fly.isVisible()) return closeFlyout(); // 再点一次当前分类 = 收起
   activeCat = id; buildCatBar();
-  fly.show(c.custom ? c.custom : c.blocks.map(t => ({ kind: 'block', type: t })));
+  fly.show(flyoutFor(c));
   // 抽屉里的字段不可编辑：点任何位置都 = 添加积木（拖出后再编辑）
   for (const b of fly.getWorkspace().getAllBlocks(false)) for (const inp of b.inputList) for (const f of inp.fieldRow) if (f.setEnabled) f.setEnabled(false);
   fly.scrollToStart && fly.scrollToStart();

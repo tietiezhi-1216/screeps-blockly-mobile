@@ -58,8 +58,10 @@ pre.mem{margin:var(--sp-1) 0 0;max-height:120px;overflow:auto;background:#0008;p
 #upd{z-index:60}
 
 /* Blockly 顶部分类条（可折叠） */
-#catBar{display:flex;flex-wrap:wrap;gap:4px;padding:6px;background:#1b1e25;border-bottom:1px solid #333;flex:0 0 auto;max-height:40%;overflow:auto}
-#catBar.collapsed{display:none}
+#catBar{display:flex;flex-wrap:nowrap;gap:6px;padding:6px;background:#1b1e25;border-bottom:1px solid #333;flex:0 0 auto;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+#catBar::-webkit-scrollbar{display:none}
+#catBar .cat{flex:0 0 auto;opacity:.75}
+#catBar .cat.on{opacity:1}
 #catBar .cat{height:32px;padding:0 10px;border:0;border-radius:4px;color:#fff;font-size:13px;font-weight:600;white-space:nowrap;background:#2a2f3a}
 #catBar .cat.on{outline:2px solid #fff;outline-offset:-2px}
 #catToggle{height:32px;padding:0 10px;background:#333;border:0;border-radius:4px;color:#aaa;font-size:12px;white-space:nowrap}
@@ -70,3 +72,9 @@ pre.mem{margin:var(--sp-1) 0 0;max-height:120px;overflow:auto;background:#0008;p
 /* 隐藏 Blockly 原生 toolbox 槽位 */
 .blocklyToolboxDiv{display:none!important;width:0!important}
 .blocklyMainBackground{stroke:none!important}
+
+/* 底部积木抽屉（水平 flyout），扁平无阴影 */
+.blocklyFlyoutBackground{fill:#e9ecf1!important;fill-opacity:1!important}
+.blocklyFlyout .blocklyScrollbarHandle{fill:#999}
+.blocklyMainWorkspaceScrollbar{display:none}
+#blocklyDiv svg,#blocklyDiv .blocklyWidgetDiv *{filter:none}

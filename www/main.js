@@ -18,44 +18,62 @@ function loadEngine() {
 function save() { if (engine && mode !== 'client') localStorage.setItem(SAVE_W, engine.saveData()); }
 
 function initBlockly() {
-  const first = CATS[0];
-  const tb = { kind: 'flyoutToolbox', contents: first.custom ? [{ kind: 'category', custom: first.custom, name: first.name }] : first.blocks.map(t => ({ kind: 'block', type: t })) };
-  ws = Blockly.inject('blocklyDiv', { toolbox: tb, trashcan: true, zoom: { controls: true, wheel: true, pinch: true, startScale: 0.85, minScale: 0.4, maxScale: 2.5 }, move: { scrollbars: true, drag: true, wheel: true }, grid: { spacing: 24, length: 2, colour: '#ddd', snap: true }, renderer: 'zelos', horizontalLayout: false, toolboxPosition: 'start' });
-  buildCatBar(first.id);
+  // 竖屏手机：顶部单行分类 chips + 底部水平 flyout（底部抽屉），默认收起
+  ws = Blockly.inject('blocklyDiv', { toolbox: { kind: 'flyoutToolbox', contents: [] }, trashcan: true,
+    zoom: { controls: true, wheel: true, pinch: true, startScale: 0.8, minScale: 0.4, maxScale: 2 },
+    move: { scrollbars: false, drag: true, wheel: true }, grid: { spacing: 24, length: 2, colour: '#ddd', snap: true },
+    renderer: 'zelos', horizontalLayout: true, toolboxPosition: 'end' });
+  fly = ws.getFlyout();
+  fly.getFlyoutScale = () => 0.7;
+  fly.hide(); buildCatBar();
   let saved = null; try { saved = JSON.parse(localStorage.getItem(SAVE_C)); } catch (e) {}
   Blockly.serialization.workspaces.load(saved || DEFAULT_WS, ws);
-  ws.addChangeListener(e => { if (!e.isUiEvent) { regen(false); localStorage.setItem(SAVE_C, JSON.stringify(Blockly.serialization.workspaces.save(ws))); } });
+  ws.addChangeListener(e => {
+    if (e.type === Blockly.Events.BLOCK_DRAG) { // 从抽屉拖出后自动收起
+      if (e.isStart) dragFromFly = fly.isVisible(); else if (dragFromFly) { dragFromFly = false; closeFlyout(); }
+    }
+    if (!e.isUiEvent) { regen(false); localStorage.setItem(SAVE_C, JSON.stringify(Blockly.serialization.workspaces.save(ws))); }
+  });
+  // 点击 flyout 里的积木 = 添加到可见区域中心
+  fly.getWorkspace().addChangeListener(e => { if (e.type === Blockly.Events.CLICK && e.blockId && fly.isVisible()) setTimeout(() => tapAdd(e.blockId), 0); });
   regen(false);
 }
-let catCollapsed = false, activeCat = null;
-function buildCatBar(sel) {
-  activeCat = sel || activeCat || CATS[0].id;
-  const bar = $('catBar'); bar.innerHTML = '';
-  const tog = document.createElement('button'); tog.id = 'catToggle'; tog.textContent = catCollapsed ? '分类 ▾' : '分类 ▴';
-  tog.onclick = () => { catCollapsed = !catCollapsed; bar.classList.toggle('collapsed', catCollapsed); tog.textContent = catCollapsed ? '分类 ▾' : '分类 ▴'; Blockly.svgResize(ws); };
-  // put toggle in edTabs if missing
-  if (!$('catToggle')) { const tabs = $('edTabs'); const t = document.createElement('button'); t.id = 'catToggle'; t.textContent = '分类 ▴'; t.onclick = tog.onclick; tabs.insertBefore(t, tabs.children[2] || null); }
-  else $('catToggle').onclick = tog.onclick;
-  bar.classList.toggle('collapsed', catCollapsed);
+let fly = null, activeCat = null, dragFromFly = false;
+function buildCatBar() {
+  const bar = $('catBar');
+  if (bar.children.length) { for (const b of bar.children) b.classList.toggle('on', b.dataset.cat === activeCat); return; }
   for (const c of CATS) {
-    const b = document.createElement('button'); b.className = 'cat' + (c.id === activeCat ? ' on' : ''); b.textContent = c.name; b.style.background = c.colour;
-    b.onclick = () => selectCat(c.id); bar.appendChild(b);
+    const b = document.createElement('button'); b.className = 'cat' + (c.id === activeCat ? ' on' : ''); b.dataset.cat = c.id;
+    b.textContent = c.name; b.style.background = c.colour; let d0 = null; // 用 pointer 事件，避免 Blockly 拖拽后浏览器吞掉 click
+    b.addEventListener('pointerdown', e => { d0 = [e.clientX, e.clientY]; });
+    b.addEventListener('pointerup', e => { if (d0 && Math.hypot(e.clientX - d0[0], e.clientY - d0[1]) < 10) selectCat(c.id); d0 = null; });
+    b.addEventListener('pointercancel', () => { d0 = null; }); bar.appendChild(b);
   }
 }
+function closeFlyout() { if (!fly) return; fly.hide(); activeCat = null; buildCatBar(); Blockly.svgResize(ws); }
 function selectCat(id) {
-  activeCat = id; const c = CATS.find(x => x.id === id); if (!c || !ws) return;
-  catCollapsed = false; buildCatBar(id);
-  let contents;
-  if (c.custom === 'VARIABLE') contents = [{ kind: 'category', name: c.name, custom: 'VARIABLE' }];
-  else if (c.custom === 'PROCEDURE') contents = [{ kind: 'category', name: c.name, custom: 'PROCEDURE' }];
-  else contents = c.blocks.map(t => ({ kind: 'block', type: t }));
-  // flyoutToolbox can't use category custom easily — inject blocks; for VARIABLE/PROCEDURE use continuous toolbox trick
-  if (c.custom) {
-    ws.updateToolbox({ kind: 'categoryToolbox', contents: [{ kind: 'category', name: c.name, custom: c.custom, colour: c.colour }] });
-  } else {
-    ws.updateToolbox({ kind: 'flyoutToolbox', contents });
-  }
+  const c = CATS.find(x => x.id === id); if (!c || !ws) return;
+  if (activeCat === id && fly.isVisible()) return closeFlyout(); // 再点一次当前分类 = 收起
+  activeCat = id; buildCatBar();
+  fly.show(c.custom ? c.custom : c.blocks.map(t => ({ kind: 'block', type: t })));
+  // 抽屉里的字段不可编辑：点任何位置都 = 添加积木（拖出后再编辑）
+  for (const b of fly.getWorkspace().getAllBlocks(false)) for (const inp of b.inputList) for (const f of inp.fieldRow) if (f.setEnabled) f.setEnabled(false);
+  fly.scrollToStart && fly.scrollToStart();
   Blockly.svgResize(ws);
+  const btn = document.querySelector(`#catBar [data-cat="${id}"]`); if (btn) btn.scrollIntoView({ inline: 'nearest', block: 'nearest' });
+}
+function tapAdd(blockId) {
+  const src = fly.getWorkspace().getBlockById(blockId); if (!src) return;
+  const root = src.getRootBlock(); if (root.isEnabled && !root.isEnabled()) return;
+  const state = Blockly.serialization.blocks.save(root, { addCoordinates: false, addNextBlocks: true });
+  const v = ws.getMetricsManager().getViewMetrics(true);
+  Blockly.Events.setGroup(true);
+  const nb = Blockly.serialization.blocks.append(state, ws);
+  const hw = nb.getHeightWidth();
+  nb.moveBy(v.left + v.width / 2 - hw.width / 2 + (Math.random() * 30 - 15), v.top + v.height / 2 - hw.height / 2 + (Math.random() * 30 - 15));
+  Blockly.Events.setGroup(false);
+  nb.select && nb.select();
+  closeFlyout();
 }
 function regen(push = true) {
   code = Blockly.JavaScript.workspaceToCode(ws); $('jsView').textContent = '// 每个 tick 执行一次（等价于 Screeps 的 module.exports.loop）\n' + code;

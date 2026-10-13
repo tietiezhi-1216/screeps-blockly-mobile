@@ -1,6 +1,7 @@
 // Screeps 官方 API 积木（1:1 对应 https://docs.screeps.com/api/ ），生成的 JS 即官方调用。
 // 基础逻辑 / 循环 / 数学 / 文本 / 列表 / 变量 / 函数 全部使用 Blockly 官方标准积木。
 const JS = Blockly.JavaScript;
+JS.INFINITE_LOOP_TRAP = '__loopGuard();\n'; // 每次循环检查 CPU tickLimit / 死循环
 const O = JS.ORDER_NONE, OM = JS.ORDER_MEMBER, OF = JS.ORDER_FUNCTION_CALL, OA = JS.ORDER_ATOMIC;
 const val = (b, n, d = 'undefined') => JS.valueToCode(b, n, O) || d;
 const recv = (b) => JS.valueToCode(b, 'O', OM) || 'undefined';

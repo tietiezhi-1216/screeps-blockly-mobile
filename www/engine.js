@@ -38,8 +38,12 @@ function ensureRoom(w, rx, ry) {
   for (const s of g.sources) w.sources.push({ kind: 'source', id: 's' + (w.nextId++), x: ox + s.x, y: oy + s.y, energy: SC.SOURCE_ENERGY_NEUTRAL_CAPACITY, cap: SC.SOURCE_ENERGY_NEUTRAL_CAPACITY, regenAt: null });
   const c = g.controller; if (c) w.controllers.push({ kind: 'controller', id: 'ctrl' + (w.nextId++), x: ox + c.x, y: oy + c.y, level: 0, progress: 0, downgradeTime: null, owner: null, reservation: null, safeMode: null, safeModeAvailable: 0, safeModeCooldown: null, upgradeBlocked: null, sign: null });
   if (g.mineral) { const m = g.mineral; w.minerals.push({ kind: 'mineral', id: 'm' + (w.nextId++), x: ox + m.x, y: oy + m.y, type: m.type, density: m.density, amount: m.amount, regenAt: null }); }
+  for (const l of g.lairs || []) w.structures.push({ kind: 'structure', id: 'st' + (w.nextId++), type: 'keeperLair', owner: KEEPER, x: ox + l.x, y: oy + l.y, hits: 1, hitsMax: 1, tx: ox + l.tx, ty: oy + l.ty, spawnAt: null });
   applyBorders(w, rx, ry); w.roomsVer++; return rm;
 }
+const NOVICE_TICKS = 100000, RESPAWN_TICKS = 50000; // 官方以天计，这里按 tick 缩短
+const KEEPER = '__keeper'; // 官方 Source Keeper（NPC 玩家）
+const KEEPER_BODY = [].concat(Array(17).fill('tough'), Array(13).fill('move'), Array(10).fill('attack'), Array(10).fill('ranged_attack'));
 function defaultBadge(pid) { const h = hash32(String(pid).split('').reduce((a, c) => a * 31 + c.charCodeAt(0) | 0, 7), 1, 2); return { type: 1 + h % 24, color1: (h >>> 5) % 80, color2: (h >>> 12) % 80, color3: (h >>> 19) % 80, param: 0, flip: false }; }
 function ensureNear(w, rx, ry, r = 1) { for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) ensureRoom(w, rx + dx, ry + dy); }
 function ensureSize(w, S) {
@@ -123,7 +127,7 @@ class Engine {
     if (!w.players[pid]) return '玩家不存在';
     if (!this.needsSpawn(pid)) return '你已经有出生点了';
     const st = roomStatus(w.S, ownedMap(w), rx, ry, pid);
-    if (st === 'out') return '超出世界'; if (st === 'highway') return '高速公路房间不能出生'; if (st === 'center') return '扇区中心房间不能出生';
+    if (st === 'out') return '超出世界'; if (st === 'highway') return '高速公路房间不能出生'; if (st === 'center') return '扇区中心房间不能出生'; if (st === 'keeper') return 'Source Keeper 房间不能出生';
     if (st === 'owned' || st === 'mine') return '房间已被占领'; if (st === 'close') return '离其他玩家太近';
     ensureNear(w, rx, ry, 0); const ctrl = ctrlOfRoom(w, rx + ',' + ry);
     if (!ctrl || ctrl.owner || (ctrl.reservation && ctrl.reservation.owner !== pid)) return '房间不可占领';
@@ -142,6 +146,10 @@ class Engine {
     w.rooms[k].owner = pid; Object.assign(ctrl, { owner: pid, level: 1, progress: 0, downgradeTime: w.time + SC.CONTROLLER_DOWNGRADE[1] + 1, safeModeAvailable: 1, safeMode: w.time + SC.SAFE_MODE_DURATION, safeModeCooldown: null, reservation: null });
     for (const s of w.sources) if (roomKey(s.x, s.y) === k) { s.cap = s.energy = SC.SOURCE_ENERGY_CAPACITY; s.regenAt = null; }
     w.spawns.push(this.makeSpawn(pid, 'Spawn1', x, y, SC.SPAWN_ENERGY_START)); w.players[pid].needsSpawn = false;
+    { // 首个房间周围 3×3 的普通无主房间划为新手区（重生玩家为重生区）
+      const P = w.players[pid], status = P.respawned ? 'respawn' : 'novice', id = 'z' + (w.nextId++), until = w.time + (status === 'novice' ? NOVICE_TICKS : RESPAWN_TICKS); w.zones = w.zones || {};
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const X = rx + dx, Y = ry + dy, rk = X + ',' + Y; if (X < 0 || Y < 0 || X >= w.S || Y >= w.S || roomType(X, Y) !== 'normal' || this.zoneOf(X, Y) || (rk !== k && w.rooms[rk] && w.rooms[rk].owner)) continue; w.zones[rk] = { id, status, until }; }
+    }
     ensureNear(w, rx, ry); this._objVer++; w.roomsVer++; maybeExpand(w); this.log(pid, '在', w.rooms[k].name, '放下 Spawn1'); return null;
   }
   // 自动出生：离其他玩家最远的空闲房间，在 Controller 与能量源附近找空地
@@ -175,7 +183,7 @@ class Engine {
     for (const c of w.controllers) if (c.owner === pid) Object.assign(c, { owner: null, level: 0, progress: 0, downgradeTime: null, safeMode: null, safeModeAvailable: 0 });
     for (const c of w.controllers) if (c.reservation && c.reservation.owner === pid) c.reservation = null;
     for (const k in w.rooms) if (w.rooms[k].owner === pid) w.rooms[k].owner = null;
-    w.memory[pid] = { creeps: {}, spawns: {}, rooms: {}, flags: {} }; Object.assign(w.players[pid], { needsSpawn: true, gcl: 0 });
+    w.memory[pid] = { creeps: {}, spawns: {}, rooms: {}, flags: {} }; Object.assign(w.players[pid], { needsSpawn: true, gcl: 0, respawned: true });
     this._o = null; this._objVer++; w.roomsVer++; this.log(pid, '已重新出生，请在世界地图上选择出生点');
   }
   makeSpawn(owner, name, x, y, energy) { return { kind: 'spawn', id: 'sp' + (this.w.nextId++), name, owner, x, y, store: { energy }, hits: SC.SPAWN_HITS, hitsMax: SC.SPAWN_HITS, spawning: null }; }
@@ -243,6 +251,7 @@ class Engine {
       const P = w.players[pid]; if (P.bucket == null) P.bucket = SC.PIXEL_CPU_COST;
       try { f(api); } catch (e) { this.log(pid, '代码错误:', e && e.stack ? String(e.stack).split('\n').slice(0, 2).join(' ') : e); }
       this.cpuUsed = Date.now() - t0;
+      if (api.RawMemory) { const segs = api.RawMemory.segments, ks = Object.keys(segs || {}); if (ks.length > 10) this.log(pid, 'RawMemory.segments: 同时最多 10 个'); else { const st = (w.segments = w.segments || {})[pid] = w.segments[pid] || {}; for (const id of ks) { const v = segs[id]; if (typeof v !== 'string' || !(+id >= 0 && +id <= 99)) continue; if (v.length > 100 * 1024) this.log(pid, 'RawMemory 段', id, '超过 100KB，未保存'); else st[id] = v; } } }
       // 官方 CPU：bucket += limit - used（上限 10000）
       P.bucket = Math.max(0, Math.min(SC.PIXEL_CPU_COST, P.bucket + 20 - this.cpuUsed));
       // 官方 Memory：tick 结束时 JSON 序列化；不可序列化的内容（函数/循环引用）不会保存
@@ -254,12 +263,13 @@ class Engine {
       // 官方：站在出口格上 → 下一 tick 到相邻房间对侧边缘
       const lx = c.x % ROOM, ly = c.y % ROOM; let nx = c.x, ny = c.y;
       if (lx === 0) nx--; else if (lx === ROOM - 1) nx++; else if (ly === 0) ny--; else if (ly === ROOM - 1) ny++;
-      if ((nx !== c.x || ny !== c.y) && c._arrived !== w.time && !this.blocked(nx, ny, c)) { const o = this._occ(); o.delete(c.y * this.W + c.x); c.x = nx; c.y = ny; c.px = nx; c.py = ny; o.set(c.y * this.W + c.x, c); c._path = null; }
+      const za = this.zoneOf(Math.floor(c.x / ROOM), Math.floor(c.y / ROOM)), zb = this.zoneOf(Math.floor(nx / ROOM), Math.floor(ny / ROOM)), zoneOk = (za && za.id) === (zb && zb.id);
+      if ((nx !== c.x || ny !== c.y) && zoneOk && c._arrived !== w.time && !this.blocked(nx, ny, c)) { const o = this._occ(); o.delete(c.y * this.W + c.x); c.x = nx; c.y = ny; c.px = nx; c.py = ny; o.set(c.y * this.W + c.x, c); c._path = null; }
       c.fatigue = Math.max(0, c.fatigue - activeParts(c, 'move') * 2);
       c.ttl--;
     }
     for (const c of w.creeps.slice()) if (!c.spawning && (c.ttl <= 0 || c.hits <= 0)) this.killCreep(c, SC.CREEP_CORPSE_RATE);
-    this.tickSpawns(); this.tickSources(); this.tickControllers(); this.tickStructures(); this.tickGround();
+    this.tickKeepers(); this.tickZones(); this.tickSpawns(); this.tickSources(); this.tickControllers(); this.tickStructures(); this.tickGround();
     this._o = null;
   }
   resolveMoves() {
@@ -319,10 +329,33 @@ class Engine {
       if (this.roomEnergy(k, sp.owner).avail < SC.SPAWN_ENERGY_CAPACITY && sp.store.energy < SC.SPAWN_ENERGY_CAPACITY) sp.store.energy++;
     }
   }
+  // 官方 Keeper Lair：Keeper 死后 300 tick 重生；Keeper 守在能量源/矿物旁，攻击 3 格内的敌对 creep
+  tickKeepers() {
+    const w = this.w;
+    for (const l of w.structures) {
+      if (l.type !== 'keeperLair') continue;
+      const k = w.creeps.find(c => c.lair === l.id);
+      if (!k) {
+        if (l.spawnAt == null) l.spawnAt = w.time + SC.ENERGY_REGEN_TIME;
+        if (w.time >= l.spawnAt && !this.blocked(l.x, l.y)) { l.spawnAt = null; w.creeps.push({ kind: 'creep', id: 'c' + (w.nextId++), owner: KEEPER, name: 'Keeper' + l.id, body: KEEPER_BODY.slice(), hits: 5000, x: l.x, y: l.y, px: l.x, py: l.y, store: {}, ttl: SC.CREEP_LIFE_TIME, fatigue: 0, lair: l.id }); this._o = null; this._objVer++; }
+        continue;
+      }
+      l.spawnAt = null;
+      const foes = w.creeps.filter(c => c.owner !== KEEPER && !c.spawning && Math.max(Math.abs(c.x - k.x), Math.abs(c.y - k.y)) <= 3);
+      const adj = foes.find(c => Math.max(Math.abs(c.x - k.x), Math.abs(c.y - k.y)) <= 1);
+      if (adj) this.damage(adj, activeParts(k, 'attack') * SC.ATTACK_POWER, KEEPER);
+      else if (foes.length) this.damage(foes[0], activeParts(k, 'ranged_attack') * SC.RANGED_ATTACK_POWER, KEEPER);
+      if (Math.max(Math.abs(l.tx - k.x), Math.abs(l.ty - k.y)) > 1) { const nx = k.x + Math.sign(l.tx - k.x), ny = k.y + Math.sign(l.ty - k.y); if (!this.blocked(nx, ny, k)) { const o = this._occ(); o.delete(k.y * this.W + k.x); k.x = nx; k.y = ny; o.set(ny * this.W + nx, k); } }
+    }
+  }
+  // 新手区/重生区（官方 novice/respawn zone）：到期解除；区内外不能穿越
+  tickZones() { const z = this.w.zones; if (!z) return; for (const k in z) if (this.w.time >= z[k].until) delete z[k]; }
+  zoneOf(rx, ry) { const z = this.w.zones && this.w.zones[rx + ',' + ry]; return z && z.until > this.w.time ? z : null; }
   tickSources() {
     const w = this.w;
     for (const s of w.sources) {
-      const ctrl = ctrlOfRoom(w, roomKey(s.x, s.y)), cap = ctrl && (ctrl.owner || (ctrl.reservation && ctrl.reservation.endTime > w.time)) ? SC.SOURCE_ENERGY_CAPACITY : SC.SOURCE_ENERGY_NEUTRAL_CAPACITY;
+      const ctrl = ctrlOfRoom(w, roomKey(s.x, s.y)); let cap = ctrl && (ctrl.owner || (ctrl.reservation && ctrl.reservation.endTime > w.time)) ? SC.SOURCE_ENERGY_CAPACITY : SC.SOURCE_ENERGY_NEUTRAL_CAPACITY;
+      if ((w.rooms[roomKey(s.x, s.y)] || {}).type === 'keeper') cap = SC.SOURCE_ENERGY_KEEPER_CAPACITY;
       if (cap !== s.cap) { s.cap = cap; s.energy = Math.min(s.energy, cap); }
       if (s.energy < s.cap) { if (!s.regenAt) s.regenAt = w.time + SC.ENERGY_REGEN_TIME; if (w.time >= s.regenAt - 1) { s.energy = s.cap; s.regenAt = null; } }
     }
@@ -877,7 +910,7 @@ function buildApi(E, pid) {
   const gameRooms = {}; for (const k of vis) { const r = room(k); if (r) gameRooms[r.name] = r; }
   const gclLv = E.gclLevel(pid), gclP = w.players[pid].gcl || 0, t0 = Date.now();
   const Game = {
-    time: w.time, creeps, spawns, structures, constructionSites: sites, flags, rooms: gameRooms, powerCreeps: {}, resources: {},
+    time: w.time, creeps, spawns, structures, constructionSites: sites, flags, rooms: gameRooms, powerCreeps: {}, resources: { pixel: (w.players[pid] && w.players[pid].pixels) || 0 },
     shard: { name: 'shard0', type: 'normal', ptr: false },
     gcl: { level: gclLv, progress: gclP - (gclLv > 1 ? Math.pow(gclLv - 1, SC.GCL_POW) * SC.GCL_MULTIPLY : 0), progressTotal: Math.pow(gclLv, SC.GCL_POW) * SC.GCL_MULTIPLY - (gclLv > 1 ? Math.pow(gclLv - 1, SC.GCL_POW) * SC.GCL_MULTIPLY : 0) },
     gpl: { level: 0, progress: 0, progressTotal: SC.POWER_LEVEL_MULTIPLY },
@@ -894,7 +927,7 @@ function buildApi(E, pid) {
       findExit: (from, to, opts) => { const r = Game.map.findRoute(from, to, opts); return Array.isArray(r) ? (r.length ? r[0].exit : ERR_INVALID_ARGS) : r; },
       getRoomLinearDistance: (a, b, cont) => { const p = parseRoomName(a), q = parseRoomName(b); return p && q ? Math.max(Math.abs(p[0] - q[0]), Math.abs(p[1] - q[1])) : Infinity; },
       getRoomTerrain: n => new RoomTerrain(n), getTerrainAt: (a, b, n) => { const pos = typeof a === 'number' ? { x: a, y: b, roomName: n } : a; return ['plain', 'wall', 'swamp'][[0, 1, 2][[0, 1, 2].indexOf(new RoomTerrain(pos.roomName).get(pos.x, pos.y))] ?? 0] || 'plain'; },
-      getWorldSize: () => w.S, getRoomStatus: n => { const p = parseRoomName(n); return p && p[0] >= 0 && p[1] >= 0 && p[0] < w.S && p[1] < w.S ? { status: 'normal', timestamp: null } : undefined; },
+      getWorldSize: () => w.S, getRoomStatus: n => { const p = parseRoomName(n); if (!(p && p[0] >= 0 && p[1] >= 0 && p[0] < w.S && p[1] < w.S)) return undefined; const z = E.zoneOf(p[0], p[1]); return z ? { status: z.status, timestamp: Date.now() + (z.until - w.time) * 1000 } : { status: 'normal', timestamp: null }; },
       isRoomAvailable: n => !!Game.map.getRoomStatus(n), visual: noopVisual,
     },
     createConstructionSite(x, y, type, name) { // 兼容 v1.2 积木（非官方）：坐标按第一个 Spawn 所在房间解释
@@ -902,7 +935,8 @@ function buildApi(E, pid) {
     },
   };
   Game.map.getTerrainAt = (a, b, n) => { const pos = typeof a === 'number' ? { x: a, y: b, roomName: n } : a; const v = new RoomTerrain(pos.roomName).get(pos.x, pos.y); return v & SC.TERRAIN_MASK_WALL ? 'wall' : v & SC.TERRAIN_MASK_SWAMP ? 'swamp' : 'plain'; };
-  const RawMemory = { segments: {}, foreignSegment: undefined, get: () => JSON.stringify(mem), set: s => { const m = JSON.parse(s); for (const k in mem) delete mem[k]; Object.assign(mem, m); }, setActiveSegments: () => undefined, setActiveForeignSegment: () => undefined, setDefaultPublicSegment: () => undefined, setPublicSegments: () => undefined, interShardSegment: '' };
+  const P_ = w.players[pid] || {}, segStore = (w.segments = w.segments || {})[pid] = (w.segments[pid] || {}), segsNow = {}; for (const id of P_.activeSegs || []) segsNow[id] = segStore[id] || '';
+  const RawMemory = { segments: segsNow, foreignSegment: undefined, get: () => JSON.stringify(mem), set: s => { const m = JSON.parse(s); for (const k in mem) delete mem[k]; Object.assign(mem, m); }, setActiveSegments: ids => { if (!Array.isArray(ids) || ids.length > 10 || ids.some(i => !(i >= 0 && i <= 99 && Number.isInteger(i)))) throw new Error('RawMemory.setActiveSegments: 最多 10 个 0~99 的整数'); if (w.players[pid]) w.players[pid].activeSegs = ids.slice(); }, setActiveForeignSegment: () => undefined, setDefaultPublicSegment: () => undefined, setPublicSegments: () => undefined, interShardSegment: '' };
   const Room = function () { throw new Error('Room 不能直接构造'); }; Room.Terrain = RoomTerrain; Room.serializePath = p => JSON.stringify(p); Room.deserializePath = s => JSON.parse(s);
   const PathFinder = { search(origin, goal, opts = {}) { const o = gpos(origin), goals = (Array.isArray(goal) ? goal : [goal]).map(g => ({ g: gpos(g.pos || g) || gpos(g), r: g.range || 0 }));
       let best = null; for (const { g, r } of goals) { if (!g) continue; const p = E.findPath(o, g, r, undefined, Object.assign({ ignoreCreeps: true }, opts)); if (p.length && (!best || p.length < best.length)) best = p; }
@@ -916,8 +950,8 @@ function buildApi(E, pid) {
 const SC_NAMES = Object.keys(SC).filter(k => /^[A-Z_][A-Z0-9_]*$/.test(k));
 function compileUser(code) {
   const hidden = ['window', 'document', 'localStorage', 'fetch', 'XMLHttpRequest', 'WebSocket', 'Capacitor', 'globalThis', 'self', 'require', 'process', 'setTimeout', 'setInterval', 'SC'];
-  const f = new Function('Game', 'Memory', 'RawMemory', 'RoomPosition', 'Room', 'PathFinder', 'console', '__loopGuard', ...hidden, ...SC_NAMES, '"use strict";\n' + code);
-  return (api) => { let n = 0; const guard = () => { if (++n > 100000) throw new Error('循环次数过多（可能死循环）'); };
+  const f = new Function('Game', 'Memory', 'RawMemory', 'RoomPosition', 'Room', 'PathFinder', 'console', '__loopGuard', ...hidden, ...SC_NAMES, '"use strict";\n' + (/__loopGuard\(\)/.test(code) ? code : String(code).replace(/\bwhile\s*\(/g, 'while (__loopGuard(), ').replace(/\b(for\s*\([^()]*\)\s*)\{/g, '$1{ __loopGuard(); ')));
+  return (api) => { let n = 0; const t0 = Date.now(), lim = (api.Game && api.Game.cpu && api.Game.cpu.tickLimit) || 500; const guard = () => { if (++n > 100000) throw new Error('循环次数过多（可能死循环）'); if ((n & 255) === 0 && Date.now() - t0 > lim) throw new Error('CPU time limit reached（超过 Game.cpu.tickLimit ' + lim + 'ms，本 tick 代码被中止）'); };
     f(api.Game, api.Memory, api.RawMemory, api.RoomPosition, api.Room, api.PathFinder, { log: api.log }, guard, ...hidden.map(() => undefined), ...SC_NAMES.map(k => SC[k])); };
 }
 if (typeof module !== 'undefined') module.exports = { Engine, newWorld, compileUser, countStruct, rclOf };

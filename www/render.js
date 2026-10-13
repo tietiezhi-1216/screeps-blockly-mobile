@@ -49,6 +49,7 @@ class Renderer {
   structTex(type, mine) {
     const C = Renderer.circle, RR = Renderer.rrect, P = Renderer.poly, ring = this.ring(mine), D = '#181818';
     switch (type) {
+      case 'keeperLair': return [this.tex('keeperLair', 1, 1, g => { C(g, .48, '#111'); C(g, .44, null, '#c33', .05); C(g, .2, '#622'); }), 1];
       case 'spawn': return [this.tex('spawn' + mine, 1.4, 1.4, g => { C(g, .5, '#000'); C(g, .45, null, ring, .045); C(g, .41, '#111'); }), 1.4];
       case 'extension': return [this.tex('ext' + mine, .9, .9, g => { C(g, .4, '#000'); C(g, .34, null, ring, .07); C(g, .28, '#111'); }), .9];
       case 'tower': return [this.tex('tower' + mine, 1, 1, g => { C(g, .4, '#000'); C(g, .34, null, ring, .07); C(g, .27, '#111'); }), 1];
@@ -293,7 +294,7 @@ class Renderer {
   // 世界底图：所有房间（包括未生成）按类型着色
   drawBg(S) {
     const g = this.bgG, RS = ROOM * TS; g.clear(); this._bgS = S;
-    for (let ry = 0; ry < S; ry++) for (let rx = 0; rx < S; rx++) { const t = roomType(rx, ry); g.beginFill(t === 'highway' ? 0x1a1a1a : t === 'center' ? 0x24221a : 0x202020).drawRect(rx * RS + 8, ry * RS + 8, RS - 16, RS - 16).endFill(); }
+    for (let ry = 0; ry < S; ry++) for (let rx = 0; rx < S; rx++) { const t = roomType(rx, ry); g.beginFill(t === 'highway' ? 0x1a1a1a : t === 'center' ? 0x24221a : t === 'keeper' ? 0x2a1d1d : 0x202020).drawRect(rx * RS + 8, ry * RS + 8, RS - 16, RS - 16).endFill(); }
   }
   // 缩小视图里的对象：建筑/creep 画成玩家颜色的点，能量源黄点，Controller 白点，房间按所属着色
   drawMini(v) {

@@ -66,7 +66,7 @@ const passNearby = (cells, x, y) => { for (let dx = -1; dx <= 1; dx++) for (let 
 
 // 生成一个 50x50 房间。exits = {top, right, bottom, left} 各为出口坐标数组
 // 官方扇区：每 10 个房间一条"高速公路"（x 或 y 为 10 的倍数，无 Controller/能量源，地形开阔）；扇区中心 (5,5) 有 3 个能量源、无 Controller
-function roomType(rx, ry) { const m = v => ((v % 10) + 10) % 10; if (m(rx) === 0 || m(ry) === 0) return 'highway'; if (m(rx) === 5 && m(ry) === 5) return 'center'; return 'normal'; }
+function roomType(rx, ry) { const m = v => ((v % 10) + 10) % 10; if (m(rx) === 0 || m(ry) === 0) return 'highway'; if (m(rx) === 5 && m(ry) === 5) return 'center'; if (m(rx) >= 4 && m(rx) <= 6 && m(ry) >= 4 && m(ry) <= 6) return 'keeper'; return 'normal'; }
 // 地图上某房间对玩家 pid 的状态（主机与客户端共用）：owned = { 'rx,ry': ownerPid }
 function roomStatus(S, owned, rx, ry, pid) {
   if (rx < 0 || ry < 0 || rx >= S || ry >= S) return 'out';
@@ -78,7 +78,7 @@ function roomStatus(S, owned, rx, ry, pid) {
 function genRoom(seed, rx, ry, exits) {
   const r = rngFrom(hash32(seed, rx, ry, 5)), type = roomType(rx, ry);
   let wallType = Math.floor(r() * 27) + 1; const swampType = Math.floor(r() * 14); let nSources = r() > 0.5 ? 1 : 2;
-  if (type === 'highway') { wallType = 28; nSources = 0; } else if (type === 'center') nSources = 3;
+  if (type === 'highway') { wallType = 28; nSources = 0; } else if (type === 'center' || type === 'keeper') nSources = 3;
   const gen = () => {
     let cells, tries = 0;
     do {
@@ -119,7 +119,15 @@ function genRoom(seed, rx, ry, exits) {
   while (n < 20000 && (tiles[my * 50 + mx] !== T_WALL || !passNearby(g.cells, mx, my) || objs.some(o => Math.abs(o.x - mx) < 5 && Math.abs(o.y - my) < 5)));
   const rd = r(), dp = SC.MINERAL_DENSITY_PROBABILITY; let density = 4; for (const d in dp) if (rd <= dp[d]) { density = +d; break; }
   const mineral = n < 20000 ? { x: mx, y: my, type: MINERAL_TYPES[Math.floor(r() * MINERAL_TYPES.length)], density, amount: SC.MINERAL_DENSITY[density] } : null;
-  return { tiles, sources: g.sources, controller: g.controller, mineral, type };
+  // 官方 Source Keeper 房间：每个能量源/矿物旁都有一个 Keeper Lair（2~4 格内的空地）
+  const lairs = [];
+  if (type === 'keeper') for (const o of g.sources.concat(mineral ? [mineral] : [])) {
+    let best = null; for (let d = 2; d <= 5 && !best; d++) for (let dy = -d; dy <= d && !best; dy++) for (let dx = -d; dx <= d && !best; dx++) {
+      const x = o.x + dx, y = o.y + dy; if (x < 2 || y < 2 || x > 47 || y > 47 || tiles[y * 50 + x] === T_WALL || lairs.some(l => l.x === x && l.y === y)) continue; best = { x, y, tx: o.x, ty: o.y };
+    }
+    if (best) lairs.push(best);
+  }
+  return { tiles, sources: g.sources, controller: g.controller, mineral, type, lairs };
 }
 function roomExits(seed, rx, ry) {
   return { top: edgeExits(seed, rx, ry - 1, true), bottom: edgeExits(seed, rx, ry, true), left: edgeExits(seed, rx - 1, ry, false), right: edgeExits(seed, rx, ry, false) };

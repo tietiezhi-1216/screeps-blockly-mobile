@@ -25,7 +25,7 @@ assert(run(e, 'console.log(Game.cpu.generatePixel())') === ERR_NOT_ENOUGH_RESOUR
 const rn = roomName(ctrl.x, ctrl.y);
 assert(run(e, `console.log(JSON.stringify(Game.map.describeExits('${rn}')))`).length > 2, 'describeExits 返回出口');
 assert(typeof run(e, `console.log(Game.map.getRoomTerrain('${rn}').get(0,0))`) === 'number', 'getRoomTerrain 任意房间可读');
-assert(run(e, `console.log(Game.map.getRoomStatus('${rn}').status)`) === 'normal', 'getRoomStatus');
+assert(run(e, `console.log(Game.map.getRoomStatus('${rn}').status)`) === 'novice', 'getRoomStatus（出生区为 novice）');
 // 出口格：站在边缘 → 下一 tick 出现在相邻房间对侧边缘
 const sp = e.w.spawns[0], ox = Math.floor(sp.x / 50) * 50, oy = Math.floor(sp.y / 50) * 50;
 let ey = -1; for (let y = 1; y < 49; y++) if (!e.blocked(ox + 49, oy + y) && !e.blocked(ox + 50, oy + y)) { ey = y; break; }
@@ -34,4 +34,28 @@ if (ey >= 0) {
   e.w.creeps.push(c); e._occCache = null; e.tick();
   assert(c.x === ox + 50 && c.y === oy + ey, '出口格 x=49 → 下一 tick 到相邻房间 x=0');
 } else console.log('skip - 无开放出口');
+// Source Keeper 房间
+assert(roomType(4, 4) === 'keeper' && roomType(6, 5) === 'keeper' && roomType(5, 5) === 'center' && roomType(3, 4) === 'normal', '扇区 4~6 为 Keeper 房间，(5,5) 为中心');
+ensureRoom(e.w, 4, 4); const kk = '4,4';
+const lairs = e.w.structures.filter(s => s.type === 'keeperLair' && roomKey(s.x, s.y) === kk), ksrc = e.w.sources.filter(s => roomKey(s.x, s.y) === kk);
+assert(ksrc.length >= 3 && lairs.length >= 3 && !e.w.controllers.some(c => roomKey(c.x, c.y) === kk), 'Keeper 房间：3 能量源、每个能量源/矿物一个 Lair、无 Controller (lairs=' + lairs.length + ')');
+assert(e.checkSpawnAt('p1', 4 * 50 + 25, 4 * 50 + 25) !== null, 'Keeper 房间不能出生');
+e.fns.p1 = null; for (let i = 0; i < 301; i++) e.tick();
+assert(ksrc.every(s => s.cap === 4000), 'Keeper 房间能量源容量 4000');
+const keepers = e.w.creeps.filter(c => c.owner === '__keeper');
+assert(keepers.length === lairs.length && keepers[0].body.length === 50 && keepers[0].hits === 5000, 'Lair 300 tick 后生成 Keeper（50 部件 5000 hits）');
+// 新手区
+assert(run(e, `console.log(Game.map.getRoomStatus('${rn}').status)`) === 'novice', '出生房间所在区域为 novice');
+const z = e.w.zones[Math.floor(sp.x / 50) + ',' + Math.floor(sp.y / 50)]; assert(z && z.status === 'novice', 'zones 记录');
+// tickLimit
+e.w.players.p1.bucket = 30; e.fns.p1 = compileUser('let i = 0; while (true) { i++; }'); e.w.logs = e.w.logs || [];
+const t0 = Date.now(); e.tick(); assert(Date.now() - t0 < 2000, '死循环在 tickLimit 内被中止 (' + (Date.now() - t0) + 'ms)');
+// Game.resources.pixel
+assert(run(e, 'console.log(Game.resources.pixel)') === 1, 'Game.resources.pixel');
+// RawMemory segments
+e.fns.p1 = compileUser('RawMemory.setActiveSegments([3]);'); e.tick();
+e.fns.p1 = compileUser('RawMemory.segments[3] = "hello";'); e.tick();
+assert(e.w.segments.p1[3] === 'hello', 'RawMemory.segments 写入保存');
+assert(run(e, 'console.log(RawMemory.segments[3])') === 'hello', '下一 tick 可读激活的段');
+assert((() => { try { run(e, 'RawMemory.setActiveSegments([1,2,3,4,5,6,7,8,9,10,11])'); return false; } catch (x) { return true; } })(), '激活段超过 10 个报错');
 console.log('mechanics passed');

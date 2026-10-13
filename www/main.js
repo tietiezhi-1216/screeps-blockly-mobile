@@ -348,7 +348,7 @@ $('bbOk').onclick = () => build.type === 'spawn1' ? confirmSpawn() : confirmBuil
 
 // ===== 世界地图 / 选择出生点（同官方：先选空闲房间，再点格子放 Spawn1） =====
 const wm = { sel: null, auto: false, pick: false };
-const WM_COL = { free: '#3d4a3a', close: '#5a2b2b', mine: '#6dc1ff', owned: '#c46b6b', highway: '#1d1d1d', center: '#4a4325' };
+const WM_COL = { free: '#3d4a3a', close: '#5a2b2b', mine: '#6dc1ff', owned: '#c46b6b', highway: '#1d1d1d', center: '#4a4325', keeper: '#4a2a2a' };
 function wmData() { const v = view(); if (!v) return null; return { S: v.S, owned: v.owned || {}, players: v.players }; }
 function drawWorldMap() {
   const d = wmData(), c = $('wmCanvas'); if (!d) return; const r = c.getBoundingClientRect(), dpr = Math.min(2, devicePixelRatio || 1);

@@ -246,6 +246,9 @@ class Engine {
       if (hk < bestH) { bestH = hk; bestK = k; }
       for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
         if (!dx && !dy) continue; const nx = x + dx, ny = y + dy; if (nx < 0 || ny < 0 || nx >= WW || ny >= WW) continue; const nk = ny * WW + nx;
+        { const bx = x % ROOM, by = y % ROOM; // 官方 pf.cc astar：出口格（门户节点）上不能沿边线走，只能直穿到邻房或退回房内
+          if (bx === 0 || bx === ROOM - 1) { if (nx === x || ((nx % ROOM) === (bx ? 0 : ROOM - 1) && (nx / ROOM | 0) !== (x / ROOM | 0) && ny !== y)) continue; }
+          else if (by === 0 || by === ROOM - 1) { if (ny === y || ((ny % ROOM) === (by ? 0 : ROOM - 1) && (ny / ROOM | 0) !== (y / ROOM | 0) && nx !== x)) continue; } }
         if (g[nk] & 1) continue;
         if (pid !== undefined && (g[nk] & 2) && this.w.sites.some(s => s.x === nx && s.y === ny && s.owner !== pid)) continue;
         if (hostileRamp && hostileRamp.has(nk)) continue;
@@ -298,11 +301,11 @@ class Engine {
     this.resolveMoves();
     for (const c of w.creeps) {
       if (c.spawning) continue;
-      // 官方：站在出口格上 → 下一 tick 到相邻房间对侧边缘
+      // 官方 processor creeps/tick.js：移动结算后站在出口格上 → 同一 tick 立即到相邻房间对侧边缘
       const lx = c.x % ROOM, ly = c.y % ROOM; let nx = c.x, ny = c.y;
       if (lx === 0) nx--; else if (lx === ROOM - 1) nx++; else if (ly === 0) ny--; else if (ly === ROOM - 1) ny++;
       const za = this.zoneOf(Math.floor(c.x / ROOM), Math.floor(c.y / ROOM)), zb = this.zoneOf(Math.floor(nx / ROOM), Math.floor(ny / ROOM)), zoneOk = (za && za.id) === (zb && zb.id);
-      if ((nx !== c.x || ny !== c.y) && c._arrived !== w.time && !this.blocked(nx, ny, c)) { const o = this._occ(); o.delete(c.y * this.W + c.x); c.x = nx; c.y = ny; c.px = nx; c.py = ny; o.set(c.y * this.W + c.x, c); c._path = null; }
+      if ((nx !== c.x || ny !== c.y) && c.owner !== KEEPER && c.owner !== (typeof INVADER !== 'undefined' ? INVADER : '__invader') && !this.blocked(nx, ny, c)) { const o = this._occ(); o.delete(c.y * this.W + c.x); c.x = nx; c.y = ny; c.px = nx; c.py = ny; o.set(c.y * this.W + c.x, c); c._path = null; }
       c.fatigue = Math.max(0, c.fatigue - boostPower(c, 'move', 'fatigue') * 2);
       if (!c.noAge) c.ttl--; // Keeper 不衰老（官方无 ageTime）
     }
@@ -312,7 +315,9 @@ class Engine {
     this._o = null;
   }
   resolveMoves() {
-    const w = this.w, movers = w.creeps.filter(c => c._move && !c.spawning); let progress = true;
+    const w = this.w; let progress = true;
+    for (const c of w.creeps) if (c._move && roomKey(c._move.x, c._move.y) !== roomKey(c.x, c.y)) { delete c._move; c._path = null; } // 官方 move.js：目标超出本房 0~49 → 忽略（跨房只能靠出口格传送）
+    const movers = w.creeps.filter(c => c._move && !c.spawning);
     while (progress && movers.length) {
       progress = false;
       for (let i = movers.length - 1; i >= 0; i--) {
@@ -611,10 +616,10 @@ function buildApi(E, pid) {
     findClosestByPath(t, opts) { // 一次多目标 A*，按实际路径长度取最近
       const list = applyOpts(resolveFind(t, roomKey(this._g.x, this._g.y)), opts).filter(o => sameRoom(this._g, gpos(o))); if (!list.length) return null;
       const near = list.find(o => dist(this._g, gpos(o)) <= 1); if (near) return near;
-      const p = E.findPath(this._g, list.map(gpos), 1, undefined, Object.assign({ maxOps: 4000, ignoreCreeps: true }, opts)); if (!p.length) return null;
+      const orx = (this._g.x / ROOM) | 0, ory = (this._g.y / ROOM) | 0, p = E.findPath(this._g, list.map(gpos), 1, undefined, Object.assign({ maxOps: 4000, ignoreCreeps: true }, opts, opts && (opts.costCallback || opts._cm) ? {} : { _cm: (rx, ry) => rx === orx && ry === ory ? null : false })); if (!p.length) return null; // 官方 findClosestByPath：maxRooms 1
       const end = p[p.length - 1]; let b = null, bd = Infinity; for (const o of list) { const d = dist(end, gpos(o)); if (d < bd) { bd = d; b = o; } } return b;
     }
-    findPathTo(a, b, c) { const g = this._args(a, b), opts = typeof a === 'number' ? c : b; return g ? E.findPath(this._g, g, (opts && opts.range) || 0, undefined, opts || {}).map((p, i, arr) => { const prev = i ? arr[i - 1] : this._g; return { x: p.x % ROOM, y: p.y % ROOM, dx: p.x - prev.x, dy: p.y - prev.y, direction: dirOf(p.x - prev.x, p.y - prev.y) }; }) : []; }
+    findPathTo(a, b, c) { const g = this._args(a, b), opts = typeof a === 'number' ? c : b; const rk = roomKey(this._g.x, this._g.y); return g ? E.findPath(this._g, g, (opts && opts.range) || 0, undefined, opts || {}).filter((p, i, arr) => arr.slice(0, i + 1).every(q => roomKey(q.x, q.y) === rk)).map((p, i, arr) => { const prev = i ? arr[i - 1] : this._g; return { x: p.x % ROOM, y: p.y % ROOM, dx: p.x - prev.x, dy: p.y - prev.y, direction: dirOf(p.x - prev.x, p.y - prev.y) }; }) : []; }
     look() { return lookAt(this._g.x, this._g.y); }
     lookFor(type) { return lookAt(this._g.x, this._g.y).filter(o => o.type === type).map(o => o[type]); }
     createConstructionSite(type, name) { return createSite(this._g.x, this._g.y, type, name); }
@@ -931,8 +936,9 @@ function buildApi(E, pid) {
         if (!o._path || !o._path.length || o._pt.x !== g.x || o._pt.y !== g.y || w.time - o._pT > reuse || dist(o, o._path[0]) !== 1 || E.blocked(o._path[0].x, o._path[0].y, o)) {
           if (opts.noPathFinding) return ERR_NOT_FOUND;
           if (o._failT && w.time - o._failT < 3 && o._pt && o._pt.x === g.x && o._pt.y === g.y) return ERR_NO_PATH; // 寻路失败后短暂缓存，省 CPU
-          o._path = E.findPath(o, g, rng, o, Object.assign({ partial: true }, opts)); o._pt = { x: g.x, y: g.y }; o._pT = w.time;
-          if (!o._path.length) { o._failT = w.time; return ERR_NO_PATH; } o._failT = 0;
+          const full = E.findPath(o, g, rng, o, Object.assign({ partial: true }, opts)), rk = roomKey(o.x, o.y), cut = full.findIndex(p => roomKey(p.x, p.y) !== rk);
+          o._path = cut < 0 ? full : full.slice(0, cut); o._pt = { x: g.x, y: g.y }; o._pT = w.time; // 官方 room.findPath：路径截断在本房间
+          if (!o._path.length) { if (!full.length) o._failT = w.time; return ERR_NO_PATH; } o._failT = 0;
         }
         const nx = o._path.shift(); o._move = { x: nx.x, y: nx.y };
         if (opts.visualizePathStyle) ev.push({ t: 'path', fx: o.x, fy: o.y, x: g.x, y: g.y });

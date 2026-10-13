@@ -8,7 +8,8 @@ const renderer = new Renderer($('stage')); renderer.myPid = myPid;
 let showFps = false;
 // 控制台：保留最近 500 条，可按文本 / 类型过滤（同官方 Console）
 const LOGS = []; let cnFilter = 'all';
-const log = (s, cls) => { s = String(s); LOGS.push({ s, cls: cls || (/错误|error|失败/i.test(s) ? 'err' : ''), t: engine ? engine.w.time : client?.view?.time }); if (LOGS.length > 500) LOGS.splice(0, LOGS.length - 500); if (typeof renderConsole === 'function') renderConsole(); };
+const _ntSeen = new Map(); // 通知（notifyWhenAttacked / Game.notify）：控制台标记 + 弹出提示，同一消息 10 秒内只弹一次
+const log = (s, cls) => { s = String(s); if (/\[通知\]/.test(s)) { cls = cls || 'ntf'; const m = s.replace(/^\[\d+\]\s*\[通知\]\s*/, ''), t = Date.now(); if (!(_ntSeen.get(m) > t - 10000)) { _ntSeen.set(m, t); if (typeof toastMsg === 'function') toastMsg(m); } } LOGS.push({ s, cls: cls || (/错误|error|失败/i.test(s) ? 'err' : ''), t: engine ? engine.w.time : client?.view?.time }); if (LOGS.length > 500) LOGS.splice(0, LOGS.length - 500); if (typeof renderConsole === 'function') renderConsole(); };
 
 function myBadge() { try { const b = JSON.parse(localStorage.getItem('sbm_profile') || '{}').badge; return b && typeof b.type === 'number' ? b : null; } catch (e) { return null; } }
 function loadEngine() {

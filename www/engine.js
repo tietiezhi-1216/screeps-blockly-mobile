@@ -428,7 +428,7 @@ class Engine {
     const w = this.w;
     for (const s of w.sources) {
       const ctrl = ctrlOfRoom(w, roomKey(s.x, s.y)); let cap = ctrl && (ctrl.owner || (ctrl.reservation && ctrl.reservation.endTime > w.time)) ? SC.SOURCE_ENERGY_CAPACITY : SC.SOURCE_ENERGY_NEUTRAL_CAPACITY;
-      if ((w.rooms[roomKey(s.x, s.y)] || {}).type === 'keeper') cap = SC.SOURCE_ENERGY_KEEPER_CAPACITY;
+      if (!ctrl) cap = SC.SOURCE_ENERGY_KEEPER_CAPACITY; /* 官方 sources/tick.js：房间没有 Controller（SK 房间与扇区正中心）→ 4000 */
       if (cap !== s.cap) { s.cap = cap; s.energy = Math.min(s.energy, cap); }
       if (s.energy < s.cap) { if (!s.regenAt) s.regenAt = w.time + SC.ENERGY_REGEN_TIME;
         if (pwrFx(s, SC.PWR_DISRUPT_SOURCE, w.time) != null) s.regenAt++; // PWR_DISRUPT_SOURCE：推迟再生（sources/tick.js）
@@ -713,7 +713,7 @@ function buildApi(E, pid) {
     Object.defineProperty(v, '_raw', { enumerable: false }); Object.defineProperty(v, 'room', { get: () => room(roomKey(o.x, o.y)), enumerable: false });
     cache.set(o, v); B[o.kind](v, o); if (o.kind !== 'creep') wrapStructIntents(v, o); const cn = classOf(o); if (cn) toClass(CLS, v, cn); return v;
   }
-  const owner = o => o.owner ? { username: w.players[o.owner]?.name || o.owner } : undefined;
+  const owner = o => o.owner ? { username: (typeof NPC_NAME !== 'undefined' && NPC_NAME[o.owner]) || w.players[o.owner]?.name || o.owner } : undefined; // 官方 NPC 用户名：Invader / Source Keeper
   const structBase = (v, o, type) => {
     Object.assign(v, { structureType: type, hits: o.hits, hitsMax: o.hitsMax, my: o.owner === pid, owner: owner(o) });
     v.destroy = () => { if (o.owner !== pid && type !== 'road' && type !== 'container' && type !== 'constructedWall') return ERR_NOT_OWNER; const c = ctrlOfRoom(w, roomKey(o.x, o.y)); if (c && c.owner !== pid) return ERR_NOT_OWNER; if (w.creeps.some(c => !c.spawning && c.owner !== pid && sameRoom(c, o))) return ERR_BUSY; if (o._intentOnly) return OK; E.removeStruct(o); return OK; };
@@ -787,7 +787,7 @@ function buildApi(E, pid) {
       if (o.type === 'keeperLair') v.ticksToSpawn = o.spawnAt ? o.spawnAt - w.time : undefined;
       if (o.type === 'powerBank') { v.power = (o.store && o.store.power) || o.power || 0; v.ticksToDecay = o.decayAt != null ? o.decayAt - w.time : undefined; }
       if (o.type === 'portal') { v.destination = o.destination ? (o.destination.shard ? { shard: o.destination.shard, room: o.destination.room } : posOf({ x: o.destination.x, y: o.destination.y })) : undefined; v.ticksToDecay = o.decayAt != null ? o.decayAt - w.time : undefined; }
-      if (o.type === 'invaderCore') { v.level = o.level || 0; v.ticksToDeploy = o.deployTime ? o.deployTime - w.time : undefined; }
+      if (o.type === 'invaderCore') { v.level = o.level; v.ticksToDeploy = o.deployTime ? o.deployTime - w.time : undefined; v.spawning = o.spawning ? { name: o.spawning.name, needTime: o.spawning.needTime, remainingTime: o.spawning.spawnTime - w.time, directions: undefined, spawn: v, cancel: () => ERR_NOT_OWNER, setDirections: () => ERR_NOT_OWNER } : null; } // 官方 StructureInvaderCore：level / spawning / ticksToDeploy
       if (o.type === 'constructedWall') v.ticksToLive = o.decayAt != null ? o.decayAt - w.time : undefined;
       if (o.type === 'container' || o.type === 'storage' || o.type === 'terminal') v.storeCapacity = storeCap(w, o); // 已废弃，等同 store.getCapacity()
       if (o.type === 'rampart') { v.isPublic = !!o.isPublic; v.setPublic = p => { if (o.owner !== pid) return ERR_NOT_OWNER; if (o._intentOnly) return OK; o.isPublic = !!p; return OK; }; }
@@ -818,7 +818,7 @@ function buildApi(E, pid) {
           let amt = base; if (d > SC.TOWER_OPTIMAL_RANGE) amt -= amt * SC.TOWER_FALLOFF * (Math.min(d, SC.TOWER_FALLOFF_RANGE) - SC.TOWER_OPTIMAL_RANGE) / (SC.TOWER_FALLOFF_RANGE - SC.TOWER_OPTIMAL_RANGE); for (const pw of [SC.PWR_OPERATE_TOWER, SC.PWR_DISRUPT_TOWER]) { const f = pwrFx(o, pw, w.time); if (f != null) amt *= f; } amt = Math.floor(amt); if (!amt) return OK;
           if (kind === 'heal' && r.kind !== 'creep') return ERR_INVALID_TARGET; if (kind === 'repair' && r.kind === 'creep') return ERR_INVALID_TARGET;
           if (o._intentOnly) return OK; o.store.energy -= SC.TOWER_ENERGY_COST;
-          if (kind === 'attack') E.damage(r, amt, pid); else (kind === 'heal' ? (r._heal = (r._heal || 0) + amt) : (r.hits = Math.min(r.hitsMax, r.hits + amt)));
+          if (kind === 'attack') E.damage(r, amt, pid, 'tower'); else (kind === 'heal' ? (r._heal = (r._heal || 0) + amt) : (r.hits = Math.min(r.hitsMax, r.hits + amt)));
           if (kind === 'attack') E.elog(o, SC.EVENT_ATTACK, { targetId: r.id, damage: amt, attackType: SC.EVENT_ATTACK_TYPE_RANGED }); else if (kind === 'heal') E.elog(o, SC.EVENT_HEAL, { targetId: r.id, amount: amt, healType: SC.EVENT_HEAL_TYPE_RANGED }); else E.elog(o, SC.EVENT_REPAIR, { targetId: r.id, amount: amt, energySpent: SC.TOWER_ENERGY_COST });
           ev.push({ t: kind, fx: o.x, fy: o.y, x: r.x, y: r.y }); return OK;
         };
@@ -942,7 +942,7 @@ function buildApi(E, pid) {
       v.harvest = t => {
         const e = pre('work'); if (e) return e; const x = raw(t); if (!x || (x.kind !== 'source' && x.kind !== 'mineral')) return ERR_INVALID_TARGET; if (!sameRoom(x, o) || dist(x, o) > 1) return ERR_NOT_IN_RANGE;
         const ctrl = ctrlOfRoom(w, roomKey(x.x, x.y)); if (ctrl && ((ctrl.owner && ctrl.owner !== pid) || (ctrl.reservation && ctrl.reservation.owner !== pid))) return ERR_NOT_OWNER;
-        if (x.kind === 'source') { if (!x.energy) return ERR_NOT_ENOUGH_RESOURCES; if (o._intentOnly) return OK; const a = Math.min(x.energy, boostPower(o, 'work', 'harvest') * SC.HARVEST_POWER); x.energy -= a; o.store.energy = (o.store.energy || 0) + a; o._ha = a; }
+        if (x.kind === 'source') { if (!x.energy) return ERR_NOT_ENOUGH_RESOURCES; if (o._intentOnly) return OK; const a = Math.min(x.energy, boostPower(o, 'work', 'harvest') * SC.HARVEST_POWER); x.energy -= a; o.store.energy = (o.store.energy || 0) + a; o._ha = a; x.invaderHarvested = (x.invaderHarvested || 0) + a; /* 官方 harvest.js：累计 invaderHarvested，供 Invader 入侵判定 */ }
         else { const ex = w.structures.find(s => s.type === 'extractor' && s.x === x.x && s.y === x.y); if (!ex) return ERR_NOT_FOUND; if (ex.owner !== pid) return ERR_NOT_OWNER; if (!E.isActive(ex)) return ERR_RCL_NOT_ENOUGH; if (ex.cooldown > 0) return ERR_TIRED; if (!x.amount) return ERR_NOT_ENOUGH_RESOURCES; if (o._intentOnly) return OK;
           const a = Math.min(x.amount, boostPower(o, 'work', 'harvest') * SC.HARVEST_MINERAL_POWER); x.amount -= a; o.store[x.type] = (o.store[x.type] || 0) + a; o._ha = a; ex.cooldown = SC.EXTRACTOR_COOLDOWN; }
         const over = used() - cap; if (over > 0) { const r = x.kind === 'source' ? 'energy' : x.type; o.store[r] -= over; E.dropAt(o.x, o.y, r, over); } // 官方：溢出掉在地上
@@ -1002,9 +1002,9 @@ function buildApi(E, pid) {
       v.dismantle = t => {
         const e = pre('work'); if (e) return e; const x = raw(t); if (!x || x.kind !== 'structure' && x.kind !== 'spawn' || x.hits == null) return ERR_INVALID_TARGET; if (!sameRoom(x, o) || dist(x, o) > 1) return ERR_NOT_IN_RANGE;
         const ctrl = ctrlOfRoom(w, roomKey(x.x, x.y)); if (ctrl && ctrl.safeMode > w.time && ctrl.owner !== pid) return ERR_NO_BODYPART;
-        if ((x.effects || []).some(f => f.power === SC.PWR_FORTIFY && f.endTime > w.time)) return ERR_INVALID_TARGET;
+        if ((x.effects || []).some(f => (f.power === SC.PWR_FORTIFY || f.effect === SC.EFFECT_INVULNERABILITY) && f.endTime > w.time)) return ERR_INVALID_TARGET;
         if (o._intentOnly) return OK;
-        if ((x.effects || []).some(f => (f.power === SC.PWR_SHIELD || f.power === SC.PWR_FORTIFY) && f.endTime >= w.time)) return OK; // processor dismantle.js
+        if ((x.effects || []).some(f => (f.power === SC.PWR_SHIELD || f.power === SC.PWR_FORTIFY || f.effect === SC.EFFECT_INVULNERABILITY) && f.endTime >= w.time)) return OK; // processor dismantle.js
         const a = Math.min(boostPower(o, 'work', 'dismantle') * SC.DISMANTLE_POWER, x.hits), back = Math.floor(a * SC.DISMANTLE_COST);
         if (back) { o.store.energy = (o.store.energy || 0) + back; const over = used() - cap; if (over > 0) { o.store.energy -= over; E.dropAt(o.x, o.y, 'energy', over); } }
         E.elog(o, SC.EVENT_ATTACK, { targetId: x.id, damage: a, attackType: SC.EVENT_ATTACK_TYPE_DISMANTLE }); E.damage(x, a, pid); return OK;
@@ -1043,7 +1043,7 @@ function buildApi(E, pid) {
       };
       v.attackController = t => {
         const e = pre('claim'); if (e) return e; const x = tgt(t, 1, ['controller']); if (typeof x === 'number') return x;
-        if (!x.owner && !x.reservation) return ERR_INVALID_TARGET; if (x.owner === pid || (x.reservation && x.reservation.owner === pid)) return ERR_INVALID_TARGET; if (x.upgradeBlocked > w.time) return ERR_TIRED;
+        if (!x.owner && !x.reservation) return ERR_INVALID_TARGET; if (x.owner === pid || (x.reservation && x.reservation.owner === pid)) return ERR_INVALID_TARGET; if (x.upgradeBlocked > w.time) return ERR_TIRED; if ((x.effects || []).some(f => f.effect === SC.EFFECT_INVULNERABILITY && f.endTime > w.time)) return ERR_INVALID_TARGET;
         if (o._intentOnly) return OK;
         const n = activeParts(o, 'claim'); E.elog(o, SC.EVENT_ATTACK_CONTROLLER, {});
         if (x.reservation) { x.reservation.endTime -= n * SC.CONTROLLER_RESERVE; } else { x.downgradeTime -= n * SC.CONTROLLER_CLAIM_DOWNGRADE; x.upgradeBlocked = w.time + SC.CONTROLLER_ATTACK_BLOCKED_UPGRADE; }
@@ -1052,7 +1052,7 @@ function buildApi(E, pid) {
       v.signController = (t, text) => { const e = pre(); if (e) return e; const x = tgt(t, 1, ['controller']); if (typeof x === 'number') return x; if (o._intentOnly) return OK; x.sign = text ? { username: w.players[pid].name, text: String(text).slice(0, 100), time: w.time, datetime: Date.now() } : null; return OK; };
       v.generateSafeMode = t => { const e = pre(); if (e) return e; const x = tgt(t, 1, ['controller']); if (typeof x === 'number') return x; if ((o.store.G || 0) < SC.SAFE_MODE_COST) return ERR_NOT_ENOUGH_RESOURCES; if (o._intentOnly) return OK; o.store.G -= SC.SAFE_MODE_COST; x.safeModeAvailable++; return OK; };
       const hostileOk = x => x.kind === 'creep' ? x.owner !== pid || true : true;
-      const fortified = x => (x.effects || []).some(f => (f.power === SC.PWR_FORTIFY) && f.endTime > w.time); // 官方 game/creeps.js：attack/rangedAttack/dismantle 对 FORTIFY 目标 ERR_INVALID_TARGET
+      const fortified = x => (x.effects || []).some(f => (f.power === SC.PWR_FORTIFY || f.effect === SC.EFFECT_INVULNERABILITY) && f.endTime > w.time); // 官方 game/creeps.js：attack/rangedAttack/dismantle 对 FORTIFY 目标 ERR_INVALID_TARGET
       v.attack = t => { const e = pre('attack'); if (e) return e; const x = tgt(t, 1, ['creep', 'structure', 'spawn']); if (typeof x === 'number') return x; if (!hostileOk(x) || x.hits == null || fortified(x)) return ERR_INVALID_TARGET;
         if (o._intentOnly) return OK;
         { const dm = boostPower(o, 'attack', 'attack') * SC.ATTACK_POWER; E.elog(o, SC.EVENT_ATTACK, { targetId: x.id, damage: dm, attackType: SC.EVENT_ATTACK_TYPE_MELEE }); E.damage(x, dm, pid); }
@@ -1061,7 +1061,7 @@ function buildApi(E, pid) {
         if (o._intentOnly) return OK;
         { const dm = boostPower(o, 'ranged_attack', 'rangedAttack') * SC.RANGED_ATTACK_POWER; E.elog(o, SC.EVENT_ATTACK, { targetId: x.id, damage: dm, attackType: SC.EVENT_ATTACK_TYPE_RANGED }); E.damage(x, dm, pid); } ev.push({ t: 'attack', fx: o.x, fy: o.y, x: x.x, y: x.y }); return OK; };
       v.rangedMassAttack = () => { const e = pre('ranged_attack'); if (e) return e; if (o._intentOnly) return OK; const n = boostPower(o, 'ranged_attack', 'rangedMassAttack') * SC.RANGED_ATTACK_POWER;
-        for (const x of w.creeps.filter(c => !c.spawning && c.owner !== pid && sameRoom(c, o) && dist(c, o) <= 3).concat(w.structures.concat(w.spawns).filter(s => s.owner && s.owner !== pid && sameRoom(s, o) && dist(s, o) <= 3))) { const dm = Math.round(n * ({ 0: 1, 1: 1, 2: 0.4, 3: 0.1 })[dist(x, o)]); E.elog(o, SC.EVENT_ATTACK, { targetId: x.id, damage: dm, attackType: SC.EVENT_ATTACK_TYPE_RANGED_MASS }); E.damage(x, dm, pid); }
+        for (const x of w.creeps.filter(c => !c.spawning && c.owner !== pid && sameRoom(c, o) && dist(c, o) <= 3).concat(w.structures.concat(w.spawns).filter(s => (s.owner || s.type === 'powerBank') && s.owner !== pid && sameRoom(s, o) && dist(s, o) <= 3))) { if (x.type !== 'rampart' && w.structures.some(r => r.type === 'rampart' && r.x === x.x && r.y === x.y)) continue; if (!x.hits) continue; if ((x.effects || []).some(f => f.endTime >= w.time && (f.power === SC.PWR_FORTIFY || f.effect === SC.EFFECT_INVULNERABILITY))) continue; /* 官方 rangedMassAttack.js */ const dm = Math.round(n * ({ 0: 1, 1: 1, 2: 0.4, 3: 0.1 })[dist(x, o)]); E.elog(o, SC.EVENT_ATTACK, { targetId: x.id, damage: dm, attackType: SC.EVENT_ATTACK_TYPE_RANGED_MASS }); E.damage(x, dm, pid); }
         return OK; };
       v.heal = t => { const e = pre('heal'); if (e) return e; const x = tgt(t, 1, ['creep']); if (typeof x === 'number') return x; if (o._intentOnly) return OK; { const hv = boostPower(o, 'heal', 'heal') * SC.HEAL_POWER; E.elog(o, SC.EVENT_HEAL, { targetId: x.id, amount: hv, healType: SC.EVENT_HEAL_TYPE_MELEE }); x._heal = (x._heal || 0) + hv; /* 官方 _healToApply：tick 末结算 */ } ev.push({ t: 'heal', fx: o.x, fy: o.y, x: x.x, y: x.y }); return OK; };
       v.rangedHeal = t => { const e = pre('heal'); if (e) return e; const x = tgt(t, 3, ['creep']); if (typeof x === 'number') return x; if (o._intentOnly) return OK; { const hv = boostPower(o, 'heal', 'rangedHeal') * SC.RANGED_HEAL_POWER; E.elog(o, SC.EVENT_HEAL, { targetId: x.id, amount: hv, healType: SC.EVENT_HEAL_TYPE_RANGED }); x._heal = (x._heal || 0) + hv; /* 官方 _healToApply：tick 末结算 */ } ev.push({ t: 'heal', fx: o.x, fy: o.y, x: x.x, y: x.y }); return OK; };
@@ -1162,7 +1162,7 @@ function buildApi(E, pid) {
     cpu: { limit: 20, tickLimit: Math.min(500, (w.players[pid] && w.players[pid].bucket != null ? w.players[pid].bucket : 10000)), bucket: (w.players[pid] && w.players[pid].bucket != null ? w.players[pid].bucket : 10000), shardLimits: { shard0: 20 }, unlocked: true, unlockedTime: undefined, getUsed: () => Date.now() - t0, getHeapStatistics: () => ({}), halt: () => { throw new Error('Game.cpu.halt'); }, setShardLimits: () => ERR_BUSY, unlock: () => ERR_FULL, generatePixel: () => { const P = w.players[pid]; if (!P || (P.bucket != null ? P.bucket : 10000) < SC.PIXEL_CPU_COST) return ERR_NOT_ENOUGH_RESOURCES; P.bucket -= SC.PIXEL_CPU_COST; P.pixels = (P.pixels || 0) + 1; return OK; } },
     market: { credits: 0, get incomingTransactions() { return (w.transactions || []).filter(t => t._r === pid).reverse(); }, get outgoingTransactions() { return (w.transactions || []).filter(t => t._s === pid).reverse(); }, orders: {}, calcTransactionCost: (amount, a, b) => Math.ceil(amount * (1 - Math.exp(-Game.map.getRoomLinearDistance(a, b, true) / 30))), getAllOrders: () => [], getHistory: () => [], getOrderById: () => null, cancelOrder: () => ERR_INVALID_ARGS, changeOrderPrice: () => ERR_INVALID_ARGS, createOrder: () => ERR_NOT_ENOUGH_RESOURCES, deal: () => ERR_NOT_ENOUGH_RESOURCES, extendOrder: () => ERR_INVALID_ARGS },
     getObjectById: id => { for (const L of [w.creeps, w.spawns, w.structures, w.controllers, w.sources, w.minerals, w.sites, w.resources, w.tombstones, w.ruins || [], w.nukes || [], w.flags]) { const o = L.find(o => o.id === id); if (o) return (vis.has(roomKey(o.x, o.y)) || (L === w.sites && o.owner === pid)) ? wrap(o) : null; } return null; },
-    notify: (msg, g) => { const P = w.players[pid]; if (P._ntT !== w.time) { P._ntT = w.time; P._nt = 0; } if (P._nt >= 20) return ERR_FULL; P._nt++; E.log(pid, '[notify]', String(msg).slice(0, 1000)); return OK; }, // 官方：每 tick 最多 20 条，消息 1000 字符
+    notify: (msg, g) => { const P = w.players[pid]; if (P._ntT !== w.time) { P._ntT = w.time; P._nt = 0; } if (P._nt >= 20) return ERR_FULL; P._nt++; if (E.notify) E.notify(pid, String(msg).slice(0, 1000)); else E.log(pid, '[notify]', String(msg).slice(0, 1000)); return OK; }, // 官方：每 tick 最多 20 条，消息 1000 字符
     map: {
       describeExits: n => { const p = parseRoomName(n); if (p) ensureRoom(w, p[0], p[1]); if (!p || !w.rooms[p[0] + ',' + p[1]]) return null; const out = {}; const t = w.rooms[p[0] + ',' + p[1]].tiles, open = (f) => { for (let i = 0; i < 50; i++) if (f(i) !== T_WALL) return true; return false; };
         if (open(i => t[i])) out[SC.TOP] = roomNameXY(p[0], p[1] - 1); if (open(i => t[i * 50 + 49])) out[SC.RIGHT] = roomNameXY(p[0] + 1, p[1]); if (open(i => t[49 * 50 + i])) out[SC.BOTTOM] = roomNameXY(p[0], p[1] + 1); if (open(i => t[i * 50])) out[SC.LEFT] = roomNameXY(p[0] - 1, p[1]); return out; },
@@ -1170,7 +1170,7 @@ function buildApi(E, pid) {
         const prev = { [from]: null }, q = [from]; while (q.length) { const n = q.shift(); if (n === to) break; const ex = Game.map.describeExits(n) || {}; for (const d in ex) { const m = ex[d]; if (m in prev) continue; if (opts.routeCallback && opts.routeCallback(m, n) === Infinity) continue; prev[m] = { n, exit: +d }; q.push(m); } }
         if (!(to in prev)) return ERR_NO_PATH; const out = []; for (let n = to; prev[n]; n = prev[n].n) out.unshift({ exit: prev[n].exit, room: n }); return out; },
       findExit: (from, to, opts) => { const r = Game.map.findRoute(from, to, opts); return Array.isArray(r) ? (r.length ? r[0].exit : ERR_INVALID_ARGS) : r; },
-      getRoomLinearDistance: (a, b, cont) => { const p = parseRoomName(a), q = parseRoomName(b); return p && q ? Math.max(Math.abs(p[0] - q[0]), Math.abs(p[1] - q[1])) : Infinity; },
+      getRoomLinearDistance: (a, b, cont) => { const p = parseRoomName(a), q = parseRoomName(b); if (!p || !q) return Infinity; let dx = Math.abs(q[0] - p[0]), dy = Math.abs(q[1] - p[1]); if (cont) { const ws = w.S; dx = Math.min(ws - dx, dx); dy = Math.min(ws - dy, dy); } return Math.max(dx, dy); }, // 官方 game/map.js：continuous 时按 worldSize 环绕取较短距离
       getRoomTerrain: n => new RoomTerrain(n), getTerrainAt: (a, b, n) => { const pos = typeof a === 'number' ? { x: a, y: b, roomName: n } : a; return ['plain', 'wall', 'swamp'][[0, 1, 2][[0, 1, 2].indexOf(new RoomTerrain(pos.roomName).get(pos.x, pos.y))] ?? 0] || 'plain'; },
       getWorldSize: () => w.S, getRoomStatus: n => { const p = parseRoomName(n); if (!(p && p[0] >= 0 && p[1] >= 0 && p[0] < w.S && p[1] < w.S)) return undefined; const z = E.zoneOf(p[0], p[1]); return z ? { status: z.status, timestamp: Date.now() + (z.until - w.time) * 1000 } : { status: 'normal', timestamp: null }; },
       isRoomAvailable: n => !!Game.map.getRoomStatus(n), visual: noopVisual,

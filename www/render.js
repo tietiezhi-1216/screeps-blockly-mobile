@@ -49,6 +49,7 @@ class Renderer {
   structTex(type, mine) {
     const C = Renderer.circle, RR = Renderer.rrect, P = Renderer.poly, ring = this.ring(mine), D = '#181818';
     switch (type) {
+      case 'invaderCore': return [this.tex('invCore', 1.4, 1.4, g => { C(g, .62, '#000'); C(g, .55, null, '#d32f2f', .07); const h = []; for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3 + Math.PI / 6; h.push([Math.cos(a) * .36, Math.sin(a) * .36]); } P(g, h, '#2a0a0a', '#ff5252', .05); C(g, .13, '#ff5252'); }), 1.4]; // 官方 Invader Core：黑底红环 + 六边形核心
       case 'keeperLair': return [this.tex('keeperLair', 1, 1, g => { C(g, .48, '#111'); C(g, .44, null, '#c33', .05); C(g, .2, '#622'); }), 1];
       case 'spawn': return [this.tex('spawn' + mine, 1.4, 1.4, g => { C(g, .5, '#000'); C(g, .45, null, ring, .045); C(g, .41, '#111'); }), 1.4];
       case 'extension': return [this.tex('ext' + mine, .9, .9, g => { C(g, .4, '#000'); C(g, .34, null, ring, .07); C(g, .28, '#111'); }), .9];
@@ -169,6 +170,13 @@ class Renderer {
     for (let ry = 0; ry < v.S; ry++) for (let rx = 0; rx < v.S; rx++) if (!vs.has(rx + ',' + ry)) g.drawRect(rx * R, ry * R, R, R);
     g.endFill();
   }
+  // 官方地图视图（processor.js mapView）：无视野房间里各玩家 / NPC 对象只显示为色块（Source Keeper、Invader 为红色，Keeper Lair 暗红），不显示对象本身
+  drawMapView(v) {
+    if (!this.mvG) { this.mvG = new PIXI.Graphics(); this.world.addChildAt(this.mvG, this.world.getChildIndex(this.labelL)); }
+    const L = v.mapView || [], sig = v.S + '|' + L.length + '|' + L.map(p => p[0] * 7 + p[1] * 13).reduce((a, b) => (a * 31 + b) | 0, 0); if (sig === this._mvSig) return; this._mvSig = sig;
+    const g = this.mvG; g.clear(); const me = this.myPid, COL = { k: 0x8a1c1c, w: 0x111111, r: 0x5a5a5a, pb: 0xf41f33, p: 0x7fd4ff };
+    for (const [x, y, k] of L) { const c = COL[k] ?? (k === me ? 0x4caf50 : 0xe0302f), r = k === 'k' ? TS * .62 : k === 'r' ? TS * .22 : TS * .42; g.beginFill(c, k === 'r' ? .8 : 1).drawRect((x + .5) * TS - r, (y + .5) * TS - r, r * 2, r * 2).endFill(); }
+  }
   drawRoads(roads) { // 官方道路：相邻道路之间连线，孤立道路为圆点
     const sig = roads.map(r => r.x + ',' + r.y).sort().join(';'); if (sig === this._roadSig) return; this._roadSig = sig;
     const g = this.roadG, set = new Set(roads.map(r => r.x + ',' + r.y)); g.clear();
@@ -183,7 +191,7 @@ class Renderer {
     const first = !this.view; this.view = v; this.dt = dt; this.tickAt = performance.now();
     if (v.roomsVer !== this.roomsVer && v.rooms) this.rebuildTerrain(v);
     if (this.lod === 'mini') this.drawMini(v);
-    this.drawFog(v);
+    this.drawFog(v); this.drawMapView(v);
     if (first) { const me = v.spawns.find(s => s.owner === this.myPid) || v.spawns[0]; if (me) this.focus(me.x, me.y); }
     const me = this.myPid, mine = o => !o.owner || o.owner === me, col = o => v.players[o]?.color ?? 0xffffff, seen = new Set();
     const ent = (id, make) => { seen.add(id); let s = this.sprites.get(id); if (!s) { s = make(); this.sprites.set(id, s); } return s; };

@@ -23,7 +23,7 @@ const Upd = {
     this.busy = true; this.ui_.downloading(0, this.apk.size);
     const sha = await expectedSha(this.rel, this.apk); // 后台静默校验：GitHub 资产摘要 → .sha256 资产 → 旧版说明里的哈希；不向玩家展示
     try { const r = await P.download({ url: this.apk.browser_download_url, size: this.apk.size, sha256: sha }); if (!this.busy) return; this.path = r.path; this.busy = false; this.ui_.install('下载完成'); this.tryInstall(); }
-    catch (e) { if (this.busy) this.fail(e.message || String(e)); }
+    catch (e) { if (this.busy) this.fail(/sha|hash|digest|校验|不完整|mismatch/i.test(String(e && e.message || e)) ? '安装包不完整，请重试' : '下载失败，请检查网络后重试'); } // 不向玩家展示 e.message / HTTP 码
   },
   async tryInstall() {
     const P = nativePlugin('AppUpdater'); this.ui_.install();
@@ -31,7 +31,7 @@ const Upd = {
       const { allowed } = await P.canInstall();
       if (!allowed) { this.waitingPerm = true; this.ui_.info('请在设置里允许“安装未知应用”，返回后会自动继续安装'); await P.openInstallSettings(); return; }
       this.waitingPerm = false; await P.install({ path: this.path }); this.ui_.info('已打开系统安装器，按提示点“更新”即可');
-    } catch (e) { this.fail(e.message || String(e)); }
+    } catch (e) { this.fail('无法安装，请重试'); }
   },
 };
 async function expectedSha(rel, apk) {

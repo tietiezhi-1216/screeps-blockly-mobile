@@ -34,5 +34,14 @@ const SHOTS = '/workspace/shots-clean'; fs.mkdirSync(SHOTS, { recursive: true })
     await pg.screenshot({ path: `${SHOTS}/update-${tag}.png` });
     await pg.close();
   }
+  { // 下载 / 安装失败：只给玩家固定提示，不出现 e.message、HTTP 码
+    const pg = await b.newPage(); await pg.evaluateOnNewDocument(() => { localStorage.setItem('sbm_intro', '1'); window.__mode = 'dl';
+      window.Capacitor = { isNativePlatform: () => true, registerPlugin: n => window.Capacitor.Plugins[n] || null, Plugins: { AppUpdater: { addListener() {}, download: () => window.__mode === 'dl' ? Promise.reject(new Error('HTTP 404 Not Found')) : Promise.resolve({ path: '/x.apk' }), canInstall: () => Promise.resolve({ allowed: true }), install: () => Promise.reject(new Error('java.lang.SecurityException 500')) } } }; });
+    await pg.goto(`http://localhost:${port}/index.html`); await W(1500);
+    const run = () => pg.evaluate(async () => { const C = window.Capacitor = window.Capacitor || {}; C.isNativePlatform = () => true; C.registerPlugin = () => null; nativePlugin.AppUpdater = { addListener() {}, download: () => window.__mode === 'dl' ? Promise.reject(new Error('HTTP 404 Not Found')) : Promise.resolve({ path: '/x.apk' }), canInstall: () => Promise.resolve({ allowed: true }), install: () => Promise.reject(new Error('java.lang.SecurityException 500')) }; Upd.show({ tag_name: 'v9.9.9', body: 'x', assets: [] }, { name: 'x.apk', size: 1, browser_download_url: 'http://localhost/x.apk', digest: 'sha256:' + 'a'.repeat(64) }, '1.0.0'); await Upd.start(); await new Promise(r => setTimeout(r, 200)); return Upd.el.innerText; });
+    let t = await run(); ok(/下载失败，请检查网络后重试/.test(t) && !/404|HTTP|Not Found/.test(t), '下载失败只提示「下载失败，请检查网络后重试」');
+    await pg.evaluate(() => { window.__mode = 'ok'; }); t = await run(); ok(/无法安装，请重试/.test(t) && !/Exception|500/.test(t), '安装失败只提示「无法安装，请重试」');
+    const src = fs.readFileSync(path.join(ROOT, 'update.js'), 'utf8'); ok(!/(fail|alert|error|info)\((e\.message|String\(e\)|`[^`]*\$\{e)/.test(src), 'update.js 不把 e.message 显示给玩家');
+    await pg.close(); }
   await b.close(); srv.close(); console.log(fails ? `${fails} FAIL` : 'ALL PASS'); process.exit(fails ? 1 : 0);
 })();

@@ -106,10 +106,10 @@ pre.mem{margin:var(--sp-1) 0 0;max-height:120px;overflow:auto;background:#0008;p
 /* 手动建造 */
 #buildPick,#flagPick{position:fixed;left:8px;right:8px;bottom:calc(68px + var(--bot));max-height:46vh;overflow:auto;background:#14171d;border:1px solid #ffffff1a;border-radius:6px;padding:6px 8px;z-index:8;font-size:13px}
 .bpHead{display:flex;align-items:center;justify-content:space-between;height:28px;color:#cfd3da}
-#bpList{display:grid;grid-template-columns:1fr 1fr;gap:6px}
-#bpList button{display:flex;flex-direction:row;align-items:center;gap:8px;padding:6px 8px;background:#232833;border:0;border-radius:4px;color:#e6e6e6;text-align:left;min-width:0}
-#bpList button .n{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
-#bpList button .d{font-size:11px;color:#8b93a1;white-space:nowrap}
+#bpList{display:grid;grid-template-columns:repeat(auto-fill,minmax(136px,1fr));gap:6px}
+#bpList button{display:flex;flex-direction:row;align-items:center;gap:var(--sp-2);padding:6px var(--sp-2);background:#232833;border:0;border-radius:4px;color:#e6e6e6;text-align:left;min-width:0;overflow:hidden;letter-spacing:0;word-spacing:0;font-size:var(--fs-s);line-height:1.25}
+#bpList button .n{display:block;font-size:var(--fs-s);letter-spacing:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+#bpList button .d{display:block;font-size:var(--fs-xs);letter-spacing:0;color:#8b93a1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
 #bpList button:disabled{opacity:.4}
 #buildBar{position:fixed;left:8px;right:8px;bottom:calc(68px + var(--bot));display:flex;align-items:center;gap:6px;background:#14171d;border:1px solid #ffffff1a;border-radius:6px;padding:6px 8px;z-index:8}
 #bbMsg{flex:1;min-width:0;font-size:13px;color:#cfd3da;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -245,8 +245,8 @@ pre.mem{margin:var(--sp-1) 0 0;max-height:120px;overflow:auto;background:#0008;p
 .insAct{margin-top:var(--sp-2);display:flex;justify-content:flex-end}
 .insDanger{background:#c0392b;color:#fff;border:0;border-radius:var(--r-s);padding:5px 12px;font-size:var(--fs-s)}
 
-#bpList .bi{width:40px;height:40px;flex:0 0 40px;display:block}
-#bpList .bt{display:flex;flex-direction:column;gap:2px;min-width:0}
+#bpList .bi{width:30px;height:30px;flex:0 0 30px;display:block;object-fit:contain}
+#bpList .bt{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1 1 auto;overflow:hidden}
 #flagPick .fpRow{display:flex;align-items:center;gap:8px;margin:4px 0 6px}
 #fpPrev{width:48px;height:48px;flex:0 0 48px;background:#2b2b2b;border-radius:4px}
 #fpName{flex:1;min-width:0;height:32px;background:#0d0f13;border:1px solid #ffffff1a;border-radius:4px;color:#e6e6e6;padding:0 8px;font-size:13px}

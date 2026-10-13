@@ -545,7 +545,7 @@ function worldSnapshot(w0, events, pid) {
       minerals: w.minerals.map(m => ({ id: m.id, x: m.x, y: m.y, type: m.type, amount: m.amount })),
       controllers: w.controllers.map(c => ({ id: c.id, x: c.x, y: c.y, owner: c.owner, level: c.level, progress: c.progress, progressTotal: SC.CONTROLLER_LEVELS[c.level] || 0, ticksToDowngrade: c.downgradeTime ? c.downgradeTime - w.time : 0 })),
       spawns: w.spawns.map(s => ({ id: s.id, name: s.name, owner: s.owner, x: s.x, y: s.y, energy: en(s), cap: SC.SPAWN_ENERGY_CAPACITY, hits: s.hits, hitsMax: s.hitsMax, spawning: s.spawning && { name: s.spawning.name, left: s.spawning.spawnTime - w.time, total: s.spawning.needTime } })),
-      creeps: w.creeps.filter(c => !c.spawning).map(c => ({ id: c.id, owner: c.owner, name: c.name, body: c.body, x: c.x, y: c.y, px: c.px, py: c.py, energy: storeSum(c.store), ttl: c.ttl, hits: c.hits, hitsMax: c.body.length * 100, fatigue: c.fatigue, say: w.time - (c.sayT || -99) < 2 ? c.say : undefined })),
+      creeps: w.creeps.filter(c => !c.spawning).map(c => ({ id: c.id, owner: c.owner, name: c.name, body: c.body, x: c.x, y: c.y, px: c.px, py: c.py, energy: storeSum(c.store), ttl: c.ttl, hits: c.hits, hitsMax: c.body.length * 100, fatigue: c.fatigue, store: { ...c.store }, cap: c.body.filter(b => (b.type || b) === 'carry').length * SC.CARRY_CAPACITY, face: c._face && c._face.t === w.time ? [c._face.x, c._face.y] : undefined, say: w.time - (c.sayT || -99) < 2 ? c.say : undefined })),
       sites: w.sites.map(s => ({ id: s.id, owner: s.owner, x: s.x, y: s.y, type: s.type, progress: s.progress, total: s.total })),
       structures: w.structures.map(s => ({ id: s.id, type: s.type, owner: s.owner, x: s.x, y: s.y, hits: s.hits, hitsMax: s.hitsMax, energy: s.store ? en(s) : undefined, energyCapacity: s.store ? storeCap(w, s, 'energy') ?? storeCap(w, s) : undefined })),
       resources: w.resources.map(r => ({ id: r.id, x: r.x, y: r.y, resourceType: r.resourceType, amount: r.amount })),
@@ -944,7 +944,7 @@ function buildApi(E, pid) {
         if (opts.visualizePathStyle) ev.push({ t: 'path', fx: o.x, fy: o.y, x: g.x, y: g.y });
         return OK;
       };
-      const tgt = (t, r, kinds) => { const x = raw(t); if (!x || (kinds && !kinds.includes(x.kind === 'structure' ? 'structure' : x.kind))) return ERR_INVALID_TARGET; if (!sameRoom(x, o) || dist(x, o) > r) return ERR_NOT_IN_RANGE; return x; };
+      const tgt = (t, r, kinds) => { const x = raw(t); if (!x || (kinds && !kinds.includes(x.kind === 'structure' ? 'structure' : x.kind))) return ERR_INVALID_TARGET; if (!sameRoom(x, o) || dist(x, o) > r) return ERR_NOT_IN_RANGE; if (o.kind === 'creep' && x !== o) o._face = { x: x.x, y: x.y, t: w.time }; return x; }; // 渲染：creep 朝向本 tick 动作目标（官方 creepActions 的 RotateTo）
       v.harvest = t => {
         const e = pre('work'); if (e) return e; const x = raw(t); if (!x || (x.kind !== 'source' && x.kind !== 'mineral')) return ERR_INVALID_TARGET; if (!sameRoom(x, o) || dist(x, o) > 1) return ERR_NOT_IN_RANGE;
         const ctrl = ctrlOfRoom(w, roomKey(x.x, x.y)); if (ctrl && ((ctrl.owner && ctrl.owner !== pid) || (ctrl.reservation && ctrl.reservation.owner !== pid))) return ERR_NOT_OWNER;

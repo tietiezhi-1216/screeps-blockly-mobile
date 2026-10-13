@@ -44,6 +44,13 @@ class Renderer {
   // ---------- 形状（官方客户端外观） ----------
   static circle(g, r, fill, stroke, lw) { g.beginPath(); g.arc(0, 0, r, 0, Math.PI * 2); if (fill) { g.fillStyle = fill; g.fill(); } if (stroke) { g.strokeStyle = stroke; g.lineWidth = lw; g.stroke(); } }
   static rrect(g, x, y, w, h, r, fill, stroke, lw) { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); if (fill) { g.fillStyle = fill; g.fill(); } if (stroke) { g.strokeStyle = stroke; g.lineWidth = lw; g.stroke(); } }
+  // 平滑进度环（官方 spawn 的 arc）：按半径取足够多的分段，圆头端点
+  static ringArc(G, r, w, color, f) { f = Math.max(0, Math.min(1, f)); if (f <= 0) return; const a0 = -Math.PI / 2, a1 = a0 + f * Math.PI * 2, n = Math.max(8, Math.ceil(f * 128));
+    G.lineStyle({ width: w, color, alpha: 1, cap: PIXI.LINE_CAP.ROUND, join: PIXI.LINE_JOIN.ROUND }); G.moveTo(Math.cos(a0) * r, Math.sin(a0) * r); for (let i = 1; i <= n; i++) { const a = a0 + (a1 - a0) * i / n; G.lineTo(Math.cos(a) * r, Math.sin(a) * r); } }
+  // 官方 creep.metadata：资源圆从中心向外填充，半径 = min(1, 量/容量) × 20/100 格；白=全部资源，红=能量+power，黄=能量（叠放）
+  storeCircles(C, st, cap) { if (!C.d) { C.d = [0xffffff, 0xf41f33, 0xffe56d].map(t => { const d = this.sprite(this.disc(), 1, 1); d.tint = t; C.addChild(d); return d; }); }
+    const tot = Object.values(st).reduce((a, b) => a + (b || 0), 0), en = st.energy || 0, pw = st.power || 0, v = [tot > en + pw ? tot : 0, pw > 0 ? en + pw : 0, en];
+    C.d.forEach((d, i) => { const r = cap ? Math.min(1, v[i] / cap) * TS * .2 : 0; d.visible = r > 0; d.width = d.height = r * 2; }); }
   static poly(g, pts, fill, stroke, lw) { g.beginPath(); pts.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.closePath(); if (fill) { g.fillStyle = fill; g.fill(); } if (stroke) { g.strokeStyle = stroke; g.lineWidth = lw; g.stroke(); } }
   ring(mine) { return mine ? '#c5c5c5' : '#e05050'; }
   structTex(type, mine) {
@@ -72,7 +79,7 @@ class Renderer {
   // 官方 creep：深色圆体；每种身体部件一段弧，弧长 = 数量/50 × 360°；MOVE 在后方（朝向的反面），其余部件在前方居中依次排列；TOUGH 为外圈。
   // 贴图朝上（前方 = 上），渲染时整体旋转到移动方向。中心是主人徽章，携带的能量为徽章外的一圈黄色。
   creepTex(body, mine, color) {
-    const key = 'creep3' + body.join(',') + mine + color;
+    const key = 'creep4' + body.join(',') + mine + color;
     return this.tex(key, 1, 1, g => {
       const cnt = t => body.filter(b => b === t).length, C = Renderer.circle, PER = Math.PI * 2 / 50;
       if (cnt('tough')) C(g, .47, null, 'rgba(255,255,255,' + Math.min(.9, .45 + cnt('tough') / 20) + ')', .05);
@@ -81,7 +88,7 @@ class Renderer {
       arc(Math.PI / 2, cnt('move') * PER, PART_COL.move);
       const front = ['work', 'attack', 'ranged_attack', 'heal', 'claim'].filter(t => cnt(t)), total = front.reduce((a, t) => a + cnt(t), 0) * PER;
       let st = -Math.PI / 2 - total / 2; for (const t of front) { const sp = cnt(t) * PER; arc(st + sp / 2, sp, PART_COL[t]); st += sp; }
-      C(g, .27, '#111');
+      C(g, .32, '#000'); // 官方 creep.metadata：内圈黑底 r=32/100
     });
   }
   // 玩家徽章贴图（官方 ScreepsBadge SVG → 图片），按徽章参数缓存
@@ -264,16 +271,17 @@ class Renderer {
     }
     for (const sp of v.spawns) { // 官方：中心是主人徽章，外面一圈能量
       const m = mine(sp), c = ent(sp.id + (m ? '' : 'h'), () => { const c = new PIXI.Container(); const [t, w] = this.structTex('spawn', m); c.addChild(this.sprite(t, w, w)); c.e = this.sprite(this.disc(), 1, 1); c.e.tint = ENERGY; const pr = new PIXI.Graphics(); c.addChild(c.e, pr); c.pr = pr; c.x = (sp.x + .5) * TS; c.y = (sp.y + .5) * TS; this.objL.addChild(c); return c; });
-      fillDisc(c, (sp.energy || 0) / (sp.cap || 300), .5); this.bindBadge(c, v.players[sp.owner]?.badge, .62); if (c.bg) c.setChildIndex(c.bg, c.children.length - 1);
-      const sk = sp.spawning ? sp.spawning.left : -1; if (c._sk !== sk) { c._sk = sk; c.pr.clear(); if (sp.spawning) c.pr.lineStyle(TS * .1, 0xffffff, .8).arc(0, 0, TS * .45, -Math.PI / 2, -Math.PI / 2 + (1 - sp.spawning.left / sp.spawning.total) * Math.PI * 2); }
+      fillDisc(c, (sp.energy || 0) / (sp.cap || 300), .5); this.bindBadge(c, v.players[sp.owner]?.badge, .76); // 官方 spawn.metadata：徽章 r=38/100 if (c.bg) c.setChildIndex(c.bg, c.children.length - 1);
+      const sk = sp.spawning ? sp.spawning.left + '/' + sp.spawning.total : ''; if (c._sk !== sk) { c._sk = sk; c.pr.clear(); if (sp.spawning) Renderer.ringArc(c.pr, TS * .5 - TS * .05, TS * .1, 0xcccccc, (sp.spawning.total - sp.spawning.left) / (sp.spawning.total || 1)); } // 官方 spawn.metadata：r=50 线宽 10 #CCCCCC，从正上方顺时针
     }
     for (const cr of v.creeps) {
       const m = cr.owner === me, c = ent(cr.id, () => { const c = new PIXI.Container(); c.bd = this.sprite(this.creepTex(cr.body, m, col(cr.owner)), 1, 1); c.addChild(c.bd);
-        c.e = this.sprite(this.disc(), 1, 1); c.e.tint = ENERGY; c.addChild(c.e); this.creepL.addChild(c); return c; });
+        c.e = new PIXI.Container(); c.addChild(c.e); this.creepL.addChild(c); return c; });
       c.data = cr; if (cr.pc && !c.pcR) { c.pcR = new PIXI.Graphics(); c.pcR.lineStyle(TS * .07, 0xff5555, .95).drawCircle(0, 0, TS * .52); c.pcR.lineStyle(TS * .03, 0xffffff, .8).drawCircle(0, 0, TS * .6); c.addChild(c.pcR); } // Power Creep：外圈红白环
-      this.bindBadge(c, v.players[cr.owner]?.badge, .44); const cap = cr.body.filter(b => b === 'carry').length * 50, ef = Math.max(0, Math.min(1, cap ? (cr.energy || 0) / cap : 0));
-      if (c._f !== ef) { c._f = ef; c.e.visible = ef > 0; c.e.width = c.e.height = TS * 2 * (.22 + .055 * ef); } // 能量：徽章外一圈，越满越宽
+      this.bindBadge(c, v.players[cr.owner]?.badge, .52); if (c.bg && c.children.indexOf(c.bg) > c.children.indexOf(c.e)) c.setChildIndex(c.e, c.children.indexOf(c.bg)); // 官方：徽章 r=26/100，资源圆盖在徽章上
+      { const st = cr.store || { energy: cr.energy || 0 }, cap = cr.cap ?? cr.body.filter(b => b === 'carry').length * 50, k = JSON.stringify(st) + cap; if (c._f !== k) { c._f = k; this.storeCircles(c.e, st, cap); } }
       if (cr.px != null && (cr.px !== cr.x || cr.py !== cr.y)) c.tgt = Math.atan2(cr.y - cr.py, cr.x - cr.px) + Math.PI / 2; // 面向移动方向（前方 = 贴图上方）
+      else if (cr.face && (cr.face[0] !== cr.x || cr.face[1] !== cr.y)) c.tgt = Math.atan2(cr.face[1] - cr.y, cr.face[0] - cr.x) + Math.PI / 2; // 官方 creepActions：原地动作时正面转向目标
       if ((cr.say || '') !== (c._say || '')) { c._say = cr.say; if (c.say) { c.say.destroy(); c.say = null; } if (cr.say) { c.say = new PIXI.Text(cr.say, { fontSize: 11, fill: 0x111111 }); const bg = new PIXI.Graphics(); bg.beginFill(0xffffff, .9).drawRoundedRect(-c.say.width / 2 - 3, -c.say.height - 3, c.say.width + 6, c.say.height + 2, 3).endFill(); c.say.anchor.set(.5, 1); c.say.y = -2; const w = new PIXI.Container(); w.addChild(bg, c.say); w.y = -TS * .5; c.addChild(w); c.say = w; } }
     }
     for (const [id, s] of this.sprites) if (!seen.has(id)) { s.destroy({ children: true }); this.sprites.delete(id); }

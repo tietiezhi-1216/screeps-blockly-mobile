@@ -41,6 +41,8 @@ class Renderer {
     const g = c.getContext('2d'); g.translate(c.width / 2, c.height / 2); g.scale(RES, RES); g.lineJoin = 'round'; draw(g);
     t = PIXI.Texture.from(c); this.texCache.set(key, t); return t;
   }
+  // 官方 lighting 图层：glow.png 按 tint/尺寸/透明度叠加发光（官方 metadata 的 sprite layer:'lighting'）
+  glow(c, size, tint = 0xffffff, alpha = 1) { if (!this._glowT) this._glowT = PIXI.Texture.from('art/obj/glow.png'); const s = new PIXI.Sprite(this._glowT); s.anchor.set(.5); s.width = s.height = size * TS; s.tint = tint; s.alpha = alpha * .45; s.blendMode = PIXI.BLEND_MODES.ADD; c.addChildAt(s, 0); return s; }
   sprite(t, w, h, layer, x, y) { const s = new PIXI.Sprite(t); s.anchor.set(.5); s.width = w * TS; s.height = h * TS; if (x != null) { s.x = (x + .5) * TS; s.y = (y + .5) * TS; } if (layer) layer.addChild(s); return s; }
   // ---------- 形状（官方客户端外观） ----------
   static circle(g, r, fill, stroke, lw) { g.beginPath(); g.arc(0, 0, r, 0, Math.PI * 2); if (fill) { g.fillStyle = fill; g.fill(); } if (stroke) { g.strokeStyle = stroke; g.lineWidth = lw; g.stroke(); } }
@@ -80,6 +82,8 @@ class Renderer {
   }
   // 官方 creep：深色圆体；每种身体部件一段弧，弧长 = 数量/50 × 360°；MOVE 在后方（朝向的反面），其余部件在前方居中依次排列；TOUGH 为外圈。
   // 贴图朝上（前方 = 上），渲染时整体旋转到移动方向。中心是主人徽章，携带的能量为徽章外的一圈黄色。
+  npcTex() { return this.tex('o:creepNpc', 1, 1, g => g.drawImage(ART.tint('creep-npc'), -.5, -.5, 1, 1)); }
+  static faceAngle(x, y, tx, ty) { return Math.atan2(ty - y, tx - x) + Math.PI / 2; } // 贴图正面在上方（-y），旋转后指向 (tx,ty)
   creepTex(body, mine, color) {
     const key = 'creep4' + body.join(',') + mine + color;
     return this.tex(key, 1, 1, g => {
@@ -191,7 +195,7 @@ class Renderer {
       if (full && typeof ART !== 'undefined') {
         if (ART_K[k]) { const [t, w, h] = this.structTex(ART_K[k], false); this.sprite(t, w, h ?? w, this.mvL, x, y); continue; }
         if (k === 'r') { g.beginFill(0x666666).drawCircle((x + .5) * TS, (y + .5) * TS, TS * .075).endFill(); continue; }
-        if (k === '__keeper' || k === '__invader') { const c = new PIXI.Container(); c.x = (x + .5) * TS; c.y = (y + .5) * TS; c.addChild(this.sprite(this.creepTex(k === '__keeper' ? KEEPER_BODY : ['attack', 'attack', 'ranged_attack', 'move', 'move', 'move'], false, 0xff0000), 1, 1)); c.addChild(this.sprite(this.tex('o:creepNpc', 1, 1, g2 => g2.drawImage(ART.tint('creep-npc'), -.5, -.5, 1, 1)), 1, 1)); this.mvL.addChild(c); continue; }
+        if (k === '__keeper' || k === '__invader') { const c = new PIXI.Container(); c.x = (x + .5) * TS; c.y = (y + .5) * TS; this.glow(c, 4, 0xffffff, .2); c.addChild(this.sprite(this.npcTex(), 1, 1)); this.mvL.addChild(c); continue; }
       }
       const c = COL[k] ?? (k === me ? 0x4caf50 : 0xe0302f), r = k === 'k' ? TS * .62 : k === 'r' ? TS * .22 : TS * .42; g.beginFill(c, k === 'r' ? .8 : 1).drawRect((x + .5) * TS - r, (y + .5) * TS - r, r * 2, r * 2).endFill(); }
   }
@@ -218,7 +222,7 @@ class Renderer {
     for (const r of v.structures) {
       if (r.type === 'road') continue;
       const m = mine(r), c = ent(r.id + (m ? '' : 'h'), () => {
-        const c = new PIXI.Container(), [t, w, h, a] = this.structTex(r.type, m, { cap: r.energyCapacity, npc: r.owner === '__invader' || r.owner === '__keeper' }); c.addChild(this.sprite(t, w, h ?? w)); c.art = a; c.x = (r.x + .5) * TS; c.y = (r.y + .5) * TS;
+        const c = new PIXI.Container(), [t, w, h, a] = this.structTex(r.type, m, { cap: r.energyCapacity, npc: r.owner === '__invader' || r.owner === '__keeper' }); c.addChild(this.sprite(t, w, h ?? w)); c.art = a; if (r.type === 'keeperLair') { this.glow(c, 8, 0xff0000, .5); this.glow(c, 1.5); } else if (r.type === 'portal') { this.glow(c, 7, 0x9999ff, .7); this.glow(c, 1.5, 0x7777ff); } c.x = (r.x + .5) * TS; c.y = (r.y + .5) * TS;
         if (['extension', 'storage', 'link', 'container', 'terminal', 'powerSpawn', 'factory'].includes(r.type)) {
           const e = r.type === 'storage' || r.type === 'container' ? new PIXI.Sprite(PIXI.Texture.WHITE) : r.type === 'link' ? this.sprite(this.tex('o:linkE', 1, 1, g => g.drawImage(ART.tint('link-energy'), -.5, -.5, 1, 1)), 1, 1) : this.sprite(this.disc(), 1, 1); if (r.type === 'link') e.tint = 0xffffff; else e.anchor.set(.5, r.type === 'storage' || r.type === 'container' ? 1 : .5); e.tint = ENERGY; c.addChild(e); c.e = e; if (r.type === 'link') e.tint = 0xffffff;
         }
@@ -245,7 +249,7 @@ class Renderer {
       const m = mine(st), g = ent(st.id, () => { const g = new PIXI.Graphics(); g.x = (st.x + .5) * TS; g.y = (st.y + .5) * TS; this.groundL.addChild(g); return g; });
       if (g._p !== st.progress) { g._p = st.progress; g.clear(); const cc = m ? 0xffffff : 0xff7777; g.lineStyle(TS * .1, cc, .35).drawCircle(0, 0, TS * .2); Renderer.ringArc(g, TS * .2, TS * .1, cc, st.progress / (st.total || 1)); if (!g.ic) { const [t] = this.structTex(st.type, m, { cap: 50 }); g.ic = this.sprite(t, 1, 1); g.ic.alpha = .35; g.ic.scale.set(g.ic.scale.x * .5); g.addChildAt(g.ic, 0); } } // 官方 constructionSite：siteProgress r=20 线宽 10 + 半透明建筑轮廓
     }
-    for (const mn of v.minerals || []) { const s = ent(mn.id, () => { const c = new PIXI.Container(); const [t, w] = this.structTex('mineral', true, { mineral: mn.type }); c.addChild(this.sprite(t, w, w)); c.scale.set(.8); c.x = (mn.x + .5) * TS; c.y = (mn.y + .5) * TS; this.objL.addChild(c); return c; }); s.alpha = mn.amount > 0 ? 1 : .4; } // 官方 mineral.metadata：r=54 底色 + 前景描边 + 字母
+    for (const mn of v.minerals || []) { const s = ent(mn.id, () => { const c = new PIXI.Container(); const [t, w] = this.structTex('mineral', true, { mineral: mn.type }); c.addChild(this.sprite(t, w, w)); const fg = parseInt((ART.MIN[mn.type] || ART.MIN.H)[0].slice(1), 16); this.glow(c, 7, fg, .7); this.glow(c, 2, 0xffffff, 1); c.x = (mn.x + .5) * TS; c.y = (mn.y + .5) * TS; this.objL.addChild(c); return c; }); s.alpha = mn.amount > 0 ? 1 : .4; } // 官方 mineral.metadata：r=54 底色 + 前景描边 + 字母
     for (const r of v.resources || []) { const g = ent(r.id, () => { const c = new PIXI.Container(); c.e = this.sprite(this.disc(), 1, 1); c.e.tint = r.resourceType === 'energy' ? ENERGY : (MINERAL_COL[r.resourceType] ?? 0xffffff); c.addChild(c.e); c.x = (r.x + .5) * TS; c.y = (r.y + .5) * TS; this.groundL.addChild(c); return c; }); fillDisc(g, Math.min(1, .15 + r.amount / 1000), .3); }
     for (const d of v.deposits || []) { // 官方 Deposit：高速公路房间的多边形资源点
       const s = ent(d.id, () => { const [t, w] = this.structTex('deposit', true, { depositType: d.depositType }); return this.sprite(t, w, w, this.objL, d.x, d.y); });
@@ -272,8 +276,8 @@ class Renderer {
     for (const r of v.ruins || []) ent(r.id, () => { const [tx] = this.structTex('ruin', true); return this.sprite(tx, 1, 1, this.groundL, r.x, r.y); }); // 官方 ruin.svg
     for (const f of v.flags || []) { if (f.owner && f.owner !== me) continue; const k = f.color + '_' + f.secondaryColor, c = ent(f.id, () => { const c = new PIXI.Container(); c.x = (f.x + .5) * TS; c.y = (f.y + .5) * TS; this.topL.addChild(c); return c; }); if (c._k !== k) { c._k = k; c.removeChildren().forEach(x => x.destroy()); const [t, w] = this.structTex('flag', true, f); c.addChild(this.sprite(t, w, w)); } c.x = (f.x + .5) * TS; c.y = (f.y + .5) * TS; } // 官方 flag.metadata：flag + flag-secondary 200，按主/副颜色着色
     for (const so of v.sources) { // 官方能量源：圆角黄色方块，能量越少越暗
-      const s = ent(so.id, () => { const c = new PIXI.Container(); const [t] = this.structTex('source', true); c.addChild(this.sprite(t, 1, 1)); c.e = this.sprite(this.tex('o:srcE', .6, .6, g => { g.beginPath(); g.roundRect ? g.roundRect(-.3, -.3, .6, .6, .15) : g.rect(-.3, -.3, .6, .6); g.fillStyle = '#ffe56d'; g.fill(); }), .6, .6); c.addChild(c.e); c.x = (so.x + .5) * TS; c.y = (so.y + .5) * TS; this.objL.addChild(c); return c; });
-      { const f = Math.max(0, Math.min(1, so.energy / (so.cap || 1))); if (s._f !== f) { s._f = f; s.e.visible = f > 0; s.e.width = s.e.height = TS * .6 * f; } } // 官方 source.metadata：外框 40（描边 15 #595026）+ 能量块 60×能量比例
+      const s = ent(so.id, () => { const c = new PIXI.Container(); const [t] = this.structTex('source', true); c.addChild(this.sprite(t, 1, 1)); c.e = this.sprite(this.tex('o:srcE', .6, .6, g => { g.beginPath(); g.roundRect ? g.roundRect(-.3, -.3, .6, .6, .15) : g.rect(-.3, -.3, .6, .6); g.fillStyle = '#ffe56d'; g.fill(); }), .6, .6); c.addChild(c.e); this.glow(c, 8, 0xffff50, .5); c.g2 = this.glow(c, 1.5, 0xffffff, 1); c.x = (so.x + .5) * TS; c.y = (so.y + .5) * TS; this.objL.addChild(c); return c; });
+      { const f = Math.max(0, Math.min(1, so.energy / (so.cap || 1))); if (s._f !== f) { s._f = f; s.e.visible = f > 0; s.g2.visible = f > 0; s.e.width = s.e.height = TS * .6 * f; } } // 官方 source.metadata：外框 40（描边 15 #595026）+ 能量块 60×能量比例
     }
     for (const sp of v.spawns) { // 官方：中心是主人徽章，外面一圈能量
       const m = mine(sp), c = ent(sp.id + (m ? '' : 'h'), () => { const c = new PIXI.Container(); const [t, w] = this.structTex('spawn', m); c.addChild(this.sprite(t, w, w)); c.e = this.sprite(this.disc(), 1, 1); c.e.tint = ENERGY; const pr = new PIXI.Graphics(); c.addChild(c.e, pr); c.pr = pr; c.x = (sp.x + .5) * TS; c.y = (sp.y + .5) * TS; this.objL.addChild(c); return c; });
@@ -281,14 +285,14 @@ class Renderer {
       const sk = sp.spawning ? sp.spawning.left + '/' + sp.spawning.total : ''; if (c._sk !== sk) { c._sk = sk; c.pr.clear(); if (sp.spawning) Renderer.ringArc(c.pr, TS * .5 - TS * .05, TS * .1, 0xcccccc, (sp.spawning.total - sp.spawning.left) / (sp.spawning.total || 1)); } // 官方 spawn.metadata：r=50 线宽 10 #CCCCCC，从正上方顺时针
     }
     for (const cr of v.creeps) {
-      const m = cr.owner === me, c = ent(cr.id, () => { const c = new PIXI.Container(); c.bd = this.sprite(this.creepTex(cr.body, m, col(cr.owner)), 1, 1); c.addChild(c.bd);
+      const m = cr.owner === me, npc = cr.owner === '__keeper' || cr.owner === '__invader', c = ent(cr.id, () => { const c = new PIXI.Container(); c.bd = npc ? this.sprite(this.npcTex(), 1, 1) : this.sprite(this.creepTex(cr.body, m, col(cr.owner)), 1, 1); if (npc) { this.glow(c, 4, 0xffffff, .2); this.glow(c, 1, 0xffffff, .5); } c.addChild(c.bd);
         c.e = new PIXI.Container(); c.addChild(c.e); this.creepL.addChild(c); return c; });
-      const npc = cr.owner === '__keeper' || cr.owner === '__invader'; if (npc && !c.npc) { c.npc = this.sprite(this.tex('o:creepNpc', 1, 1, g => g.drawImage(ART.tint('creep-npc'), -.5, -.5, 1, 1)), 1, 1); c.addChild(c.npc); } // 官方 creep.metadata：NPC（Source Keeper / Invader）中心是红色 creep-npc 标志，不画徽章和资源
+      // 官方 creep.metadata：NPC（user 2 Invader / 3 Source Keeper）不画身体环、黑底和徽章，只画 creep-npc 贴图（红色五边形，正面朝前）
       c.data = cr; if (cr.pc && !c.pcR) { c.pcR = new PIXI.Graphics(); c.pcR.lineStyle(TS * .07, 0xff5555, .95).drawCircle(0, 0, TS * .52); c.pcR.lineStyle(TS * .03, 0xffffff, .8).drawCircle(0, 0, TS * .6); c.addChild(c.pcR); } // Power Creep：外圈红白环
       if (!npc) this.bindBadge(c, v.players[cr.owner]?.badge, .52); if (c.bg && c.children.indexOf(c.bg) > c.children.indexOf(c.e)) c.setChildIndex(c.e, c.children.indexOf(c.bg)); // 官方：徽章 r=26/100，资源圆盖在徽章上
       if (!npc) { const st = cr.store || { energy: cr.energy || 0 }, cap = cr.cap ?? cr.body.filter(b => b === 'carry').length * 50, k = JSON.stringify(st) + cap; if (c._f !== k) { c._f = k; this.storeCircles(c.e, st, cap); } }
-      if (cr.px != null && (cr.px !== cr.x || cr.py !== cr.y)) c.tgt = Math.atan2(cr.y - cr.py, cr.x - cr.px) + Math.PI / 2; // 面向移动方向（前方 = 贴图上方）
-      else if (cr.face && (cr.face[0] !== cr.x || cr.face[1] !== cr.y)) c.tgt = Math.atan2(cr.face[1] - cr.y, cr.face[0] - cr.x) + Math.PI / 2; // 官方 creepActions：原地动作时正面转向目标
+      if (cr.face && (cr.face[0] !== cr.x || cr.face[1] !== cr.y)) c.tgt = Renderer.faceAngle(cr.x, cr.y, cr.face[0], cr.face[1]); // 官方 creepActions：本 tick 动作成功时正面转向目标（优先于移动方向）
+      else if (cr.px != null && (cr.px !== cr.x || cr.py !== cr.y)) c.tgt = Renderer.faceAngle(cr.px, cr.py, cr.x, cr.y); // 面向移动方向（前方 = 贴图上方）
       if ((cr.say || '') !== (c._say || '')) { c._say = cr.say; if (c.say) { c.say.destroy(); c.say = null; } if (cr.say) { c.say = new PIXI.Text(cr.say, { fontSize: 11, fill: 0x111111 }); const bg = new PIXI.Graphics(); bg.beginFill(0xffffff, .9).drawRoundedRect(-c.say.width / 2 - 3, -c.say.height - 3, c.say.width + 6, c.say.height + 2, 3).endFill(); c.say.anchor.set(.5, 1); c.say.y = -2; const w = new PIXI.Container(); w.addChild(bg, c.say); w.y = -TS * .5; c.addChild(w); c.say = w; } }
     }
     for (const [id, s] of this.sprites) if (!seen.has(id)) { s.destroy({ children: true }); this.sprites.delete(id); }

@@ -1084,6 +1084,7 @@ function buildApi(E, pid) {
       };
       // 官方 creepActions 顺序（move 由全局 movement 统一结算）
       const INTENT_ORDER = ['drop', 'transfer', 'withdraw', 'pickup', 'heal', 'rangedHeal', 'dismantle', 'attack', 'harvest', 'repair', 'build', 'rangedMassAttack', 'rangedAttack', 'say', 'suicide', 'claimController', 'upgradeController', 'reserveController', 'attackController', 'generateSafeMode', 'signController', 'pull'];
+      const FACE_M = new Set(['transfer', 'withdraw', 'pickup', 'heal', 'rangedHeal', 'dismantle', 'attack', 'harvest', 'repair', 'build', 'rangedAttack', 'claimController', 'upgradeController', 'reserveController', 'attackController', 'generateSafeMode', 'signController', 'pull']);
       for (const m of INTENT_ORDER) {
         const f = v[m]; if (typeof f !== 'function') continue;
         v[m] = (...a) => {
@@ -1101,7 +1102,8 @@ function buildApi(E, pid) {
             if (!intents[m]) continue; if (!w.creeps.includes(o)) break; // suicide 之后不再结算
             const block = BLOCKED_BY[m];
             if (block && block.some(k => intents[k])) continue; // 官方：被更高优先级挡住则跳过
-            const f = v[m]; if (typeof f === 'function') f.apply(v, intents[m]);
+            const f = v[m]; if (typeof f !== 'function') continue; const r = f.apply(v, intents[m]);
+            if (r === OK && FACE_M.has(m)) { const t = intents[m][0], x = t && (raw(t) || t); if (x && x !== o && typeof x.x === 'number' && (x.x !== o.x || x.y !== o.y)) o._face = { x: x.x, y: x.y, t: w.time }; } // 渲染：动作成功结算后正面朝向目标（官方 creepActions RotateTo）
           }
         } finally { o._flushing = false; }
       };

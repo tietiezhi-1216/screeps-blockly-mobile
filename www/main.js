@@ -350,6 +350,14 @@ $('bbOk').onclick = () => build.type === 'spawn1' ? confirmSpawn() : confirmBuil
 const wm = { sel: null, auto: false, pick: false };
 const WM_COL = { free: '#3d4a3a', close: '#5a2b2b', mine: '#6dc1ff', owned: '#c46b6b', highway: '#1d1d1d', center: '#4a4325', keeper: '#4a2a2a' };
 function wmData() { const v = view(); if (!v) return null; return { S: v.S, owned: v.owned || {}, players: v.players }; }
+// 世界地图上每个房间都画出地形（官方：地形全世界可见），状态色半透明叠在上面
+const _wmT = new Map();
+function wmTerrain(rx, ry) {
+  const e = renderer.roomSp && renderer.roomSp.get(rx + ',' + ry); if (!e || !e.tiles) return null; const c0 = _wmT.get(rx + ',' + ry); if (c0 && c0.t === e.tiles) return c0.c;
+  const c = document.createElement('canvas'); c.width = c.height = 50; const g = c.getContext('2d'), im = g.createImageData(50, 50);
+  for (let i = 0; i < 2500; i++) { const t = +e.tiles[i], col = t === T_WALL ? [17, 17, 17] : t === T_SWAMP ? [41, 43, 30] : [43, 43, 43]; im.data.set([col[0], col[1], col[2], 255], i * 4); }
+  g.putImageData(im, 0, 0); _wmT.set(rx + ',' + ry, { t: e.tiles, c }); return c;
+}
 function drawWorldMap() {
   const d = wmData(), c = $('wmCanvas'); if (!d) return; const r = c.getBoundingClientRect(), dpr = Math.min(2, devicePixelRatio || 1);
   c.width = r.width * dpr; c.height = r.height * dpr; const g = c.getContext('2d'); g.scale(dpr, dpr); g.fillStyle = '#141414'; g.fillRect(0, 0, r.width, r.height);
@@ -357,7 +365,7 @@ function drawWorldMap() {
   for (let ry = 0; ry < d.S; ry++) for (let rx = 0; rx < d.S; rx++) {
     const st = roomStatus(d.S, d.owned, rx, ry, myPid), x = ox + rx * cs, y = oy + ry * cs, o = d.owned[rx + ',' + ry];
     g.fillStyle = st === 'owned' && d.players[o] ? '#' + (d.players[o].color >>> 0).toString(16).padStart(6, '0') : WM_COL[st];
-    g.fillRect(x + 1, y + 1, cs - 2, cs - 2);
+    const tc = wmTerrain(rx, ry); if (tc) { g.imageSmoothingEnabled = cs < 50; g.drawImage(tc, x + 1, y + 1, cs - 2, cs - 2); g.globalAlpha = .38; g.fillRect(x + 1, y + 1, cs - 2, cs - 2); g.globalAlpha = 1; } else g.fillRect(x + 1, y + 1, cs - 2, cs - 2);
     if (st === 'close') { g.strokeStyle = 'rgba(255,255,255,.08)'; g.beginPath(); for (let i = -cs; i < cs; i += 5) { g.moveTo(x + i, y + cs); g.lineTo(x + i + cs, y); } g.save(); g.rect(x + 1, y + 1, cs - 2, cs - 2); g.clip(); g.stroke(); g.restore(); }
     if (wm.sel && wm.sel[0] === rx && wm.sel[1] === ry) { g.strokeStyle = '#fff'; g.lineWidth = 2; g.strokeRect(x + 2, y + 2, cs - 4, cs - 4); g.lineWidth = 1; }
     if (cs >= 30) { g.fillStyle = 'rgba(255,255,255,.5)'; g.font = Math.min(14, cs / 4) + 'px sans-serif'; g.fillText(roomNameXY(rx, ry), x + 3, y + 3 + Math.min(14, cs / 4)); if (o && d.players[o] && cs >= 50) { g.fillStyle = '#fff'; g.fillText(d.players[o].name, x + 3, y + cs - 6); } }

@@ -549,7 +549,8 @@ function worldSnapshot(w0, events, pid) {
       sites: w.sites.map(s => ({ id: s.id, owner: s.owner, x: s.x, y: s.y, type: s.type, progress: s.progress, total: s.total })),
       structures: w.structures.map(s => ({ id: s.id, type: s.type, owner: s.owner, x: s.x, y: s.y, hits: s.hits, hitsMax: s.hitsMax, energy: s.store ? en(s) : undefined, energyCapacity: s.store ? storeCap(w, s, 'energy') ?? storeCap(w, s) : undefined })),
       resources: w.resources.map(r => ({ id: r.id, x: r.x, y: r.y, resourceType: r.resourceType, amount: r.amount })),
-      tombstones: w.tombstones.map(t => ({ id: t.id, x: t.x, y: t.y, owner: t.owner, creepName: t.creepName, energy: t.store.energy || 0, decay: t.decayAt - w.time })),
+      tombstones: w.tombstones.map(t => ({ id: t.id, x: t.x, y: t.y, owner: t.owner, creepName: t.creepName, energy: t.store.energy || 0, decay: t.decayAt - w.time, store: { ...(t.store || {}) } })),
+      ruins: (w.ruins || []).map(r => ({ id: r.id, x: r.x, y: r.y, owner: r.owner, structureType: r.structureType, destroyTime: r.destroyTime, decay: r.decayAt - w.time, store: { ...(r.store || {}) } })),
       nukes: (w.nukes || []).map(n => ({ id: n.id, x: n.x, y: n.y, timeToLand: n.landTime - w.time, launchRoomName: n.launchRoomName })),
       flags: (w.flags || []).map(f => ({ id: f.id, x: f.x, y: f.y, owner: f.owner, name: f.name, color: f.color, secondaryColor: f.secondaryColor })),
       events: (events || []).filter(e => !vis || e.x == null || vis.has(roomKey(e.x, e.y))), vis: vis ? [...vis] : null };
@@ -721,7 +722,7 @@ function buildApi(E, pid) {
   const owner = o => o.owner ? { username: (typeof NPC_NAME !== 'undefined' && NPC_NAME[o.owner]) || w.players[o.owner]?.name || o.owner } : undefined; // 官方 NPC 用户名：Invader / Source Keeper
   const structBase = (v, o, type) => {
     Object.assign(v, { structureType: type, hits: o.hits, hitsMax: o.hitsMax, my: o.owner === pid, owner: owner(o) });
-    v.destroy = () => { if (o.owner !== pid && type !== 'road' && type !== 'container' && type !== 'constructedWall') return ERR_NOT_OWNER; const c = ctrlOfRoom(w, roomKey(o.x, o.y)); if (c && c.owner !== pid) return ERR_NOT_OWNER; if (w.creeps.some(c => !c.spawning && c.owner !== pid && sameRoom(c, o))) return ERR_BUSY; if (o._intentOnly) return OK; E.removeStruct(o); return OK; };
+    v.destroy = () => { if (o.owner !== pid && type !== 'road' && type !== 'container' && type !== 'constructedWall') return ERR_NOT_OWNER; const c = ctrlOfRoom(w, roomKey(o.x, o.y)); if (c && c.owner !== pid) return ERR_NOT_OWNER; if (w.creeps.some(c => !c.spawning && c.owner !== pid && sameRoom(c, o))) return ERR_BUSY; if (o._intentOnly) return OK; E.ruinOf(o); E.removeStruct(o); return OK; }; // 官方 _destroy：留下 Ruin（存储保留）
     v.isActive = () => E.isActive(o); v.notifyWhenAttacked = en => { if (o.owner !== pid) return ERR_NOT_OWNER; if (typeof en !== 'boolean') return ERR_INVALID_ARGS; if (o._intentOnly) return OK; o.notifyAttacked = en; return OK; };
     if (o.store) { v.store = makeStore(o); const ec = storeCap(w, o, 'energy'); v.energy = o.store.energy || 0; v.energyCapacity = ec; }
     if (o.cooldown != null) v.cooldown = o.cooldown;

@@ -238,3 +238,9 @@ pre.mem{margin:var(--sp-1) 0 0;max-height:120px;overflow:auto;background:#0008;p
 .sbmForm .rmBtn.del{color:#f58a8a}
 .sbmForm .rmEmpty{padding:14px 0;text-align:center}
 @media (max-height:480px){.sbmForm .bfParts{grid-template-columns:repeat(8,1fr)}.sbmForm .bfP{flex-direction:column;justify-content:center;gap:0;height:44px;font-size:12px}.sbmForm .bfP em{margin:0}}
+.insPos{color:var(--muted);font-size:var(--fs-xs);margin-bottom:var(--sp-1)}
+.insTabs{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:var(--sp-1)}
+.insTab{background:#ffffff10;color:var(--muted);border:0;border-radius:var(--r-s);padding:3px 8px;font-size:var(--fs-xs);line-height:1.4}
+.insTab.on{background:#5973ff;color:#fff}
+.insAct{margin-top:var(--sp-2);display:flex;justify-content:flex-end}
+.insDanger{background:#c0392b;color:#fff;border:0;border-radius:var(--r-s);padding:5px 12px;font-size:var(--fs-s)}

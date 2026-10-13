@@ -176,7 +176,7 @@
   // 硬件返回：子页面回上一页，栈空时回首页（不直接回游戏）
   const hwBack = () => { stack.pop(); if (!stack.length || stack[0] !== 'home') stack.unshift('home'); show(stack[stack.length - 1], false); };
   const closeDlg = () => { const L = document.querySelectorAll('.shDlg'); if (!L.length) return false; L[L.length - 1].remove(); };
-  window.Shell = { show, hide, badge, hwBack, closeDlg, page: () => S.classList.contains('hidden') ? null : S.dataset.page };
+  window.Shell = { show, hide, badge, hwBack, closeDlg, dialog, page: () => S.classList.contains('hidden') ? null : S.dataset.page };
   if (new URLSearchParams(location.search).get('page')) { stack = ['home']; show(new URLSearchParams(location.search).get('page')); }
   else if (!S.classList.contains('hidden')) show('home');
 })();

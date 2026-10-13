@@ -290,9 +290,9 @@ class Renderer {
     for (const e of v.events || []) if (BC[e.t] !== undefined) { g.lineStyle(1, BC[e.t], .7).moveTo((e.fx + .5) * TS, (e.fy + .5) * TS).lineTo((e.x + .5) * TS, (e.y + .5) * TS); }
     this.drawSel(); this.onTick && this.onTick();
   }
-  select(o) { this.selected = o; this.drawSel(); }
-  drawSel() { const g = this.selG; g.clear(); const pv = this.preview; if (pv) g.lineStyle(2, pv.ok ? 0x7ee2a0 : 0xff6b6b, 1).beginFill(pv.ok ? 0x7ee2a0 : 0xff6b6b, .25).drawRect(pv.x * TS, pv.y * TS, TS, TS).endFill(); const o = this.selected; if (!o || !this.view) return; const cur = this.find(o); if (!cur) return; if (!o.kind || o.kind !== 'creep') g.lineStyle(1.5, 0xffffff, .9).drawRect(cur.x * TS, cur.y * TS, TS, TS); }
-  find(o) { const v = this.view; if (!v || !o) return null; const L = { creep: v.creeps, spawn: v.spawns, source: v.sources, site: v.sites, controller: v.controllers, structure: v.structures, nuke: v.nukes || [], mineral: v.minerals || [], resource: v.resources || [], tombstone: v.tombstones || [], flag: v.flags || [] }[o.kind]; return L ? L.find(x => x.id === o.id) : null; }
+  select(o, tile) { this.selected = o; this.selTile = tile || null; this.drawSel(); }
+  drawSel() { const g = this.selG; g.clear(); const pv = this.preview; if (pv) g.lineStyle(2, pv.ok ? 0x7ee2a0 : 0xff6b6b, 1).beginFill(pv.ok ? 0x7ee2a0 : 0xff6b6b, .25).drawRect(pv.x * TS, pv.y * TS, TS, TS).endFill(); const ts = this.selTile; if (ts) g.lineStyle(2, 0x5973ff, 1).beginFill(0x5973ff, .18).drawRect(ts.x * TS, ts.y * TS, TS, TS).endFill(); const o = this.selected; if (!o || !this.view) return; const cur = this.find(o); if (!cur) return; if (!o.kind || o.kind !== 'creep') g.lineStyle(1.5, 0xffffff, .9).drawRect(cur.x * TS, cur.y * TS, TS, TS); }
+  find(o) { const v = this.view; if (!v || !o) return null; const L = { creep: v.creeps, spawn: v.spawns, source: v.sources, site: v.sites, controller: v.controllers, structure: v.structures, nuke: v.nukes || [], mineral: v.minerals || [], resource: v.resources || [], tombstone: v.tombstones || [], ruin: v.ruins || [], flag: v.flags || [] }[o.kind]; return L ? L.find(x => x.id === o.id) : null; }
   // ===== 每帧：creep 线性插值 + 镜头 =====
   frame() {
     const now = performance.now(); this._fpsN++; if (now - this._fpsT > 500) { this.fps = this._fpsN * 1000 / (now - this._fpsT); this._fpsN = 0; this._fpsT = now; }

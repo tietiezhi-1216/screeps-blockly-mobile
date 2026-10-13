@@ -291,34 +291,66 @@ let sel = null;
 const PARTC = { work: '#ffe56d', carry: '#777', move: '#a9b7c6' };
 const kv = (k, v) => `<div class="kv"><span class="k">${k}</span><span class="v">${v}</span></div>`;
 const esc = s => String(s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
-const findIn = (v, o) => { if (!v || !o) return null; const L = { creep: v.creeps, spawn: v.spawns, source: v.sources, site: v.sites, controller: v.controllers, structure: v.structures, mineral: v.minerals, resource: v.resources, tombstone: v.tombstones }[o.kind]; return L ? L.find(x => x.id === o.id) : null; };
+const KIND_LIST = v => ({ creep: v.creeps, spawn: v.spawns, structure: v.structures, controller: v.controllers || [], source: v.sources, mineral: v.minerals || [], site: v.sites, resource: v.resources || [], tombstone: v.tombstones || [], ruin: v.ruins || [], flag: v.flags || [] });
+const findIn = (v, o) => { if (!v || !o) return null; const L = KIND_LIST(v)[o.kind]; return L ? L.find(x => x.id === o.id) : null; };
+// 官方客户端的点格子：房间视图下点格子显示坐标、地形和格子上的所有对象；同一格再点一次切到下一个对象，最后回到地形
+let tileSel = null; // { x, y, idx }，idx 等于对象数时显示地形
+const TERR_ZH = ['平原', '墙', '沼泽'];
+function tileObjs(v, x, y) { const out = []; for (const [k, L] of Object.entries(KIND_LIST(v))) for (const o of L || []) if (o.x === x && o.y === y) out.push({ kind: k, id: o.id }); return out; }
+function terrainAt(x, y) { const t = roomTiles(Math.floor(x / ROOM), Math.floor(y / ROOM)); if (!t) return null; const c = Number(t[(y % ROOM) * ROOM + (x % ROOM)]); return TERR_ZH[c] || '平原'; }
+const STRUCT_EN = { spawn: 'StructureSpawn', extension: 'StructureExtension', road: 'StructureRoad', constructedWall: 'StructureWall', rampart: 'StructureRampart', link: 'StructureLink', storage: 'StructureStorage', tower: 'StructureTower', observer: 'StructureObserver', powerSpawn: 'StructurePowerSpawn', extractor: 'StructureExtractor', lab: 'StructureLab', terminal: 'StructureTerminal', container: 'StructureContainer', nuker: 'StructureNuker', factory: 'StructureFactory', keeperLair: 'StructureKeeperLair', invaderCore: 'StructureInvaderCore', powerBank: 'StructurePowerBank', portal: 'StructurePortal' };
+const objLabel = (v, s) => { const o = findIn(v, s); if (!o) return '-'; return ({ creep: () => 'Creep', spawn: () => 'Spawn', structure: () => ST_ZH[o.type] || o.type, controller: () => 'Controller', source: () => 'Source', mineral: () => 'Mineral', site: () => '工地', resource: () => '资源', tombstone: () => '墓碑', ruin: () => '废墟', flag: () => 'Flag' })[s.kind](); };
+const storeKV = st => { const e = Object.entries(st || {}).filter(([, n]) => n > 0); return kv('store', e.length ? e.map(([r, n]) => `${esc(r)} ${n}`).join(' · ') : '空'); };
+function hideInspect() { sel = null; tileSel = null; renderer.select(null, null); $('inspect').classList.add('hidden'); }
 function renderInspect() {
-  if (!sel) return; const v = view(), o = findIn(v, sel); if (!v || !o) { $('inspect').classList.add('hidden'); return; }
-  const pn = id => esc(v.players[id]?.name || id || '-'); let t = '', b = kv('位置', `x ${((o.x % 50) + 50) % 50}, y ${((o.y % 50) + 50) % 50} · ${roomName(o.x, o.y)}`);
-  if (sel.kind === 'creep') { t = 'Creep ' + esc(o.name); const cap = o.body.filter(p => p === 'carry').length * 50;
-    b += kv('所属', pn(o.owner)) + kv('身体', `<span class="body">${o.body.map(p => `<span class="part" style="background:${PARTC[p]}"></span>`).join('')}</span>`) + kv('hits', `${o.hits ?? o.body.length * 100} / ${o.body.length * 100}`) + kv('能量', `${o.energy} / ${cap}`) + kv('ticksToLive', o.ttl);
+  if (!tileSel) return; const v = view(); if (!v) return hideInspect();
+  const { x, y } = tileSel, list = tileObjs(v, x, y); if (tileSel.idx > list.length) tileSel.idx = list.length;
+  sel = tileSel.idx < list.length ? list[tileSel.idx] : null; const o = sel && findIn(v, sel);
+  const pn = id => esc(v.players[id]?.name || id || '-'); const lx = ((x % 50) + 50) % 50, ly = ((y % 50) + 50) % 50;
+  let t = '地形', b = '';
+  const tabs = list.length ? `<div class="insTabs">${list.map((s, i) => `<button class="insTab${i === tileSel.idx ? ' on' : ''}" data-i="${i}">${esc(objLabel(v, s))}</button>`).join('')}<button class="insTab${tileSel.idx === list.length ? ' on' : ''}" data-i="${list.length}">地形</button></div>` : '';
+  if (!o) { b += kv('地形', terrainAt(x, y) || '加载中'); }
+  else if (sel.kind === 'creep') { t = 'Creep ' + esc(o.name);
+    b += kv('所属', pn(o.owner)) + kv('hits', `${o.hits ?? o.body.length * 100} / ${o.hitsMax || o.body.length * 100}`) + storeKV(o.store) + kv('容量', o.cap ?? '-') + kv('fatigue', o.fatigue || 0) + kv('ticksToLive', o.ttl) + kv('身体', `<span class="body">${o.body.map(p => `<span class="part" style="background:${PARTC[p.type || p] || '#666'}"></span>`).join('')}</span>`);
     if (mode !== 'client' && o.owner === myPid) b += `<pre class="mem">Memory ${esc(JSON.stringify(engine.w.memory[myPid].creeps[o.name] || {}, null, 1))}</pre>`; }
-  else if (sel.kind === 'spawn') { t = 'StructureSpawn ' + esc(o.name); b += kv('所属', pn(o.owner)) + kv('hits', '5000 / 5000') + kv('能量', `${o.energy} / ${o.cap}`) + kv('生产', o.spawning ? `${esc(o.spawning.name)}（剩 ${o.spawning.left} tick）` : '空闲'); }
+  else if (sel.kind === 'spawn') { t = 'StructureSpawn ' + esc(o.name); b += kv('所属', pn(o.owner)) + kv('hits', `${o.hits ?? 5000} / ${o.hitsMax ?? 5000}`) + kv('能量', `${o.energy} / ${o.cap}`) + kv('生产', o.spawning ? `${esc(o.spawning.name)}（剩 ${o.spawning.left} tick）` : '空闲'); }
   else if (sel.kind === 'source') { t = 'Source'; b += kv('能量', `${o.energy} / ${o.cap}`) + kv('再生', '每 300 tick'); }
   else if (sel.kind === 'controller') { t = 'StructureController'; b += kv('所属', o.owner ? pn(o.owner) : '未占领') + kv('等级 RCL', o.level) + kv('进度', `${o.progress} / ${o.progressTotal}`) + kv('降级倒计时', o.ticksToDowngrade || '-'); }
-  else if (sel.kind === 'structure') { t = 'Structure ' + esc(o.type); b += kv('所属', pn(o.owner)) + kv('hits', `${o.hits} / ${o.hitsMax}`) + (o.energyCapacity != null ? kv('能量', `${o.energy||0} / ${o.energyCapacity}`) : ''); }
-  else if (sel.kind === 'site') { t = 'ConstructionSite'; b += kv('类型', o.type) + kv('所属', pn(o.owner)) + kv('进度', `${o.progress} / ${o.total}`); }
+  else if (sel.kind === 'structure') { t = STRUCT_EN[o.type] || ('Structure ' + esc(o.type)); b += (o.owner ? kv('所属', pn(o.owner)) : '') + (o.hitsMax ? kv('hits', `${o.hits} / ${o.hitsMax}`) : '') + (o.energyCapacity != null ? kv('能量', `${o.energy || 0} / ${o.energyCapacity}`) : ''); }
+  else if (sel.kind === 'site') { t = 'ConstructionSite'; b += kv('类型', esc(ST_ZH[o.type] || o.type)) + kv('所属', pn(o.owner)) + kv('进度', `${o.progress} / ${o.total}`); }
   else if (sel.kind === 'mineral') { t = 'Mineral ' + esc(o.type); b += kv('mineralType', esc(o.type)) + kv('mineralAmount', o.amount); }
   else if (sel.kind === 'resource') { t = 'Resource'; b += kv('resourceType', esc(o.resourceType)) + kv('amount', o.amount); }
-  else if (sel.kind === 'tombstone') { t = 'Tombstone ' + esc(o.creepName || ''); b += kv('所属', pn(o.owner)) + kv('能量', o.energy) + kv('ticksToDecay', o.decay); }
-  $('insTitle').innerHTML = t; $('insBody').innerHTML = b; $('inspect').classList.remove('hidden');
+  else if (sel.kind === 'tombstone') { t = 'Tombstone ' + esc(o.creepName || ''); b += kv('所属', pn(o.owner)) + storeKV(o.store || { energy: o.energy }) + kv('ticksToDecay', o.decay); }
+  else if (sel.kind === 'ruin') { t = 'Ruin'; b += kv('structureType', esc(o.structureType)) + (o.owner ? kv('所属', pn(o.owner)) : '') + storeKV(o.store) + kv('destroyTime', o.destroyTime) + kv('ticksToDecay', o.decay); }
+  else if (sel.kind === 'flag') { t = 'Flag ' + esc(o.name); }
+  const act = insAction(o, sel); if (act) b += `<div class="insAct"><button class="insDanger" data-act="${act[0]}">${act[1]}</button></div>`;
+  $('insTitle').innerHTML = t; $('insBody').innerHTML = `<div class="insPos">x ${lx}, y ${ly} · ${roomName(x, y)}</div>` + tabs + b; $('inspect').classList.remove('hidden');
+  renderer.select(sel, { x, y });
+}
+// 官方客户端：自己的 creep 可自杀、自己的建筑可摧毁、自己的工地可取消；先确认，再调用官方 API（规则由 API 判定）
+function insAction(o, s) { if (!o || !s || mode === 'client' || !engine || o.owner !== myPid) return null;
+  return { creep: ['suicide', '自杀'], spawn: ['destroy', '摧毁'], structure: ['destroy', '摧毁'], site: ['remove', '取消工地'] }[s.kind] || null; }
+const ACT_ERR = { '-1': '不是你的', '-4': '房间里有敌对 creep，不能摧毁', '-7': '目标无效' };
+function doInsAction(m) {
+  const s = sel; if (!s) return; const Q = { suicide: ['让这个 creep 自杀？', '自杀'], destroy: ['摧毁这个建筑？', '摧毁'], remove: ['取消这个工地？', '取消工地'] }[m];
+  Shell.dialog(Q[0], '', () => { const A = buildApi(engine, myPid), o = A.Game.getObjectById(s.id); const r = o && typeof o[m] === 'function' ? o[m]() : -7;
+    if (r === 0) { engine.flushIntents(myPid); _snap = null; toastMsg({ suicide: '已自杀', destroy: '已摧毁', remove: '已取消工地' }[m]); renderer.setView(engine.w, 1); renderInspect(); }
+    else toastMsg('无法执行：' + (ACT_ERR[r] || ('错误 ' + r))); }, Q[1]);
+}
+$('insBody').addEventListener('click', e => { const ab = e.target.closest('.insDanger'); if (ab) return doInsAction(ab.dataset.act); const bt = e.target.closest('.insTab'); if (!bt || !tileSel) return; tileSel.idx = +bt.dataset.i; renderInspect(); });
+function tapTile(x, y) {
+  const v = view(); if (!v) return;
+  if (tileSel && tileSel.x === x && tileSel.y === y && !$('inspect').classList.contains('hidden')) tileSel.idx = (tileSel.idx + 1) % (tileObjs(v, x, y).length + 1);
+  else tileSel = { x, y, idx: 0 };
+  renderInspect();
 }
 renderer.onTap = (x, y) => {
-  if (renderer.lod === 'mini') return showRoomInfo(Math.floor(x / ROOM), Math.floor(y / ROOM));
+  if (renderer.lod === 'mini') { hideInspect(); return showRoomInfo(Math.floor(x / ROOM), Math.floor(y / ROOM)); }
   if (build.on) return build.type === 'spawn1' ? spawnTap(x, y) : buildTap(x, y);
-  const v = view(); if (!v) return; const f = a => a.find(o => o.x === x && o.y === y);
-  const c = f(v.creeps), sp = f(v.spawns), s = f(v.sources), st = f(v.sites), mi = f(v.minerals || []), rs = f(v.resources || []), tb = f(v.tombstones || []);
-  const ctrl = (v.controllers||[]).find(o => o.x === x && o.y === y), stt = (v.structures||[]).find(o => o.x === x && o.y === y);
-  sel = c ? { kind: 'creep', id: c.id } : sp ? { kind: 'spawn', id: sp.id } : ctrl ? { kind: 'controller', id: ctrl.id } : stt ? { kind: 'structure', id: stt.id } : s ? { kind: 'source', id: s.id } : st ? { kind: 'site', id: st.id } : rs ? { kind: 'resource', id: rs.id } : tb ? { kind: 'tombstone', id: tb.id } : mi ? { kind: 'mineral', id: mi.id } : null;
-  renderer.select(sel); if (sel) renderInspect(); else { $('inspect').classList.add('hidden'); showRoomInfo(Math.floor(x / ROOM), Math.floor(y / ROOM)); }
+  tapTile(x, y);
 };
-$('insClose').onclick = () => { sel = null; renderer.select(null); $('inspect').classList.add('hidden'); };
-renderer.onTick = () => renderInspect();
+$('insClose').onclick = () => hideInspect();
+renderer.onTick = () => { if (tileSel && !$('inspect').classList.contains('hidden')) renderInspect(); else if (tileSel) { tileSel = null; sel = null; renderer.select(null, null); } };
 // 状态栏：不覆盖网页
 (function boot() { const host = $('editor'); host.classList.remove('hidden'); host.style.visibility = 'hidden'; initBlockly(); host.classList.add('hidden'); host.style.visibility = ''; loadEngine(); setRunUI(); })();
 document.addEventListener('visibilitychange', () => { if (document.hidden) save(); });

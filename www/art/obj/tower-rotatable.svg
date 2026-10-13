@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg width="256" height="256" viewBox="0 0 114.94452 114.94452" preserveAspectRatio="xMidYMid meet"
+   xmlns:dc="http://purl.org/dc/elements/1.1/"
+   xmlns:cc="http://creativecommons.org/ns#"
+   xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+   xmlns:svg="http://www.w3.org/2000/svg"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+  
+  
+  
+   id="svg2"
+   version="1.1"
+   inkscape:version="0.91 r13725"
+   sodipodi:docname="tower-rotatable.svg"
+   inkscape:export-filename="/Users/vedi/Projects/web/test-pixi/img/drawing.png"
+   inkscape:export-xdpi="90"
+   inkscape:export-ydpi="90">
+  <defs
+     id="defs4" />
+  
+  
+  <g
+     inkscape:groupmode="layer"
+     id="layer4"
+     inkscape:label="constructedWall"
+     transform="translate(-283.21756,-532.30933)">
+    <rect
+       id="rect826"
+       width="40"
+       height="50"
+       x="320.68982"
+       y="593.75385"
+       style="fill:#aaaaaa;fill-opacity:1;stroke:#181818;stroke-width:7;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1" />
+    <rect
+       style="fill:#aaaaaa;fill-opacity:1;stroke:#181818;stroke-width:7;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1"
+       id="rect1108"
+       width="0.70710677"
+       height="0.35355338"
+       x="357.74966"
+       y="421.05954" />
+    <rect
+       style="fill:#777777;fill-opacity:1;stroke:none;stroke-width:7;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:0"
+       id="rect1110"
+       width="78"
+       height="58"
+       x="301.68982"
+       y="532.30933"
+       rx="12"
+       ry="10" />
+  </g>
+</svg>

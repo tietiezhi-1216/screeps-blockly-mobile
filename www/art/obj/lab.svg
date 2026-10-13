@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg width="256" height="256" viewBox="0 0 181.49917 181.4992" preserveAspectRatio="xMidYMid meet"
+   xmlns:dc="http://purl.org/dc/elements/1.1/"
+   xmlns:cc="http://creativecommons.org/ns#"
+   xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+   xmlns:svg="http://www.w3.org/2000/svg"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+  
+  
+  
+   id="svg2"
+   version="1.1"
+   inkscape:version="0.91 r13725"
+   sodipodi:docname="lab.svg"
+   inkscape:export-filename="/Users/vedi/Projects/web/test-pixi/img/drawing.png"
+   inkscape:export-xdpi="90"
+   inkscape:export-ydpi="90">
+  <defs
+     id="defs4" />
+  
+  
+  <g
+     inkscape:groupmode="layer"
+     id="layer4"
+     inkscape:label="lab"
+     transform="matrix(0.9,0,0,0.9,54.449755,124.34919)">
+    <path
+       style="fill:#181818;stroke:#ffffff;stroke-width:6.64277458"
+       d="m 87.781536,-4.0406397 a 56.938066,56.938066 0 1 0 -94.8967759,0 l 0,21.8262587 94.8967759,0 z"
+       inkscape:connector-curvature="0"
+       id="path20" />
+  </g>
+</svg>

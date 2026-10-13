@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg width="256" height="256" viewBox="0 0 129.41176 129.41176" preserveAspectRatio="xMidYMid meet"
+   xmlns:dc="http://purl.org/dc/elements/1.1/"
+   xmlns:cc="http://creativecommons.org/ns#"
+   xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+   xmlns:svg="http://www.w3.org/2000/svg"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+  
+  
+  
+   id="svg2"
+   version="1.1"
+   inkscape:version="0.91 r13725"
+   sodipodi:docname="powerBank.svg"
+   inkscape:export-filename="/Users/vedi/Projects/web/test-pixi/img/drawing.png"
+   inkscape:export-xdpi="90"
+   inkscape:export-ydpi="90">
+  <defs
+     id="defs4" />
+  
+  
+  <g
+     inkscape:groupmode="layer"
+     id="layer4"
+     inkscape:label="terminal"
+     transform="translate(-45,-25.588235)">
+    <path
+       style="fill:#331111;stroke:#666666;stroke-width:10"
+       d="m 109.70588,40.294114 30,0 20,20 0,59.999996 -20,20 -60.000001,0 -20,-20 0,-59.999996 20,-20 z"
+       id="border"
+       inkscape:connector-curvature="0" />
+  </g>
+</svg>

@@ -13,6 +13,7 @@
   <button id="btnRun" data-icon="player-play"><span class="lb">运行</span></button>
   <button id="btnCode" data-icon="puzzle"><span class="lb">代码</span></button>
   <button id="btnBuild" data-icon="hammer"><span class="lb">建造</span></button>
+  <button id="btnFlag" data-icon="flag"><span class="lb">旗帜</span></button>
   <button id="btnSpeed" data-icon="player-track-next" class="hidden"><span class="lb">1x</span></button>
   <button id="btnView" data-icon="map"><span class="lb">全图</span></button>
   <button id="btnLog" data-icon="terminal-2"><span class="lb">面板</span></button>
@@ -21,6 +22,7 @@
 </nav>
 <div id="log" class="hidden"></div>
 <div id="buildPick" class="hidden"><div class="bpHead"><span id="bpTitle">建造</span><button id="bpClose" data-icon="x" class="iconbtn"></button></div><div id="bpList"></div></div>
+<div id="flagPick" class="hidden"><div class="bpHead"><span>旗帜</span><button id="fpClose" data-icon="x" class="iconbtn"></button></div><div class="fpRow"><img id="fpPrev" alt=""><input id="fpName" maxlength="100" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="名字"></div><div class="fpLb">主颜色</div><div id="fpC1" class="fpSw"></div><div class="fpLb">副颜色</div><div id="fpC2" class="fpSw"></div><button id="fpOk" class="primary">选择位置</button></div>
 <div id="buildBar" class="hidden"><span id="bbMsg"></span><button id="bbOk" class="primary">放置</button><button id="bbCancel">退出</button></div>
 <div id="wmap" class="hidden"><div class="wmHead"><b id="wmTitle">世界地图</b><span id="wmInfo"></span><button id="wmClose" data-icon="x" class="iconbtn"></button></div><canvas id="wmCanvas"></canvas>
 <div class="wmBar hidden"><div id="wmSel"><b id="wmSelName"></b><span id="wmSelSt"></span><span id="wmSelInfo"></span></div><button id="wmGo" class="primary" disabled>进入房间</button></div></div>
@@ -77,7 +79,7 @@
 <script src="engine-ext.js"></script>
 <script src="engine-npc.js"></script>
 <script src="stats.js"></script>
-<script src="render.js"></script>
+<script src="obj-art.js"></script><script src="render.js"></script>
 <script src="blocks.js"></script>
 <script src="blocks-easy.js"></script>
 <script src="net.js"></script>

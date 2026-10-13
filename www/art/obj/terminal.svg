@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg width="256" height="256" viewBox="0 0 200 200" preserveAspectRatio="xMidYMid meet"
+   xmlns:dc="http://purl.org/dc/elements/1.1/"
+   xmlns:cc="http://creativecommons.org/ns#"
+   xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+   xmlns:svg="http://www.w3.org/2000/svg"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+  
+  
+  
+   id="svg2"
+   version="1.1"
+   inkscape:version="0.92.2 (5c3e80d, 2017-08-06)"
+   sodipodi:docname="terminal.svg"
+   inkscape:export-filename="/Users/vedi/Projects/web/test-pixi/img/drawing.png"
+   inkscape:export-xdpi="90"
+   inkscape:export-ydpi="90">
+  <defs
+     id="defs4" />
+  
+  
+  <g
+     inkscape:groupmode="layer"
+     id="layer4"
+     inkscape:label="terminal"
+     transform="translate(-281.38214,-447.33371)">
+    <rect
+       x="336.38214"
+       y="502.33371"
+       width="90"
+       height="90"
+       id="rect4551"
+       style="fill:#181818" />
+    <rect
+       x="343.38214"
+       y="509.33371"
+       width="76"
+       height="76"
+       id="rect4553"
+       style="fill:#777777" />
+  </g>
+</svg>

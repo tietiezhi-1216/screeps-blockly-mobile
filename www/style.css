@@ -104,10 +104,10 @@ pre.mem{margin:var(--sp-1) 0 0;max-height:120px;overflow:auto;background:#0008;p
 #edTools button .ic{display:flex;font-size:18px}
 #edTools #edTrash.hot{background:#c44}
 /* 手动建造 */
-#buildPick{position:fixed;left:8px;right:8px;bottom:calc(68px + var(--bot));max-height:46vh;overflow:auto;background:#14171d;border:1px solid #ffffff1a;border-radius:6px;padding:6px 8px;z-index:8;font-size:13px}
+#buildPick,#flagPick{position:fixed;left:8px;right:8px;bottom:calc(68px + var(--bot));max-height:46vh;overflow:auto;background:#14171d;border:1px solid #ffffff1a;border-radius:6px;padding:6px 8px;z-index:8;font-size:13px}
 .bpHead{display:flex;align-items:center;justify-content:space-between;height:28px;color:#cfd3da}
 #bpList{display:grid;grid-template-columns:1fr 1fr;gap:6px}
-#bpList button{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:6px 8px;background:#232833;border:0;border-radius:4px;color:#e6e6e6;text-align:left;min-width:0}
+#bpList button{display:flex;flex-direction:row;align-items:center;gap:8px;padding:6px 8px;background:#232833;border:0;border-radius:4px;color:#e6e6e6;text-align:left;min-width:0}
 #bpList button .n{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
 #bpList button .d{font-size:11px;color:#8b93a1;white-space:nowrap}
 #bpList button:disabled{opacity:.4}
@@ -244,3 +244,14 @@ pre.mem{margin:var(--sp-1) 0 0;max-height:120px;overflow:auto;background:#0008;p
 .insTab.on{background:#5973ff;color:#fff}
 .insAct{margin-top:var(--sp-2);display:flex;justify-content:flex-end}
 .insDanger{background:#c0392b;color:#fff;border:0;border-radius:var(--r-s);padding:5px 12px;font-size:var(--fs-s)}
+
+#bpList .bi{width:40px;height:40px;flex:0 0 40px;display:block}
+#bpList .bt{display:flex;flex-direction:column;gap:2px;min-width:0}
+#flagPick .fpRow{display:flex;align-items:center;gap:8px;margin:4px 0 6px}
+#fpPrev{width:48px;height:48px;flex:0 0 48px;background:#2b2b2b;border-radius:4px}
+#fpName{flex:1;min-width:0;height:32px;background:#0d0f13;border:1px solid #ffffff1a;border-radius:4px;color:#e6e6e6;padding:0 8px;font-size:13px}
+#flagPick .fpLb{font-size:11px;color:#8b93a1;margin:4px 0}
+#flagPick .fpSw{display:grid;grid-template-columns:repeat(10,1fr);gap:4px}
+#flagPick .fsw{aspect-ratio:1;min-height:22px;border:2px solid transparent;border-radius:3px;padding:0}
+#flagPick .fsw.on{border-color:#5973FF;outline:1px solid #fff}
+#fpOk{margin-top:8px;width:100%;height:34px;border:0;border-radius:4px;background:#5973FF;color:#fff;font-size:13px}

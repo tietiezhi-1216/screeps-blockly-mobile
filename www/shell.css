@@ -127,7 +127,7 @@ body.barMin{--lbar:0px}
   #speedPop{left:calc(var(--lbar) + var(--sal) + 8px)!important;bottom:auto!important;top:50%;flex-direction:column}
   #inspect{left:calc(var(--lbar) + var(--sal) + 8px)!important;bottom:8px!important}
   #buildBar{bottom:8px!important}
-  #buildPick{right:calc(8px + var(--sar))!important}
+  #buildPick,#flagPick{right:calc(8px + var(--sar))!important}
   #wmap .wmHead{padding-left:calc(8px + var(--sal))!important;padding-right:calc(8px + var(--sar))!important}
     #editor{padding-left:var(--sal);padding-right:var(--sar);background:#1b1e25}
   #start.shell .shBody,#start.shell .shHead,#start.shell .home{padding-left:max(20px,var(--sal));padding-right:max(20px,var(--sar))}
@@ -142,7 +142,7 @@ body.barMin{--lbar:0px}
   body.barMin #barTog{right:var(--sar)}
   #hud{left:var(--sal)!important;border-bottom-right-radius:4px}
   #roomBar{top:auto!important;bottom:0!important;left:var(--sal)!important;right:auto!important;border-radius:0 4px 0 0}
-  #panel,#inspect,#buildPick{left:auto!important;right:calc(var(--lbar) + var(--sar))!important;top:0!important;bottom:0!important;width:min(380px,44vw)!important;max-height:none!important;height:auto!important;border:0!important;border-left:1px solid var(--sw-line)!important;border-radius:0!important;overflow:auto;transition:right .18s}
+  #panel,#inspect,#buildPick,#flagPick{left:auto!important;right:calc(var(--lbar) + var(--sar))!important;top:0!important;bottom:0!important;width:min(380px,44vw)!important;max-height:none!important;height:auto!important;border:0!important;border-left:1px solid var(--sw-line)!important;border-radius:0!important;overflow:auto;transition:right .18s}
   #inspect{background:#181818f2!important;padding:8px 12px!important}
   #panel{z-index:9}
   #speedPop{left:auto!important;right:calc(var(--lbar) + var(--sar) + 8px)!important}
@@ -158,7 +158,7 @@ body.barMin{--lbar:0px}
 .shBody{max-width:720px;margin:0 auto}
 /* 竖屏：工具栏在底部，所有面板为底部抽屉，统一在工具栏之上 */
 @media (orientation:portrait){
-  #panel,#inspect,#buildPick{left:0!important;right:0!important;top:auto!important;bottom:calc(60px + var(--bot))!important;width:auto!important;max-height:55vh!important;border-radius:0!important;border:0!important;border-top:1px solid var(--sw-line)!important;overflow:auto}
+  #panel,#inspect,#buildPick,#flagPick{left:0!important;right:0!important;top:auto!important;bottom:calc(60px + var(--bot))!important;width:auto!important;max-height:55vh!important;border-radius:0!important;border:0!important;border-top:1px solid var(--sw-line)!important;overflow:auto}
   #panel{height:55vh!important}
   #inspect{background:#181818f2!important}
   #hud{padding-top:var(--sat)!important}

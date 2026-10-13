@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg width="256" height="256" viewBox="0 0 177.15086 177.15086" preserveAspectRatio="xMidYMid meet"
+   xmlns:dc="http://purl.org/dc/elements/1.1/"
+   xmlns:cc="http://creativecommons.org/ns#"
+   xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+   xmlns:svg="http://www.w3.org/2000/svg"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+  
+  
+  
+   id="svg2"
+   version="1.1"
+   inkscape:version="0.91 r13725"
+   sodipodi:docname="storage-border.svg"
+   inkscape:export-filename="/Users/vedi/Projects/web/test-pixi/img/drawing.png"
+   inkscape:export-xdpi="90"
+   inkscape:export-ydpi="90">
+  <defs
+     id="defs4" />
+  
+  
+  <g
+     inkscape:groupmode="layer"
+     id="layer4"
+     inkscape:label="storage"
+     transform="translate(-282.52152,-472.24181)">
+    <path
+       style="fill:#181818;stroke:#ffffff;stroke-width:7px"
+       d="m 311.09695,490.81723 a 120,120 0 0 1 120,0 300,300 0 0 1 0,140 120,120 0 0 1 -120,0 300,300 0 0 1 0,-140 z"
+       id="path4512"
+       inkscape:connector-curvature="0" />
+  </g>
+</svg>

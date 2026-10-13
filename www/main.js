@@ -373,32 +373,51 @@ function openBuildPicker() {
   const w = engine.w; let h = '';
   for (const t of Object.keys(ST_ZH)) { if (!SC.CONTROLLER_STRUCTURES[t]) continue; const lim = r ? SC.CONTROLLER_STRUCTURES[t][r.lvl] || 0 : 0; if (!lim) continue;
     const used = r ? countStruct(w, myPid, t, r.k) : 0;
-    h += `<button data-t="${t}" ${used >= lim ? 'disabled' : ''}><span class="n">${ST_ZH[t]}</span><span class="d">${used}/${lim > 1000 ? '∞' : lim} · ${SC.CONSTRUCTION_COST[t]} 能量</span></button>`; }
-  h += `<button data-t="flag"><span class="n">旗帜</span><span class="d">标记位置</span></button>`;
+    const ic = typeof ART !== 'undefined' ? ART.icon(t, { cap: t === 'extension' ? SC.EXTENSION_ENERGY_CAPACITY[r ? r.lvl : 1] || 50 : 50 }) : '';
+    h += `<button data-t="${t}" ${used >= lim ? 'disabled' : ''}>${ic ? `<img class="bi" src="${ic}" alt="">` : '<span class="bi"></span>'}<span class="bt"><span class="n">${ST_ZH[t]}</span><span class="d">${used}/${lim > 1000 ? '∞' : lim} · ${SC.CONSTRUCTION_COST[t]} 能量</span></span></button>`; }
   $('bpList').innerHTML = h; $('bpList').querySelectorAll('button').forEach(b => b.onclick = () => startBuild(b.dataset.t));
-  $('buildPick').classList.remove('hidden'); $('inspect').classList.add('hidden');
+  $('buildPick').classList.remove('hidden'); $('inspect').classList.add('hidden'); $('flagPick').classList.add('hidden');
 }
-function startBuild(t) { build.on = true; build.type = t; build.at = null; $('buildPick').classList.add('hidden'); $('buildBar').classList.remove('hidden'); $('bbOk').disabled = true; $('bbOk').textContent = '放置'; $('bbMsg').textContent = `点地图选择${t === 'flag' ? '旗帜' : ST_ZH[t]}的位置`; $('btnBuild').classList.add('on'); }
-function endBuild() { build.on = false; build.at = null; renderer.preview = null; renderer.drawSel(); $('buildBar').classList.add('hidden'); $('btnBuild').classList.remove('on'); }
+function startBuild(t) { build.on = true; build.type = t; build.at = null; $('buildPick').classList.add('hidden'); $('buildBar').classList.remove('hidden'); $('bbOk').disabled = true; $('bbOk').textContent = '放置'; $('bbMsg').textContent = `点地图选择${t === 'flag' ? '旗帜' : ST_ZH[t]}的位置`; $('btnBuild').classList.toggle('on', t !== 'flag'); $('btnFlag').classList.toggle('on', t === 'flag'); }
+function endBuild() { build.on = false; build.at = null; renderer.preview = null; renderer.drawSel(); $('buildBar').classList.add('hidden'); $('btnBuild').classList.remove('on'); $('btnFlag').classList.remove('on'); }
 function apiPos(A, x, y) { return new A.RoomPosition(x % ROOM, y % ROOM, roomName(x, y)); }
 function buildTap(x, y) {
   const w = engine.w, site = w.sites.find(s => s.x === x && s.y === y && s.owner === myPid);
   if (site) { build.at = { x, y, remove: site.id }; renderer.preview = { x, y, ok: false }; $('bbMsg').textContent = `移除${ST_ZH[site.type] || site.type}工地？`; $('bbOk').textContent = '移除'; $('bbOk').disabled = false; renderer.drawSel(); return; }
   if (build.at && build.at.x === x && build.at.y === y && !build.at.remove) return confirmBuild();
   const ok = +engine.tile(x, y) !== T_WALL || build.type === 'road' || build.type === 'flag';
+  if (build.type === 'flag' && build.at && build.at.x === x && build.at.y === y) return confirmBuild();
   build.at = { x, y }; renderer.preview = { x, y, ok }; renderer.drawSel();
-  $('bbOk').textContent = '放置'; $('bbOk').disabled = false; $('bbMsg').textContent = `${build.type === 'flag' ? '旗帜' : ST_ZH[build.type]} · x ${x % ROOM}, y ${y % ROOM}`;
+  $('bbOk').textContent = '放置'; $('bbOk').disabled = false; $('bbMsg').textContent = `${build.type === 'flag' ? '旗帜 ' + flagSt.name : ST_ZH[build.type]} · x ${x % ROOM}, y ${y % ROOM}`;
 }
 function confirmBuild() {
   const a = build.at; if (!a) return; const A = buildApi(engine, myPid); let r;
   if (a.remove) { const o = A.Game.getObjectById(a.remove); r = o ? o.remove() : -7; if (r === 0) toastMsg('已移除工地'); }
-  else if (build.type === 'flag') { r = apiPos(A, a.x, a.y).createFlag(); if (typeof r === 'string') { toastMsg('已放置旗帜 ' + r); r = 0; } }
+  else if (build.type === 'flag') { r = apiPos(A, a.x, a.y).createFlag(flagSt.name, flagSt.c1, flagSt.c2); if (typeof r === 'string') { toastMsg('已放置旗帜 ' + r); r = 0; flagSt.name = nextFlagName(); } }
   else { r = apiPos(A, a.x, a.y).createConstructionSite(build.type); if (r === 0) toastMsg(`已放置${ST_ZH[build.type]}工地`); }
   if (r !== 0) { toastMsg('无法放置：' + (ERR_ZH[r] || ('错误 ' + r))); renderer.preview = { x: a.x, y: a.y, ok: false }; }
   else { renderer.preview = null; renderer.setView(engine.w, 1); }
   build.at = null; $('bbOk').disabled = true; $('bbOk').textContent = '放置'; renderer.drawSel(); save();
   if (r === 0) $('bbMsg').textContent = '继续点地图放置，或退出';
 }
+// ===== 旗帜（同官方客户端：独立工具，名字 + 主/副颜色，点地图放置） =====
+const flagSt = { name: 'Flag1', c1: 10, c2: 10 };
+function nextFlagName() { const have = new Set(((engine && engine.w.flags) || []).filter(f => f.owner === myPid).map(f => f.name)); let i = 1; while (have.has('Flag' + i)) i++; return 'Flag' + i; }
+function drawFlagPick() {
+  const sw = (k) => ART.FLAG.slice(1).map((c, i) => `<button class="fsw${flagSt[k] === i + 1 ? ' on' : ''}" data-k="${k}" data-c="${i + 1}" style="background:${c}" aria-label="${ART.FLAG_ZH[i + 1]}"></button>`).join('');
+  $('fpPrev').src = ART.icon('flag', { color: flagSt.c1, secondaryColor: flagSt.c2 }, 48) || '';
+  $('fpC1').innerHTML = sw('c1'); $('fpC2').innerHTML = sw('c2');
+  $('flagPick').querySelectorAll('.fsw').forEach(b => b.onclick = () => { flagSt[b.dataset.k] = +b.dataset.c; if (b.dataset.k === 'c1' && !flagSt._c2set) flagSt.c2 = +b.dataset.c; if (b.dataset.k === 'c2') flagSt._c2set = 1; drawFlagPick(); });
+}
+function openFlagPick() {
+  if (mode === 'client') return toastMsg('联机客户端暂不支持放置旗帜');
+  if (!engine) return; flagSt.name = nextFlagName(); $('fpName').value = flagSt.name; drawFlagPick();
+  $('flagPick').classList.remove('hidden'); $('buildPick').classList.add('hidden'); $('inspect').classList.add('hidden');
+}
+$('fpName').oninput = () => { flagSt.name = $('fpName').value.trim().slice(0, 100); };
+$('fpOk').onclick = () => { flagSt.name = ($('fpName').value.trim() || nextFlagName()).slice(0, 100); if (engine.w.flags.some(f => f.owner === myPid && f.name === flagSt.name)) return toastMsg('名字已存在'); $('flagPick').classList.add('hidden'); startBuild('flag'); };
+$('fpClose').onclick = () => $('flagPick').classList.add('hidden');
+$('btnFlag').onclick = () => build.on && build.type === 'flag' ? endBuild() : ($('flagPick').classList.contains('hidden') ? (build.on && endBuild(), openFlagPick()) : $('flagPick').classList.add('hidden'));
 $('btnBuild').onclick = () => build.on ? endBuild() : ($('buildPick').classList.contains('hidden') ? openBuildPicker() : $('buildPick').classList.add('hidden'));
 $('bpClose').onclick = () => $('buildPick').classList.add('hidden');
 $('bbOk').onclick = () => build.type === 'spawn1' ? confirmSpawn() : confirmBuild(); $('bbCancel').onclick = () => { const sp = build.type === 'spawn1'; endBuild(); if (sp) { wm.auto = false; openWorldMap(true); } };
@@ -646,6 +665,7 @@ setInterval(() => { if (!$('panel').classList.contains('hidden') && panelTab ===
   L('net', 65, () => vis('net'), () => $('nClose').click());
   L('menu', 65, () => vis('menu'), () => $('mClose').click());
   L('wmap', 60, () => inGame() && vis('wmap'), () => $('wmClose').click());
+  L('flagPick', 55, () => inGame() && vis('flagPick'), () => $('fpClose').click());
   L('buildPick', 55, () => inGame() && vis('buildPick'), () => $('bpClose').click());
   L('buildBar', 55, () => inGame() && vis('buildBar'), () => endBuild());
   L('inspect', 50, () => inGame() && vis('inspect'), () => $('insClose').click());

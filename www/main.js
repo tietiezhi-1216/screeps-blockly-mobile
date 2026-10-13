@@ -58,7 +58,6 @@ function initBlockly() {
   fsvg.addEventListener('pointerup', lpEnd, true); fsvg.addEventListener('pointercancel', lpEnd, true);
   // 返回按钮：按下与抬起都在按钮上才算（避免打开列表那一下的 click 落到同位置的返回键上）
   { const fb = $('flyBack'); let d = false; fb.addEventListener('pointerdown', () => { d = true; }); fb.addEventListener('pointerup', () => { if (d) closeFlyout(); d = false; }); fb.addEventListener('pointercancel', () => { d = false; }); }
-  window.addEventListener('popstate', () => { if (fly && fly.isVisible()) closeFlyout(true); });
   fly.hide(); buildCatBar();
   let saved = null; try { saved = JSON.parse(localStorage.getItem(SAVE_C)); } catch (e) {}
   let migrated = false;
@@ -136,14 +135,12 @@ function previewShow(tab) {
   p.onclick = e => { const b = e.target.closest('button'); if (!b) return; if (b.dataset.a === 'back') return p.classList.add('hidden'); if (b.dataset.a === 'say' || b.dataset.a === 'code') previewShow(b.dataset.a); };
 }
 window.previewShow = previewShow;
-function closeFlyout(fromPop) { if (!fly) return; const was = fly.isVisible(); fly.hide(); activeCat = null; buildCatBar(); $('edTabs').classList.remove('flyOpen'); Blockly.svgResize(ws);
-  if (was && !fromPop && history.state && history.state.fly) history.back(); }
+function closeFlyout(fromPop) { if (!fly) return; const was = fly.isVisible(); fly.hide(); activeCat = null; buildCatBar(); $('edTabs').classList.remove('flyOpen'); Blockly.svgResize(ws); }
 function selectCat(id) {
   const c = CATS.find(x => x.id === id); if (!c || !ws) return;
   if (activeCat === id && fly.isVisible()) return closeFlyout(); // 再点一次当前分类 = 收起
   activeCat = id; buildCatBar();
   $('edTabs').classList.add('flyOpen'); $('flyTitle').textContent = c.name; Blockly.svgResize(ws);
-  if (!(history.state && history.state.fly)) history.pushState({ fly: 1 }, ''); // 安卓返回键 = 返回工作区
   flyScale = 0.8; fly.show(flyoutFor(c));
   // 按最宽积木缩放，保证完整显示
   const W = $('blocklyDiv').getBoundingClientRect().width - 24; let maxW = 0;
@@ -589,3 +586,34 @@ function globalHTML() {
   return `<div class="glob">${R('模式', mode === 'solo' ? '单机' : mode === 'host' ? '房主' : '客户端')}${R('状态', running ? '运行中' : '已暂停')}${R('运行速度', speed + 'x（每 tick ' + Math.round(500 / speed) + ' ms）')}${R('当前 tick', v ? v.time : '-')}${R('每 tick 计算耗时', tickMs.toFixed(1) + ' ms')}${R('渲染帧率', renderer.fps.toFixed(0) + ' FPS')}${R('世界大小', v ? v.S + '×' + v.S + ' 房间' : '-')}${R('玩家数', v ? Object.keys(v.players).length : '-')}${R('GCL 点数', me ? Math.floor(me.gcl || 0) : '-')}${me && me.bucket != null ? R('CPU bucket', Math.floor(me.bucket)) : ''}${R('版本', 'V' + (window.APP_VERSION || 'dev'))}</div>`;
 }
 setInterval(() => { if (!$('panel').classList.contains('hidden') && panelTab === 'global') $('pnBody').innerHTML = globalHTML(); }, 1000);
+
+// ---- 安卓返回键（back-stack.js）：先关最上层，再回上一页；首页两次返回才退出 ----
+(function initBack() {
+  const vis = id => { const e = $(id); return !!e && !e.classList.contains('hidden'); };
+  const inGame = () => !vis('start'), inEd = () => vis('editor');
+  const L = (n, p, o, c) => BackStack.layer(n, p, o, c);
+  L('update', 100, () => !!(Upd.el && !Upd.el.classList.contains('hidden')), () => Upd.el.querySelector('.uuLater').click());
+  L('dialog', 95, () => !!document.querySelector('.shDlg'), () => Shell.closeDlg());
+  L('bodyForm', 95, () => !!$('bodyForm'), () => $('bodyForm').remove());
+  L('dropdown', 90, () => (Blockly.DropDownDiv && Blockly.DropDownDiv.isVisible()) || (Blockly.WidgetDiv && Blockly.WidgetDiv.isVisible()),
+    () => { Blockly.DropDownDiv && Blockly.DropDownDiv.hideWithoutAnimation(); Blockly.WidgetDiv && Blockly.WidgetDiv.hide(); });
+  L('preview', 85, () => inEd() && vis('prevP'), () => $('prevP').classList.add('hidden'));
+  L('history', 85, () => inEd() && vis('histP'), () => $('histP').classList.add('hidden'));
+  L('flyout', 80, () => inEd() && !!(fly && fly.isVisible()), () => closeFlyout());
+  L('editor', 70, inEd, () => $('edClose').click());
+  L('speedPop', 66, () => inGame() && vis('speedPop'), () => $('speedPop').classList.add('hidden'));
+  L('intro', 65, () => vis('intro'), () => $('introOk').click());
+  L('net', 65, () => vis('net'), () => $('nClose').click());
+  L('menu', 65, () => vis('menu'), () => $('mClose').click());
+  L('wmap', 60, () => inGame() && vis('wmap'), () => $('wmClose').click());
+  L('buildPick', 55, () => inGame() && vis('buildPick'), () => $('bpClose').click());
+  L('buildBar', 55, () => inGame() && vis('buildBar'), () => endBuild());
+  L('inspect', 50, () => inGame() && vis('inspect'), () => $('insClose').click());
+  L('panel', 50, () => inGame() && vis('panel'), () => $('pnClose').click());
+  BackStack.init({
+    isRoot: () => Shell.page() === 'home',
+    toBack: () => { if (Shell.page()) Shell.hwBack(); else Shell.show('home'); }, // 子页面 → 上一页；游戏 → 首页
+    toast: m => toastMsg(m),
+    exit: () => { const A = window.Capacitor?.Plugins?.App; if (A && A.exitApp) A.exitApp(); else toastMsg('（网页版无法退出应用）'); },
+  });
+})();

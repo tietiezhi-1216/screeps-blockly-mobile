@@ -171,9 +171,12 @@
   // 接管入口：底栏「设置」→ 应用外壳；游戏内菜单保留但不再默认打开
   $('btnMenu').onclick = () => show('home');
   // Android 返回键：菜单内逐级返回，最后回到游戏
-  try { window.Capacitor?.Plugins?.App?.addListener('backButton', () => { if (!S.classList.contains('hidden')) back(); }); } catch (e) {}
+  // （安卓返回键统一由 back-stack.js 处理，见 main.js 末尾 initBack）
   setLabel('btnMenu', 'menu-2', '菜单');
-  window.Shell = { show, hide, badge };
+  // 硬件返回：子页面回上一页，栈空时回首页（不直接回游戏）
+  const hwBack = () => { stack.pop(); if (!stack.length || stack[0] !== 'home') stack.unshift('home'); show(stack[stack.length - 1], false); };
+  const closeDlg = () => { const L = document.querySelectorAll('.shDlg'); if (!L.length) return false; L[L.length - 1].remove(); };
+  window.Shell = { show, hide, badge, hwBack, closeDlg, page: () => S.classList.contains('hidden') ? null : S.dataset.page };
   if (new URLSearchParams(location.search).get('page')) { stack = ['home']; show(new URLSearchParams(location.search).get('page')); }
   else if (!S.classList.contains('hidden')) show('home');
 })();

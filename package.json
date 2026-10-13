@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "node test/easy-blocks.test.js && node test/adv-blocks.test.js && node test/fly-drag.cjs && node test/lan.test.js && node test/controller.test.js && node test/api.test.js && node test/api2.test.js && node test/ruin.test.js && node test/api3.test.js && node test/ext.test.js && node test/ext2.test.js && node test/powers.test.js && node test/keeper.test.js && node test/zones.test.js && node test/runtime.test.js && node test/combat.test.js && node test/structures.test.js && node test/runtime2.test.js && node test/mechanics.test.js && node test/vision.test.js && node test/npc.test.js && node test/exit-path.test.js && node test/spawnpick.test.js",
+    "test": "node test/easy-blocks.test.js && node test/adv-blocks.test.js && node test/fly-drag.cjs && node test/lan.test.js && node test/controller.test.js && node test/api.test.js && node test/api2.test.js && node test/ruin.test.js && node test/api3.test.js && node test/ext.test.js && node test/ext2.test.js && node test/powers.test.js && node test/keeper.test.js && node test/zones.test.js && node test/runtime.test.js && node test/combat.test.js && node test/structures.test.js && node test/runtime2.test.js && node test/mechanics.test.js && node test/vision.test.js && node test/npc.test.js && node test/exit-path.test.js && node test/spawnpick.test.js && node test/back-nav.cjs",
     "host": "node test/host-server.js",
     "test:native": "node test/native-stub.cjs",
     "test:update": "node test/update-stub.cjs",
@@ -16,6 +16,7 @@
   "license": "ISC",
   "dependencies": {
     "@capacitor/android": "^6.2.2",
+    "@capacitor/app": "^6.0.3",
     "@capacitor/browser": "^6.0.6",
     "@capacitor/core": "^6.2.2",
     "@capacitor/status-bar": "^6.0.3",

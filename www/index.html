@@ -8,7 +8,7 @@
 <div id="roomBar"><span id="rbName"></span><button id="rbSpawn" class="primary hidden" data-icon="flag"><span class="lb">选择出生点</span></button></div>
 <div id="panel" class="hidden"><div class="pnHead"><div class="pnTabs"><button data-pt="room">房间</button><button data-pt="console">控制台</button><button data-pt="memory">内存</button><button data-pt="layers">图层</button><button data-pt="global">全局</button></div><button id="pnClose" data-icon="x" class="iconbtn"></button></div>
 <div id="pnBody"></div>
-<div id="pnConsole" class="hidden"><div class="cnFilter"><input id="cnFind" placeholder="过滤日志…"><button data-cf="all" class="on">全部</button><button data-cf="err">错误</button><button data-cf="me">我的</button></div><div id="cnOut"></div><div class="cnIn"><input id="cnCmd" placeholder="输入 JS，例如 Game.time 或 Object.keys(Game.creeps)" autocapitalize="off" autocomplete="off" spellcheck="false"><button id="cnRun" class="primary">执行</button></div></div></div>
+<div id="pnConsole" class="hidden"><div class="cnFilter"><input id="cnFind" placeholder="过滤"><button data-cf="all" class="on">全部</button><button data-cf="err">错误</button><button data-cf="me">我的</button></div><div id="cnOut"></div><div class="cnIn"><input id="cnCmd" placeholder="输入 JS" autocapitalize="off" autocomplete="off" spellcheck="false"><button id="cnRun" class="primary">执行</button></div></div></div>
 <nav id="bar">
   <button id="btnRun" data-icon="player-play"><span class="lb">运行</span></button>
   <button id="btnCode" data-icon="puzzle"><span class="lb">代码</span></button>
@@ -27,7 +27,7 @@
 <div class="wmBar"><span id="wmSel">点选一个空闲房间</span><button id="wmGo" class="primary" disabled>进入房间</button></div></div>
 <div id="inspect" class="hidden"><div class="insHead"><span id="insTitle"></span><button id="insClose" data-icon="x" class="iconbtn"></button></div><div id="insBody"></div></div>
 <div id="editor" class="hidden">
-  <div id="edTabs"><div id="catBar"></div><div id="flyHead"><button id="flyBack" data-icon="arrow-left"><span class="lb">返回</span></button><span id="flyTitle"></span><span class="fh">点击添加 · 长按拖动</span></div><button id="edClose" data-icon="check" class="primary"><span class="lb">完成</span></button></div>
+  <div id="edTabs"><div id="catBar"></div><div id="flyHead"><button id="flyBack" data-icon="arrow-left"><span class="lb">返回</span></button><span id="flyTitle"></span></div><button id="edClose" data-icon="check" class="primary"><span class="lb">完成</span></button></div>
   <div id="blocklyDiv"><div id="edTools"><button id="edUndo" data-icon="arrow-back-up" title="撤销"></button><button id="edRedo" data-icon="arrow-forward-up" title="重做"></button><button id="edHist" data-icon="history" title="历史版本"></button><button id="edZin" data-icon="zoom-in"></button><button id="edZout" data-icon="zoom-out"></button><button id="edCenter" data-icon="focus-centered"></button><button id="edTrash" data-icon="trash"></button></div></div>
 </div>
 <div id="net" class="hidden panel">

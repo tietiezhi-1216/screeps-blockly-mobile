@@ -154,3 +154,18 @@ body.barMin{--lbar:0px}
   #wmap .wmLegend{left:calc(8px + var(--sal))!important}
 }
 .glob{display:grid;grid-template-columns:1fr;gap:0;font-size:13px}.glob .gi{display:flex;justify-content:space-between;padding:7px 2px;border-bottom:1px solid #2a2a2a;white-space:nowrap}.glob .gi span{color:#999}.glob .gi b{color:#eee;font-weight:600}
+/* v1.8.0 统一扁平列表：设置 / 个人中心 / 存档等所有列表行只用分隔线，无卡片框；首页纯色深色背景 */
+#start,#start.shell{background:var(--sw-bg)!important;background-image:none!important}
+.shBody .shRow{background:transparent!important;border:0!important;border-bottom:1px solid var(--sw-line)!important;border-radius:0!important;height:46px;padding:0 4px}
+.shBody .shRow:active{background:#ffffff0d!important}
+.shSec{margin:16px 4px 2px;color:var(--sw-acc);letter-spacing:0;font-size:12px}
+.shBody{max-width:720px;margin:0 auto}
+/* 竖屏：工具栏在底部，所有面板为底部抽屉，统一在工具栏之上 */
+@media (orientation:portrait){
+  #panel,#inspect,#buildPick{left:0!important;right:0!important;top:auto!important;bottom:calc(60px + var(--bot))!important;width:auto!important;max-height:55vh!important;border-radius:0!important;border:0!important;border-top:1px solid var(--sw-line)!important;overflow:auto}
+  #panel{height:55vh!important}
+  #inspect{background:#181818f2!important}
+  #hud{padding-top:var(--sat)!important}
+  #roomBar{top:auto!important;bottom:calc(60px + var(--bot))!important;left:0!important}
+}
+.ri .riBtns button:not(.primary){background:#2a2f3a!important;color:#e6e6e6!important;border:0!important}

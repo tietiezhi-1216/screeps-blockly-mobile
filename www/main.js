@@ -34,10 +34,12 @@ function initBlockly() {
   // 竖屏手机：顶部一行（分类 chips + 完成）+ 左侧竖向 flyout（≤45% 宽），默认收起
   ws = Blockly.inject('blocklyDiv', { toolbox: { kind: 'flyoutToolbox', contents: [] }, trashcan: false,
     zoom: { controls: false, wheel: true, pinch: true, startScale: 0.8, minScale: 0.4, maxScale: 2 },
-    move: { scrollbars: true, drag: true, wheel: true }, grid: { spacing: 24, length: 2, colour: '#ddd', snap: true },
+    move: { scrollbars: true, drag: true, wheel: true }, grid: { spacing: 24, length: 2, colour: '#ddd', snap: false },
     renderer: 'zelos', horizontalLayout: false, toolboxPosition: 'start', theme: edDark() ? DARK_THEME : LIGHT_THEME });
   $('editor').classList.toggle('dark', edDark());
   fly = ws.getFlyout();
+  // 全屏列表覆盖在工作区之上，不占工作区坐标：否则打开/收起列表时工作区原点平移一个屏宽，拖出的积木会跳到右侧、拖动时乱跳
+  { const mm = ws.getMetricsManager(), of = mm.getFlyoutMetrics.bind(mm); mm.getFlyoutMetrics = function (own) { const m = of(own); return Object.assign({}, m, { width: 0, height: 0 }); }; }
   // 全屏积木列表：flyout 铺满编辑区，按最宽积木缩放到屏宽，竖向滚动
   fly.getFlyoutScale = () => flyScale;
   const reflow = fly.reflowInternal_.bind(fly);
@@ -215,7 +217,7 @@ $('introOk').onclick = () => { $('intro').classList.add('hidden'); localStorage.
 // 开始界面
 $('startVer').textContent = 'v' + (window.APP_VERSION || 'dev');
 const hideStart = () => $('start').classList.add('hidden');
-$('sPlay').onclick = () => { hideStart(); if (!localStorage.getItem('sbm_intro')) $('intro').classList.remove('hidden'); };
+$('sPlay').onclick = () => { hideStart(); };
 $('sNet').onclick = () => { hideStart(); $('net').classList.remove('hidden'); };
 $('sSet').onclick = () => { hideStart(); $('menu').classList.remove('hidden'); };
 

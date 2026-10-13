@@ -54,9 +54,9 @@
       ${sec('玩家')}${row('editName', 'edit', '昵称', esc(nick))}${row('go:badge', 'palette', '徽章')}${row('worldMap', 'map', '世界地图')}${row('respawn', 'refresh', '重新出生', '', 'danger')}
       ${sec('更多')}${row('go:worlds', 'world', '存档管理', J('sbm_worlds', []).length + ' 个')}${row('go:snippets', 'code', '代码片段库', J('sbm_snips', []).length + ' 个')}${row('go:settings', 'settings', '设置')}`;
     else if (ptab === 'rooms') body = rooms.length ? `<div class="rlist">${rooms.map(r => `<div class="rrow"><div class="rn">${esc(r.name)}</div><div class="rl">RCL <b>${r.lvl}</b></div><div class="rbar"><i style="width:${r.lvl >= 8 ? 100 : Math.round(100 * r.p / (r.t || 1))}%"></i></div><div class="rs">${r.sp} Spawn · ${r.cr} creep</div></div>`).join('')}</div>`
-      : `<p class="note">还没有房间。在世界地图上选择一个空闲房间放下 Spawn。</p>${row('worldMap', 'map', '打开世界地图')}`;
+      : `${row('worldMap', 'map', '世界地图')}`;
     else body = `<div class="grid">${[['总运行 tick', s.ticks, 'clock'], ['生产 creep', s.creeps, 'bug'], ['采集能量', s.energy, 'bolt'], ['最高 RCL', s.rclMax, 'trophy'], ['建成建筑', s.built, 'building'], ['存档', J('sbm_worlds', []).length, 'world']].map(([k, n, ic]) => tile(k, fmt(n), ic)).join('')}</div>
-      <p class="note">统计自 ${dt(s.since)}，只统计本机玩家在本机运行（单机 / 房主）时的数据。</p>${row('statReset', 'eraser', '清零统计', '', 'danger')}`;
+      ${row('statReset', 'eraser', '清零统计', '', 'danger')}`;
     return head('个人中心') + `<div class="shBody acct">
       <div class="acHead">${badge(p.badge, 76)}<div class="pc"><div class="pn">${esc(nick)}</div>
         <div class="gcl"><span class="gl">GCL <b>${g.lv}</b></span><div class="gbar"><i style="width:${Math.min(100, 100 * g.cur / g.need).toFixed(1)}%"></i></div><span class="gn">${fmt(Math.floor(g.cur))} / ${fmt(Math.ceil(g.need))}</span></div></div></div>
@@ -79,35 +79,35 @@
   pages.stats = () => {
     const s = Stats.get(), L = [['总运行 tick', s.ticks, 'clock'], ['生产 creep', s.creeps, 'bug'], ['采集能量', s.energy, 'bolt'], ['最高 RCL', s.rclMax, 'trophy'], ['建成建筑', s.built, 'building']];
     return head('详细统计') + `<div class="shBody">${sec('累计数据 · 自 ' + dt(s.since))}${L.map(([k, v, ic]) => row('none', ic, k, `<b>${v}</b>`, 'static')).join('')}
-      <p class="note">只统计本机玩家在本机运行（单机 / 房主）时的数据。</p>${row('statReset', 'eraser', '清零统计', '', 'danger')}</div>`;
+      ${row('statReset', 'eraser', '清零统计', '', 'danger')}</div>`;
   };
 
   pages.worlds = () => {
     const L = J('sbm_worlds', []);
     return head('存档管理') + `<div class="shBody">${sec('当前世界')}${row('wSave', 'device-floppy', '保存当前世界为新存档')}${row('wImport', 'file-import', '导入 JSON 存档')}
       ${sec('已保存 · ' + L.length)}${L.length ? L.map((w, i) => `<div class="item"><div class="it"><div class="in">${esc(w.name)}</div><div class="is">TICK ${w.time} · ${dt(w.ts)}</div></div>
-        <button class="sm" data-act="wLoad" data-i="${i}" data-icon="player-play"></button><button class="sm" data-act="wExport" data-i="${i}" data-icon="file-export"></button><button class="sm danger" data-act="wDel" data-i="${i}" data-icon="trash"></button></div>`).join('') : '<p class="note">还没有存档。</p>'}</div>`;
+        <button class="sm" data-act="wLoad" data-i="${i}" data-icon="player-play"></button><button class="sm" data-act="wExport" data-i="${i}" data-icon="file-export"></button><button class="sm danger" data-act="wDel" data-i="${i}" data-icon="trash"></button></div>`).join('') : ''}</div>`;
   };
 
   pages.snippets = () => {
     const L = J('sbm_snips', []);
     return head('代码片段库') + `<div class="shBody">${sec('当前程序')}${row('snSave', 'device-floppy', '把当前积木保存为片段')}${row('snImport', 'file-import', '导入片段 JSON')}
       ${sec('片段 · ' + L.length)}${L.length ? L.map((s, i) => `<div class="item"><div class="it"><div class="in">${esc(s.name)}</div><div class="is">${s.blocks} 个积木 · ${dt(s.ts)}</div></div>
-        <button class="sm" data-act="snLoad" data-i="${i}" data-icon="download"></button><button class="sm" data-act="snExport" data-i="${i}" data-icon="file-export"></button><button class="sm danger" data-act="snDel" data-i="${i}" data-icon="trash"></button></div>`).join('') : '<p class="note">还没有片段。</p>'}</div>`;
+        <button class="sm" data-act="snLoad" data-i="${i}" data-icon="download"></button><button class="sm" data-act="snExport" data-i="${i}" data-icon="file-export"></button><button class="sm danger" data-act="snDel" data-i="${i}" data-icon="trash"></button></div>`).join('') : ''}</div>`;
   };
 
   const st = () => J('sbm_settings', { speed: 1, sound: false, lang: 'zh' });
   pages.settings = () => {
     const s = st();
     return head('设置') + `<div class="shBody">${sec('通用')}${row('none', 'language', '语言', '简体中文', 'static')}${row('sound', 'volume-off', '音效', s.sound ? '开' : '关')}
-      ${sec('游戏')}${row('defSpeed', 'player-track-next', '默认运行速度', s.speed + 'x')}${row('edDark', 'moon', '代码编辑器夜间模式', window.edDark && window.edDark() ? '开' : '关')}${row('speedPick', 'player-track-next', '当前运行速度', speed + 'x')}${row('net', 'broadcast', '局域网联机')}${row('intro', 'help', '新手提示')}${row('resetCode', 'arrow-back-up', '恢复默认积木')}
+      ${sec('游戏')}${row('defSpeed', 'player-track-next', '默认运行速度', s.speed + 'x')}${row('edDark', 'moon', '代码编辑器夜间模式', window.edDark && window.edDark() ? '开' : '关')}${row('speedPick', 'player-track-next', '当前运行速度', speed + 'x')}${row('net', 'broadcast', '局域网联机')}${row('resetCode', 'arrow-back-up', '恢复默认积木')}
       ${sec('数据')}${row('saveNow', 'device-floppy', '立即保存世界')}${row('respawn', 'refresh', '重新出生', '', 'danger')}${row('resetWorld', 'refresh', '重置世界', '', 'danger')}${row('clearAll', 'trash', '清除全部数据', '', 'danger')}</div>`;
   };
 
   pages.about = () => head('关于') + `<div class="shBody"><div class="aboutTop"><img src="art/logo.png" alt=""><div class="bt">Screeps <b>World</b></div></div>
     ${row('none', 'info-circle', '版本', 'V' + esc(window.APP_VERSION || 'dev'), 'static')}
-    <p class="note">用积木编写 creep 的 AI，在开放世界中采集、建造、扩张。新版本会在游戏运行时自动检测并提示更新。</p>
-    <p class="note">Screeps 是 Screeps 官方的商标，本作与其无关联。</p></div>`;
+    
+    </div>`;
 
   // ---- 弹窗：输入 / 文本导入导出 ----
   function dialog(title, html, onOk, okText = '确定') {
@@ -129,7 +129,7 @@
 
   const saveList = (k, L) => LS.setItem(k, JSON.stringify(L));
   const countBlocks = j => { let n = 0; const walk = o => { if (o && typeof o === 'object') { if (o.type && o.id) n++; Object.values(o).forEach(walk); } }; walk(j); return n; };
-  function startGame() { hide(); const s = st(); startGame.done = 1; setSpeed(s.speed || 1, false); if (!LS.getItem('sbm_intro')) $('intro').classList.remove('hidden'); }
+  function startGame() { hide(); const s = st(); startGame.done = 1; setSpeed(s.speed || 1, false); }
 
   const acts = {
     play: startGame,

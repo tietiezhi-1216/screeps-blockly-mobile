@@ -148,10 +148,18 @@ class Renderer {
       if (e) { e.full && e.full.destroy(true); e.miniT && e.miniT.destroy(true); e.sp.destroy(); e.tx.destroy(); }
       const sp = new PIXI.Sprite(PIXI.Texture.EMPTY); sp.x = rx * ROOM * TS; sp.y = ry * ROOM * TS; sp.width = sp.height = ROOM * TS; this.terrainL.addChild(sp);
       const tx = new PIXI.Text((r.name || roomNameXY(rx, ry)) + (own ? '  ' + own.name : ''), { fontFamily: 'sans-serif', fontSize: 20, fill: own ? own.color : 0x888888 }); tx.alpha = .6; tx.x = sp.x + 6; tx.y = sp.y + 4; this.labelL.addChild(tx);
-      if (own && this.ov && this.ov.owner) { const og = new PIXI.Graphics(); og.beginFill(own.color, .12).drawRect(0, 0, ROOM * TS, ROOM * TS).endFill(); og.lineStyle(3, own.color, .6).drawRect(1.5, 1.5, ROOM * TS - 3, ROOM * TS - 3); sp.addChild(og); og.scale.set(1 / sp.scale.x); }
       e = { sp, tx, sig, rx, ry, tiles: r.tiles, full: null, miniT: null }; this.roomSp.set(k, e);
     }
     this.rooms = [...this.roomSp.values()]; this.roomsVer = v.roomsVer;
+    this.drawOwn(v);
+  }
+  // 归属层（v1.7.1）：独立的世界坐标 Graphics，不再挂在房间精灵下（旧做法随精灵贴图缩放会被放大到世界外）。自己绿色、他人红色，裁剪在世界范围内
+  drawOwn(v) {
+    if (!this.ownG) { this.ownG = new PIXI.Graphics(); this.ownG.name = 'ownG'; this.world.addChildAt(this.ownG, this.world.getChildIndex(this.terrainL) + 1); }
+    const g = this.ownG; g.clear(); if (!(this.ov && this.ov.owner)) return; const RS = ROOM * TS, S = v.S || this._bgS || 0, b = 3;
+    for (const k in v.rooms) { const r = v.rooms[k]; if (!r || !r.owner) continue; const [rx, ry] = k.split(',').map(Number); if (!(rx >= 0 && ry >= 0 && rx < S && ry < S)) continue;
+      const c = r.owner === this.myPid ? 0x00ff00 : 0xff0000, x = rx * RS, y = ry * RS;
+      g.beginFill(c, .12).drawRect(x, y, RS, RS).endFill(); g.beginFill(c, .6); g.drawRect(x, y, RS, b); g.drawRect(x, y + RS - b, RS, b); g.drawRect(x, y + b, b, RS - 2 * b); g.drawRect(x + RS - b, y + b, b, RS - 2 * b); g.endFill(); }
   }
   // 无视野房间：地形照常显示，上面盖一层暗色（同官方：能看地形，看不到对象）
   drawFog(v) {
@@ -284,7 +292,7 @@ class Renderer {
       if (!vis) continue; e.tx.scale.set(lod === 'mini' ? ts : 1);
       if (lod === 'mini' || (!e.full && built >= 2)) { const m = this.miniTex(e); if (e.sp.texture !== m) { e.sp.texture = m; e.sp.width = e.sp.height = RS; } continue; }
       if (!e.full) { built++; e.full = this.roomTexture(e.rx, e.ry, e.tiles); }
-      if (e.sp.texture !== e.full) { e.sp.texture = e.full; e.sp.width = e.sp.height = RS; for (const ch of e.sp.children) ch.scale.set(1 / e.sp.scale.x); }
+      if (e.sp.texture !== e.full) { e.sp.texture = e.full; e.sp.width = e.sp.height = RS; }
     }
     if (fulls > 24) for (const e of this.rooms) if (!e.sp.visible && e.full) { if (e.sp.texture === e.full) e.sp.texture = this.miniTex(e); e.full.destroy(true); e.full = null; if (--fulls <= 20) break; }
     // 放大到完整细节时，视野里尚未生成的房间按需生成（每帧最多 1 个）
@@ -324,7 +332,7 @@ class Renderer {
   }
   // 缩小视图里的对象：建筑/creep 画成玩家颜色的点，能量源黄点，Controller 白点，房间按所属着色
   drawMini(v) {
-    const g = this.miniG; g.clear(); if (this.lod !== 'mini' || !v) return; const RS = ROOM * TS, col = id => v.players[id]?.color ?? 0xe05050, dot = (o, c, r) => g.beginFill(c).drawRect((o.x + .5) * TS - r, (o.y + .5) * TS - r, r * 2, r * 2).endFill();
+    if (this.ownG) this.ownG.visible = this.lod !== 'mini'; const g = this.miniG; g.clear(); if (this.lod !== 'mini' || !v) return; const RS = ROOM * TS, col = id => v.players[id]?.color ?? 0xe05050, dot = (o, c, r) => g.beginFill(c).drawRect((o.x + .5) * TS - r, (o.y + .5) * TS - r, r * 2, r * 2).endFill();
     // 官方地图归属层：自己的房间绿色、他人红色；预定的房间更淡。只画实心填充 + 内描边（不用 lineStyle，避免描边几何越界），严格对齐房间格并限制在世界范围内
     const S = v.S || this._bgS || 0, me = this.myPid, own = {}, om = v.owned || Object.fromEntries(Object.entries(v.rooms || {}).filter(([, r]) => r && r.owner).map(([k, r]) => [k, r.owner])); for (const k in om) own[k] = [om[k], 1];
     for (const c of v.controllers || []) { const rv = c.reservation; const ro = rv && (rv.owner || rv.username); if (!c.owner && ro) { const k = Math.floor(c.x / ROOM) + ',' + Math.floor(c.y / ROOM); if (!own[k]) own[k] = [ro, 0]; } }

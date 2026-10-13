@@ -238,6 +238,7 @@
         // 官方 PowerCreep 原型只有这些动作：没有 harvest/attack/build 等
         for (const k of ['attack', 'rangedAttack', 'rangedMassAttack', 'heal', 'rangedHeal', 'harvest', 'build', 'repair', 'dismantle', 'upgradeController', 'claimController', 'reserveController', 'attackController', 'generateSafeMode', 'signController', 'pull', 'getActiveBodyparts']) delete v[k];
         delete v.body; delete v.fatigue; delete v.spawning; }
+      const PC_DROP = ['attack', 'rangedAttack', 'rangedMassAttack', 'heal', 'rangedHeal', 'harvest', 'build', 'repair', 'dismantle', 'upgradeController', 'claimController', 'reserveController', 'attackController', 'generateSafeMode', 'signController', 'pull', 'getActiveBodyparts'];
       v.spawn = ps => { if (rec.owner !== pid) return ERR_NOT_OWNER; if (rec.spawned) return ERR_BUSY; const s = ps && ps._raw; if (!s || s.type !== 'powerSpawn') return ERR_INVALID_TARGET; if (s.owner !== pid) return ERR_NOT_OWNER;
         if (rec.spawnCooldownTime > w.time) return ERR_TIRED; if (!E.isActive(s)) return ERR_RCL_NOT_ENOUGH;
         if (w.creeps.some(c => c.x === s.x && c.y === s.y && !c.spawning)) return ERR_BUSY;
@@ -265,12 +266,13 @@
         if (info.range) { if (!x) return ERR_INVALID_TARGET; if (!inRoom(x) || dist(x, live) > info.range) return ERR_NOT_IN_RANGE;
           const ce = (x.effects || []).find(f => f.power === power); if (ce && ce.level > p.level && ce.endTime > w.time) return ERR_FULL; }
         return queue('usePower', () => processUsePower(E, rec, live, power, x)); };
+      if (api._toClass) api._toClass(v, 'PowerCreep', PC_DROP);
       return v;
     }
     const storeCapOf = c => 100 * (((w.powerCreeps.find(p => p.id === c.pc) || {}).level || 0) + 1);
     const storeCapOfS = s => storeCap(w, s, 'energy') || 0;
     const powerCreeps = {}; for (const rec of w.powerCreeps) if (rec.owner === pid) powerCreeps[rec.name] = decorate(rec);
-    function PowerCreep() { throw new Error('PowerCreep 不能直接构造'); }
+    const PowerCreep = api._cls ? api._cls.PowerCreep : function PowerCreep() { throw new Error('PowerCreep 不能直接构造'); }; // 官方原型类，全局重置之间保持
     PowerCreep.create = (name, className) => {
       if (!name || typeof name !== 'string' || name.length > 100) return ERR_INVALID_ARGS; if (!Object.values(SC.POWER_CLASS).includes(className)) return ERR_INVALID_ARGS;
       if (w.powerCreeps.some(p => p.owner === pid && p.name === name)) return ERR_NAME_EXISTS;
@@ -318,7 +320,7 @@
     Game.map.visual = new RoomVisual('*');
     // Deposit 包装
     const depCache = new Map(), RP = api.RoomPosition;
-    const wrapDep = d => { if (depCache.has(d)) return depCache.get(d); const v = { id: d.id, depositType: d.depositType, cooldown: Math.max(0, d.cooldownTime - w.time), lastCooldown: d.lastCooldown, ticksToDecay: d.decayAt - w.time, pos: new RP(d.x % ROOM, d.y % ROOM, roomName(d.x, d.y)) };
+    const wrapDep = d => { if (depCache.has(d)) return depCache.get(d); const v = { id: d.id, depositType: d.depositType, cooldown: Math.max(0, d.cooldownTime - w.time), lastCooldown: d.lastCooldown, ticksToDecay: d.decayAt - w.time, pos: new RP(d.x % ROOM, d.y % ROOM, roomName(d.x, d.y)), effects: (d.effects || []).filter(f => f.endTime > w.time).map(f => ({ effect: f.power, power: f.power, level: f.level, ticksRemaining: f.endTime - w.time })) }; if (api._toClass) api._toClass(v, 'Deposit');
       Object.defineProperty(v, '_raw', { value: d, enumerable: false }); Object.defineProperty(v, 'room', { get: () => Game.rooms[roomName(d.x, d.y)], enumerable: false }); depCache.set(d, v); return v; };
     const gById = Game.getObjectById; Game.getObjectById = id => { const d = w.deposits.find(d => d.id === id); if (d) return wrapDep(d); const rec = w.powerCreeps.find(p => p.id === id); if (rec) return pcApi.decorate(rec);
       const v = gById(id); if (v && v._raw && v._raw.effects) v.effects = v._raw.effects.filter(f => f.endTime > w.time).map(f => ({ power: f.power, level: f.level, ticksRemaining: f.endTime - w.time })); if (v && v._raw && v._raw.kind === 'controller') v.isPowerEnabled = !!v._raw.isPowerEnabled; return v; };
@@ -338,7 +340,7 @@
       const c = R.controller; if (c && c._raw) c.isPowerEnabled = !!c._raw.isPowerEnabled;
     }
     // Creep.harvest(deposit)：官方 HARVEST_DEPOSIT_POWER，冷却 = ceil(DEPOSIT_EXHAUST_MULTIPLY * harvested^DEPOSIT_EXHAUST_POW)
-    for (const n in Game.creeps) { const v = Game.creeps[n], o = v._raw, h0 = v.harvest;
+    for (const n in Game.creeps) { const v = Game.creeps[n], o = v._raw, h0 = v.harvest.bind(v);
       v.harvest = t => { const d = t && t._raw; if (!d || d.kind !== 'deposit') return h0(t);
         if (o.spawning) return ERR_BUSY; if (!activeParts(o, 'work')) return ERR_NO_BODYPART; if (roomKey(d.x, d.y) !== roomKey(o.x, o.y) || dist(d, o) > 1) return ERR_NOT_IN_RANGE;
         if (d.cooldownTime > w.time) return ERR_TIRED;

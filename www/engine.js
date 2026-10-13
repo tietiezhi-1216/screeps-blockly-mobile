@@ -293,6 +293,7 @@ class Engine {
       { if (w.rawMemory) delete w.rawMemory[pid];
       try { const str = JSON.stringify(w.memory[pid]); if (str.length > 2 * 1024 * 1024) this.log(pid, 'Memory 超过 2MB 限制，未保存'); else { w.memory[pid] = JSON.parse(str); (this._memOk = this._memOk || {})[pid] = str; } } catch (e) { this.log(pid, 'Memory 序列化失败:', String(e && e.message || e)); const ok = this._memOk && this._memOk[pid]; if (ok) w.memory[pid] = JSON.parse(ok); } }
     }
+    for (const pid in w.players) if (!this.fns[pid]) this.flushIntents(pid); // 本 tick 内经 API 登记（无脚本玩家，如控制台/测试）的 intent 同样在 tick 末结算
     this.keeperAI(); // 官方：NPC pretick 与玩家 intent 同一 tick 结算
     this.resolveMoves();
     for (const c of w.creeps) {
@@ -782,6 +783,13 @@ function buildApi(E, pid) {
     },
     structure(v, o) {
       structBase(v, o, o.type);
+      // 官方 game/structures.js 各类型专有属性
+      if (o.type === 'keeperLair') v.ticksToSpawn = o.spawnAt ? o.spawnAt - w.time : undefined;
+      if (o.type === 'powerBank') { v.power = (o.store && o.store.power) || o.power || 0; v.ticksToDecay = o.decayAt != null ? o.decayAt - w.time : undefined; }
+      if (o.type === 'portal') { v.destination = o.destination ? (o.destination.shard ? { shard: o.destination.shard, room: o.destination.room } : posOf({ x: o.destination.x, y: o.destination.y })) : undefined; v.ticksToDecay = o.decayAt != null ? o.decayAt - w.time : undefined; }
+      if (o.type === 'invaderCore') { v.level = o.level || 0; v.ticksToDeploy = o.deployTime ? o.deployTime - w.time : undefined; }
+      if (o.type === 'constructedWall') v.ticksToLive = o.decayAt != null ? o.decayAt - w.time : undefined;
+      if (o.type === 'container' || o.type === 'storage' || o.type === 'terminal') v.storeCapacity = storeCap(w, o); // 已废弃，等同 store.getCapacity()
       if (o.type === 'rampart') { v.isPublic = !!o.isPublic; v.setPublic = p => { if (o.owner !== pid) return ERR_NOT_OWNER; if (o._intentOnly) return OK; o.isPublic = !!p; return OK; }; }
       if (o.type === 'nuker') { v.ghodium = o.store.G || 0; v.ghodiumCapacity = SC.NUKER_GHODIUM_CAPACITY; v.energy = o.store.energy || 0; v.energyCapacity = SC.NUKER_ENERGY_CAPACITY;
         v.launchNuke = pos => { // 官方 StructureNuker.launchNuke 校验顺序
@@ -865,15 +873,31 @@ function buildApi(E, pid) {
           if (cd > 0) o.cooldown = Math.round(cd); return OK;
         };
       }
-      if (o.type === 'terminal') v.send = (res, amount, dest, description) => {
-        if (o.owner !== pid) return ERR_NOT_OWNER; if (!E.isActive(o)) return ERR_RCL_NOT_ENOUGH; if (o.cooldown > 0) return ERR_TIRED;
-        const p = parseRoomName(dest); if (!RESOURCES.has(res) || !(amount > 0) || !p) return ERR_INVALID_ARGS;
-        const t = w.structures.find(s => s.type === 'terminal' && s !== o && Math.floor(s.x / ROOM) === p[0] && Math.floor(s.y / ROOM) === p[1]); if (!t) return ERR_INVALID_ARGS;
-        const d = Math.max(Math.abs(p[0] - Math.floor(o.x / ROOM)), Math.abs(p[1] - Math.floor(o.y / ROOM))), cost0 = Math.ceil(amount * (1 - Math.exp(-d / 30))), opT = pwrFx(o, SC.PWR_OPERATE_TERMINAL, w.time), cost = opT != null ? Math.ceil(cost0 * opT) : cost0; // PWR_OPERATE_TERMINAL
-        const need = res === 'energy' ? amount + cost : amount; if ((o.store[res] || 0) < need - (res === 'energy' ? 0 : 0) || (o.store.energy || 0) < (res === 'energy' ? need : cost)) return ERR_NOT_ENOUGH_RESOURCES;
-        if (freeFor(w, t, res) < amount) return ERR_FULL;
-        if (o._intentOnly) return OK; o.store[res] -= amount; o.store.energy -= cost; t.store[res] = (t.store[res] || 0) + amount; o.cooldown = opT != null ? Math.round(SC.TERMINAL_COOLDOWN * opT) : SC.TERMINAL_COOLDOWN;
-        w.transactions = (w.transactions || []).slice(-99); w.transactions.push({ transactionId: 't' + (w.nextId++), time: w.time, sender: { username: w.players[pid]?.name }, recipient: { username: w.players[t.owner]?.name }, _s: pid, _r: t.owner, resourceType: res, amount, from: roomName(o.x, o.y), to: dest, description: description == null ? undefined : String(description).slice(0, 100) }); return OK; };
+      if (o.type === 'terminal') v.send = (res, amount, dest, description) => { // 官方 game/structures.js（调用校验）+ global-intents/market.js（tick 末执行）
+        const rdist = (a, b) => Math.max(Math.abs(a[0] - b[0]), Math.abs(a[1] - b[1]));
+        const tcost = (amt, d) => { const c0 = Math.ceil(amt * (1 - Math.exp(-d / 30))), opT = pwrFx(o, SC.PWR_OPERATE_TERMINAL, w.time); return opT != null && opT !== true ? Math.ceil(c0 * opT) : c0; };
+        const here = [Math.floor(o.x / ROOM), Math.floor(o.y / ROOM)];
+        if (!o._flushing) {
+          if (o.owner !== pid) return ERR_NOT_OWNER; if (!E.isActive(o)) return ERR_RCL_NOT_ENOUGH;
+          if (typeof dest !== 'string' || !/^(W|E)\d+(N|S)\d+$/.test(dest)) return ERR_INVALID_ARGS;
+          if (!RESOURCES.has(res)) return ERR_INVALID_ARGS;
+          if (!o.store || !o.store[res] || o.store[res] < amount) return ERR_NOT_ENOUGH_RESOURCES;
+          if (o.cooldown > 0) return ERR_TIRED;
+          const p = parseRoomName(dest), cost = tcost(amount, p ? rdist(here, p) : 0);
+          if (res !== 'energy' && (o.store.energy || 0) < cost || res === 'energy' && (o.store.energy || 0) < amount + cost) return ERR_NOT_ENOUGH_RESOURCES;
+          if (description && (typeof description !== 'string' || description.length > 100)) return ERR_INVALID_ARGS;
+          return OK; // 由 wrapStructIntents 登记 intent
+        }
+        // tick 末处理（processor/intents/terminal/send.js + global-intents/market.js）
+        if (!RESOURCES.has(res) || !amount || !(o.store[res] >= amount) || o.cooldown > 0) return;
+        const p = parseRoomName(dest); if (!p) return;
+        const t = w.structures.find(s => s.type === 'terminal' && s.owner && Math.floor(s.x / ROOM) === p[0] && Math.floor(s.y / ROOM) === p[1]); if (!t) return; // 目标房间没有有主 terminal：什么都不发生
+        let amt = Math.min(amount, Math.max(0, storeCap(w, t) - storeSum(t.store))); if (t === o) amt = Math.min(amt, amount); if (!(amt > 0)) return;
+        const cost = tcost(amt, rdist(here, p));
+        if (res !== 'energy' && (o.store.energy || 0) < cost || res === 'energy' && (o.store.energy || 0) < amt + cost) return;
+        t.store[res] = (t.store[res] || 0) + amt; o.store[res] -= amt; o.store.energy -= cost;
+        const opT = pwrFx(o, SC.PWR_OPERATE_TERMINAL, w.time); o.cooldown = opT != null && opT !== true ? Math.round(SC.TERMINAL_COOLDOWN * opT) : SC.TERMINAL_COOLDOWN;
+        w.transactions = (w.transactions || []).slice(-99); w.transactions.push({ transactionId: 't' + (w.nextId++), time: w.time, sender: { username: w.players[o.owner]?.name }, recipient: { username: w.players[t.owner]?.name }, _s: o.owner, _r: t.owner, resourceType: res, amount: amt, from: roomName(o.x, o.y), to: dest, description: description ? String(description).replace(/</g, '&lt;') : undefined }); return OK; };
     },
     creep(v, o) {
       const mine = o.owner === pid, cap = boostPower(o, 'carry', 'capacity') * SC.CARRY_CAPACITY;
@@ -1207,7 +1231,12 @@ function buildApi(E, pid) {
     CostMatrix: class CostMatrix { constructor() { this._bits = new Uint8Array(2500); } set(x, y, v) { this._bits[y * 50 + x] = v; } get(x, y) { return this._bits[y * 50 + x]; } clone() { const c = new PathFinder.CostMatrix(); c._bits.set(this._bits); return c; } serialize() { return Array.from(this._bits); } static deserialize(d) { const c = new PathFinder.CostMatrix(); c._bits.set(d); return c; } },
     use: () => undefined };
   CLS._game = Game;
-  return { Game, Memory: mem, RawMemory, RoomPosition, Room, PathFinder, _cls: CLS, _toClass: (v, n, drop) => toClass(CLS, v, n, drop), log: (...a) => E.log(pid, ...a) };
+  const log = (...a) => E.log(pid, ...a), api = { Game, Memory: mem, RawMemory, RoomPosition, Room, PathFinder, _cls: CLS, _toClass: (v, n, drop) => toClass(CLS, v, n, drop), log };
+  // 脚本全局一览（实际运行时由 compileUser 注入：require/module 为每个模块各自的 CommonJS 对象）
+  for (const k of CLASS_NAMES) api[k] = CLS[k];
+  Object.assign(api, { _: typeof __lodash !== 'undefined' ? __lodash : undefined, console: { log }, module: { exports: {} } });
+  api.require = n => { if (n === 'lodash') return api._; throw new Error(`Unknown module '${n}'`); };
+  return api;
 }
 
 // 官方原型类（engine/src/game/*.js）：作为用户脚本全局，支持 instanceof 与原型扩展；每次全局重置（重新编译/halt）重建
@@ -1247,10 +1276,13 @@ const SC_NAMES = Object.keys(SC).filter(k => /^[A-Z_][A-Z0-9_]*$/.test(k));
 // 未导出 loop 的旧代码（含积木生成代码）每 tick 整体重新执行。全局对象 global 在两次全局重置之间保留，未声明的赋值落到 global 上（非严格模式，与官方一致）。
 // 没有循环次数上限：只有 Game.cpu.tickLimit（毫秒）会中止本 tick 代码。
 const USER_HIDDEN = ['window', 'document', 'localStorage', 'fetch', 'XMLHttpRequest', 'WebSocket', 'Capacitor', 'globalThis', 'self', 'process', 'setTimeout', 'setInterval', 'SC', 'Function', 'eval'];
+// 用户脚本可见的标准 JS 内置对象；其余宿主全局（浏览器 window.name/top/... 等）对脚本不可见，未声明的读写都落到 global 上
+const JS_BUILTINS = new Set(['Object', 'Array', 'Number', 'String', 'Boolean', 'Symbol', 'BigInt', 'Math', 'JSON', 'Date', 'RegExp', 'Error', 'TypeError', 'RangeError', 'SyntaxError', 'ReferenceError', 'EvalError', 'URIError', 'Map', 'Set', 'WeakMap', 'WeakSet', 'WeakRef', 'Promise', 'Proxy', 'Reflect', 'ArrayBuffer', 'SharedArrayBuffer', 'DataView', 'Int8Array', 'Uint8Array', 'Uint8ClampedArray', 'Int16Array', 'Uint16Array', 'Int32Array', 'Uint32Array', 'Float32Array', 'Float64Array', 'BigInt64Array', 'BigUint64Array', 'parseInt', 'parseFloat', 'isNaN', 'isFinite', 'encodeURI', 'encodeURIComponent', 'decodeURI', 'decodeURIComponent', 'escape', 'unescape', 'NaN', 'Infinity', 'undefined', 'Intl', 'AggregateError', 'FinalizationRegistry', 'Atomics', 'TextEncoder', 'TextDecoder', 'arguments', 'this']);
+const SC_NAMES_SET = new Set(SC_NAMES);
 function instrumentLoops(code) { return /__loopGuard\(\)/.test(code) ? code : String(code).replace(/\bwhile\s*\(/g, 'while (__loopGuard(), ').replace(/\b(for\s*\([^()]*\)\s*)\{/g, '$1{ __loopGuard(); '); }
 function compileUser(code, modules) {
   const g = Object.create(null), lodash = (typeof __lodash !== 'undefined') ? __lodash : undefined;
-  const scope = new Proxy(g, { has: (t, k) => typeof k === 'string' && (k in t || !(k in globalThis)) && !USER_HIDDEN.includes(k) && !SC_NAMES.includes(k) && k !== '__loopGuard',
+  const scope = new Proxy(g, { has: (t, k) => typeof k === 'string' && (k in t || !JS_BUILTINS.has(k)) && !USER_HIDDEN.includes(k) && !SC_NAMES_SET.has(k) && k !== '__loopGuard',
     get: (t, k) => k === Symbol.unscopables ? undefined : t[k], set: (t, k, val) => { t[k] = val; return true; } });
   let n = 0, t0 = 0, lim = 500;
   const guard = () => { if ((++n & 1023) === 0 && Date.now() - t0 > lim) throw new Error('CPU time limit reached（超过 Game.cpu.tickLimit ' + lim + 'ms，本 tick 代码被中止）'); };

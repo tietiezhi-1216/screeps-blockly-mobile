@@ -23,6 +23,6 @@ const ob = mk('observer', 0, 3), rn = roomName(sp.x, sp.y);
 assert(run(e, `console.log(${id(ob)}.observeRoom('${rn}'))`) === OK, 'observeRoom 本房间 OK');
 assert(run(e, `console.log(${id(ob)}.observeRoom('foo'))`) === ERR_INVALID_ARGS, 'observeRoom 非法名 ERR_INVALID_ARGS');
 const T1 = mk('terminal', 0, 4); T1.store = { energy: 1000 };
-assert(run(e, `console.log(${id(T1)}.send(RESOURCE_ENERGY, 100, 'W99N99'))`) === ERR_INVALID_ARGS, 'send 目标无 terminal ERR_INVALID_ARGS');
+assert(run(e, `console.log(${id(T1)}.send(RESOURCE_ENERGY, 100, 'W99N99'))`) === OK && T1.store.energy === 1000, '官方：send 到无 terminal 的合法房间返回 OK（tick 末无效果）');
 // transfer 给 controller 不得吞资源
 e.tick(); e.tick();

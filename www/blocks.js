@@ -201,6 +201,48 @@ g('map', 'Game.market', 'Game.market.getHistory', ['资源'], '价格历史', tr
 g('map', 'Game.cpu', 'Game.cpu.limit', null, 'CPU 上限'); g('map', 'Game.cpu', 'Game.cpu.tickLimit', null, '本 tick 上限'); g('map', 'Game.cpu', 'Game.cpu.bucket', null, 'CPU 桶');
 g('map', 'Game.cpu', 'Game.cpu.getUsed', [], '已用 CPU', true); g('map', 'Game.cpu', 'Game.cpu.generatePixel', [], '生成 pixel', true, true);
 g('map', 'PathFinder', 'PathFinder.search', ['起点', '目标'], '寻路搜索', true);
+// ---- 补全：CPU / 地图视觉 / 市场记录 / PathFinder / RawMemory / InterShardMemory（官方 API 全部成员，含已废弃）----
+g('map', 'Game.cpu', 'Game.cpu.shardLimits', null, '各 shard CPU 分配'); g('map', 'Game.cpu', 'Game.cpu.unlocked', null, '已解锁满 CPU'); g('map', 'Game.cpu', 'Game.cpu.unlockedTime', null, '解锁到期时间');
+g('map', 'Game.cpu', 'Game.cpu.getHeapStatistics', [], '堆内存统计', true); g('map', 'Game.cpu', 'Game.cpu.halt', [], '重置运行时', true, true);
+g('map', 'Game.cpu', 'Game.cpu.setShardLimits', ['分配对象'], '设置 shard CPU', true, true); g('map', 'Game.cpu', 'Game.cpu.unlock', [], '解锁满 CPU', true, true);
+g('map', 'Game.map.visual', 'Game.map.visual', null, '世界地图视觉');
+g('map', 'Game.map.visual', 'Game.map.visual.line', ['起点', '终点', '样式'], '地图画线', true, true); g('map', 'Game.map.visual', 'Game.map.visual.circle', ['位置', '样式'], '地图画圆', true, true);
+g('map', 'Game.map.visual', 'Game.map.visual.rect', ['左上', '宽', '高', '样式'], '地图画矩形', true, true); g('map', 'Game.map.visual', 'Game.map.visual.poly', ['点数组', '样式'], '地图画折线', true, true);
+g('map', 'Game.map.visual', 'Game.map.visual.text', ['文字', '位置', '样式'], '地图写字', true, true); g('map', 'Game.map.visual', 'Game.map.visual.clear', [], '清空地图视觉', true, true);
+g('map', 'Game.map.visual', 'Game.map.visual.getSize', [], '地图视觉大小', true); g('map', 'Game.map.visual', 'Game.map.visual.export', [], '导出地图视觉', true);
+g('map', 'Game.map.visual', 'Game.map.visual.import', ['数据'], '导入地图视觉', true, true);
+g('map', 'Game.market', 'Game.market.incomingTransactions', null, '收到的交易'); g('map', 'Game.market', 'Game.market.outgoingTransactions', null, '发出的交易');
+g('map', 'PathFinder', 'PathFinder.use', ['是否启用'], '启用 PathFinder（已废弃）', true, true);
+g('map', 'PathFinder', 'new PathFinder.CostMatrix', [], '新建 CostMatrix', true);
+m('map', 'PathFinder', 'PathFinder.CostMatrix', 'set', ['x', 'y', '代价'], 'CostMatrix 设置', true); m('map', 'PathFinder', 'PathFinder.CostMatrix', 'get', ['x', 'y'], 'CostMatrix 读取');
+m('map', 'PathFinder', 'PathFinder.CostMatrix', 'clone', [], 'CostMatrix 复制'); m('map', 'PathFinder', 'PathFinder.CostMatrix', 'serialize', [], 'CostMatrix 序列化');
+g('map', 'PathFinder', 'PathFinder.CostMatrix.deserialize', ['数据'], 'CostMatrix 反序列化', true);
+g('mem', 'RawMemory', 'RawMemory.segments', null, '内存段'); g('mem', 'RawMemory', 'RawMemory.foreignSegment', null, '外部内存段');
+g('mem', 'RawMemory', 'RawMemory.get', [], '读取原始 Memory', true); g('mem', 'RawMemory', 'RawMemory.set', ['字符串'], '写入原始 Memory', true, true);
+g('mem', 'RawMemory', 'RawMemory.setActiveSegments', ['段号数组'], '激活内存段', true, true); g('mem', 'RawMemory', 'RawMemory.setActiveForeignSegment', ['玩家名', '段号'], '激活外部段', true, true);
+g('mem', 'RawMemory', 'RawMemory.setDefaultPublicSegment', ['段号'], '默认公开段', true, true); g('mem', 'RawMemory', 'RawMemory.setPublicSegments', ['段号数组'], '设置公开段', true, true);
+g('mem', 'InterShardMemory', 'InterShardMemory.getLocal', [], '读本 shard 数据', true); g('mem', 'InterShardMemory', 'InterShardMemory.setLocal', ['字符串'], '写本 shard 数据', true, true);
+g('mem', 'InterShardMemory', 'InterShardMemory.getRemote', ['shard 名'], '读其他 shard 数据', true);
+// ---- 补全：对象属性/方法（含已废弃）----
+p('obj', '通用', 'roomObject', 'effects', '效果列表');
+p('creep', '查询', CR, 'carry', '携带（已废弃）'); p('creep', '查询', CR, 'carryCapacity', '携带容量（已废弃）');
+p('obj', 'Flag', 'flag', 'secondaryColor', '副颜色'); m('obj', 'Flag', 'flag', 'setColor', ['颜色', '副颜色'], '设置颜色', true);
+p('obj', 'Nuke', 'nuke', 'launchRoomName', '发射房间'); p('obj', 'Nuke', 'nuke', 'timeToLand', '落地倒计时');
+p('obj', 'Ruin', 'ruin', 'destroyTime', '摧毁时间'); p('obj', 'Ruin', 'ruin', 'structure', '原建筑');
+m('room', '方法', 'room', 'lookAtArea', ['上', '左', '下', '右', '数组形式'], '查看区域');
+m('room', '方法', 'room', 'lookForAtArea', ['类型', '上', '左', '下', '右', '数组形式'], '按类型查看区域');
+g('room', '方法', 'Room.serializePath', ['路径'], '序列化路径', true); g('room', '方法', 'Room.deserializePath', ['字符串'], '反序列化路径', true);
+m('room', '地形', 'terrain', 'getRawBuffer', [], '地形原始数据');
+m('room', '视觉', 'room.visual', 'export', [], '导出房间视觉'); m('room', '视觉', 'room.visual', 'import', ['数据'], '导入房间视觉', true);
+p('struct', '通用', 'structure', 'storeCapacity', '容量（已废弃）');
+p('ctrl', '属性', 'controller', 'isPowerEnabled', '已启用 Power');
+p('struct', '其他', 'invaderCore', 'ticksToDeploy', '部署倒计时'); p('struct', '其他', 'keeperLair', 'ticksToSpawn', '刷新倒计时');
+p('struct', 'Lab', 'lab', 'mineralCapacity', '矿物容量（已废弃）');
+p('struct', '其他', 'nuker', 'ghodium', 'G 储量（已废弃）'); p('struct', '其他', 'nuker', 'ghodiumCapacity', 'G 容量（已废弃）');
+p('struct', '其他', 'powerBank / powerSpawn', 'power', 'power 储量'); p('struct', '其他', 'powerSpawn', 'powerCapacity', 'power 容量（已废弃）');
+p('struct', '其他', 'portal', 'destination', '传送目的地');
+m('spawn', '方法', 'spawn', 'canCreateCreep', ['身体', '名字'], '能否孵化（已废弃）'); m('spawn', '方法', 'spawn', 'createCreep', ['身体', '名字', '内存'], '孵化（已废弃）', true);
+p('spawn', 'Spawning', 'spawn.spawning', 'directions', '出生方向');
 
 // ===== 常量 =====
 const K = (pre) => Object.keys(SC).filter(x => x.startsWith(pre) && typeof SC[x] !== 'object').sort();

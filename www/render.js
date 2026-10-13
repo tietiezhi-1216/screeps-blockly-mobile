@@ -152,6 +152,14 @@ class Renderer {
     }
     this.rooms = [...this.roomSp.values()]; this.roomsVer = v.roomsVer;
   }
+  // 无视野房间：地形照常显示，上面盖一层暗色（同官方：能看地形，看不到对象）
+  drawFog(v) {
+    if (!this.fogG) { this.fogG = new PIXI.Graphics(); this.world.addChildAt(this.fogG, this.world.getChildIndex(this.labelL)); }
+    const sig = v.vis ? v.S + '|' + v.vis.slice().sort().join(';') : ''; if (sig === this._fogSig) return; this._fogSig = sig; const g = this.fogG; g.clear(); if (!v.vis) return;
+    const vs = new Set(v.vis), R = ROOM * TS; g.beginFill(0x000000, .32);
+    for (let ry = 0; ry < v.S; ry++) for (let rx = 0; rx < v.S; rx++) if (!vs.has(rx + ',' + ry)) g.drawRect(rx * R, ry * R, R, R);
+    g.endFill();
+  }
   drawRoads(roads) { // 官方道路：相邻道路之间连线，孤立道路为圆点
     const sig = roads.map(r => r.x + ',' + r.y).sort().join(';'); if (sig === this._roadSig) return; this._roadSig = sig;
     const g = this.roadG, set = new Set(roads.map(r => r.x + ',' + r.y)); g.clear();
@@ -162,10 +170,11 @@ class Renderer {
   }
   // ===== 每 tick 一次 =====
   setView(v, dt) {
-    if (v && v.gen !== undefined) { const raw = v; v = worldSnapshot(raw, typeof engine !== 'undefined' && engine && engine.w === raw ? engine.events : []); v.rooms = raw.rooms; } // 原始 world → 快照
+    if (v && v.gen !== undefined) { const raw = v; v = worldSnapshot(raw, typeof engine !== 'undefined' && engine && engine.w === raw ? engine.events : [], this.myPid); v.rooms = raw.rooms; } // 原始 world → 快照
     const first = !this.view; this.view = v; this.dt = dt; this.tickAt = performance.now();
     if (v.roomsVer !== this.roomsVer && v.rooms) this.rebuildTerrain(v);
     if (this.lod === 'mini') this.drawMini(v);
+    this.drawFog(v);
     if (first) { const me = v.spawns.find(s => s.owner === this.myPid) || v.spawns[0]; if (me) this.focus(me.x, me.y); }
     const me = this.myPid, mine = o => !o.owner || o.owner === me, col = o => v.players[o]?.color ?? 0xffffff, seen = new Set();
     const ent = (id, make) => { seen.add(id); let s = this.sprites.get(id); if (!s) { s = make(); this.sprites.set(id, s); } return s; };

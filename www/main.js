@@ -64,18 +64,42 @@ function initBlockly() {
       if (e.isStart && fly.isVisible()) closeFlyout(); // 长按拖出：列表收起，积木继续跟手
       if (!e.isStart) { const hot = overTrash(); $('edTrash').classList.remove('hot'); const b = ws.getBlockById(e.blockId); if (hot && b) setTimeout(() => b.dispose(true, true), 0); }
     }
-    if (!e.isUiEvent) { regen(false); localStorage.setItem(SAVE_C, JSON.stringify(Blockly.serialization.workspaces.save(ws))); }
+    if (!e.isUiEvent) { regen(false); localStorage.setItem(SAVE_C, JSON.stringify(Blockly.serialization.workspaces.save(ws))); histTouch(); }
+    undoUI();
   });
   // 点击 flyout 里的积木 = 添加到可见区域中心
   fly.getWorkspace().addChangeListener(e => { if (e.type === Blockly.Events.CLICK && e.blockId && fly.isVisible()) setTimeout(() => tapAdd(e.blockId), 0); });
-  regen(false);
+  regen(false); ws.clearUndo(); histPush('启动时'); undoUI();
 }
 let fly = null, activeCat = null, dragFromFly = false, lastPt = [0, 0], flyScale = 0.7, lpArmed = false;
 // 小号工具按钮（32px）：缩放 / 居中 / 垃圾桶（拖到上面删除，点一下删除选中积木）
 document.addEventListener('pointermove', e => { lastPt = [e.clientX, e.clientY]; if (ws && ws.isDragging && ws.isDragging()) $('edTrash').classList.toggle('hot', overTrash()); }, true);
 function overTrash() { const r = $('edTrash').getBoundingClientRect(); return lastPt[0] >= r.left - 8 && lastPt[0] <= r.right + 8 && lastPt[1] >= r.top - 8 && lastPt[1] <= r.bottom + 8; }
 $('edZin').onclick = () => ws.zoomCenter(1); $('edZout').onclick = () => ws.zoomCenter(-1); $('edCenter').onclick = () => ws.scrollCenter();
-$('edTrash').onclick = () => { const s = Blockly.getSelected && Blockly.getSelected(); if (s && s.workspace === ws && s.isDeletable()) s.dispose(true, true); };
+$('edTrash').onclick = () => { const s = Blockly.getSelected && Blockly.getSelected(); if (!s || s.workspace !== ws || !s.isDeletable()) return; const n = s.getDescendants(false).length; if (n > 1 && !confirm(`删除这组积木（共 ${n} 个）？可以用撤销恢复。`)) return; s.dispose(true, true); };
+// ===== 撤销 / 重做 / 历史版本（自动保存；最近 20 个快照，可恢复） =====
+const HIST_K = 'sbm_code_hist', HIST_N = 20;
+function histList() { try { return JSON.parse(localStorage.getItem(HIST_K)) || []; } catch (e) { return []; } }
+function histPush(reason, force) {
+  if (!ws) return; const st = JSON.stringify(Blockly.serialization.workspaces.save(ws)), L = histList();
+  if (L.length && L[0].st === st) return; if (!force && L.length && Date.now() - L[0].ts < 60000 && L[0].reason === '自动保存') L.shift(); // 连续编辑合并为一条
+  L.unshift({ ts: Date.now(), reason, n: ws.getAllBlocks(false).length, st }); while (L.length > HIST_N) L.pop();
+  try { localStorage.setItem(HIST_K, JSON.stringify(L)); } catch (e) { L.pop(); try { localStorage.setItem(HIST_K, JSON.stringify(L)); } catch (e2) {} }
+}
+let _histT = null; function histTouch() { clearTimeout(_histT); _histT = setTimeout(() => histPush('自动保存'), 4000); }
+window.histPush = histPush;
+function undoUI() { if (!ws) return; $('edUndo').disabled = !ws.getUndoStack().length; $('edRedo').disabled = !ws.getRedoStack().length; }
+$('edUndo').onclick = () => { ws.undo(false); undoUI(); }; $('edRedo').onclick = () => { ws.undo(true); undoUI(); };
+$('edHist').onclick = () => histShow();
+function histShow() {
+  histPush('自动保存'); let p = $('histP'); if (!p) { p = document.createElement('div'); p.id = 'histP'; $('editor').appendChild(p); }
+  const L = histList(), dt = t => { const d = new Date(t), z = n => String(n).padStart(2, '0'); return `${d.getMonth() + 1}-${z(d.getDate())} ${z(d.getHours())}:${z(d.getMinutes())}:${z(d.getSeconds())}`; };
+  p.innerHTML = `<div class="hh"><button class="ghost" data-a="back" data-icon="arrow-left">返回</button><b>历史版本（最近 ${HIST_N} 个）</b></div><div class="hl">${L.length ? L.map((h, i) => `<div class="hi"><span class="ht">${dt(h.ts)}<span class="hs">${h.reason} · ${h.n} 个积木${i === 0 ? ' · 当前' : ''}</span></span>${i ? `<button data-a="restore" data-i="${i}" data-icon="restore">恢复</button>` : ''}</div>`).join('') : '<p style="color:#8a8f99">还没有历史版本。编辑积木后会自动保存。</p>'}</div>`;
+  applyIcons(p); p.classList.remove('hidden');
+  p.onclick = e => { const b = e.target.closest('button'); if (!b) return; if (b.dataset.a === 'back') return p.classList.add('hidden');
+    if (b.dataset.a === 'restore') { const h = histList()[+b.dataset.i]; if (!h || !confirm(`恢复到 ${dt(h.ts)} 的版本？当前版本会先存入历史。`)) return; histPush('恢复前', true);
+      Blockly.Events.setGroup(true); ws.clear(); Blockly.serialization.workspaces.load(JSON.parse(h.st), ws); Blockly.Events.setGroup(false); regen(true); histPush('已恢复', true); p.classList.add('hidden'); toastMsg && toastMsg('已恢复历史版本'); } };
+}
 function buildCatBar() {
   const bar = $('catBar');
   if (bar.children.length) { for (const b of bar.children) b.classList.toggle('on', b.dataset.cat === activeCat); return; }
@@ -186,7 +210,7 @@ $('btnMenu').onclick = () => $('menu').classList.remove('hidden');
 $('mClose').onclick = () => $('menu').classList.add('hidden');
 $('mSave').onclick = () => { save(); alert('已保存'); };
 $('mReset').onclick = () => { if (mode === 'client') return alert('客户端不能重置房主的世界'); if (confirm('确定重置整个世界？（代码会保留）')) { localStorage.removeItem(SAVE_W); const peers = hostS ? Object.keys(engine.w.players) : []; loadEngine(); if (hostS) { hostS.e = engine; rebindHost(); } $('menu').classList.add('hidden'); } };
-$('mResetCode').onclick = () => { if (confirm('恢复默认积木程序？')) { ws.clear(); Blockly.serialization.workspaces.load(DEFAULT_WS, ws); regen(true); } };
+$('mResetCode').onclick = () => { if (confirm('恢复默认积木程序？当前程序会存入历史版本，可在编辑器里恢复。')) { histPush('恢复默认前', true); ws.clear(); Blockly.serialization.workspaces.load(DEFAULT_WS, ws); regen(true); } };
 $('mIntro').onclick = () => { $('menu').classList.add('hidden'); $('intro').classList.remove('hidden'); };
 $('introOk').onclick = () => { $('intro').classList.add('hidden'); localStorage.setItem('sbm_intro', '1'); };
 $('mUpdate').onclick = () => checkUpdate(true);
@@ -275,7 +299,7 @@ renderer.onTick = () => renderInspect();
 (function boot() { const host = $('editor'); host.classList.remove('hidden'); host.style.visibility = 'hidden'; initBlockly(); host.classList.add('hidden'); host.style.visibility = ''; loadEngine(); setRunUI(); })();
 document.addEventListener('visibilitychange', () => { if (document.hidden) save(); });
 requestAnimationFrame(loop);
-setTimeout(() => checkUpdate(false), 2000);
+setTimeout(() => checkUpdate(false), 2000); setInterval(() => checkUpdate(false), 6 * 3600 * 1000);
 const qj = new URLSearchParams(location.search).get('join'); if (qj) join(qj);
 if (new URLSearchParams(location.search).get('run')) { hideStart(); running = true; setSpeed(4, false); setRunUI(); }
 if (qj) hideStart();

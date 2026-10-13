@@ -14,7 +14,7 @@ class HostSession {
       const pid = String(m.pid || ('p' + id)).slice(0, 40); if (pid === this.hostPid) return this.t.kick && this.t.kick(id);
       c.pid = pid; this.e.addPlayer(pid, String(m.name || '玩家').slice(0, 16), true, m.badge && typeof m.badge === 'object' ? { type: +m.badge.type | 0, color1: +m.badge.color1 | 0, color2: +m.badge.color2 | 0, color3: +m.badge.color3 | 0, param: +m.badge.param | 0, flip: !!m.badge.flip } : null); if (m.code != null) this.e.setCode(pid, String(m.code));
       this.t.send(id, JSON.stringify({ t: 'welcome', pid })); this.t.send(id, JSON.stringify(Object.assign({ t: 'rooms' }, this.e.roomsData())));
-      this.t.send(id, JSON.stringify(Object.assign({ t: 'tick', dt: this.dt || 500 }, this.e.snapshot())));
+      this.t.send(id, JSON.stringify(Object.assign({ t: 'tick', dt: this.dt || 500 }, this.e.snapshot(pid))));
       this.onPeers && this.onPeers();
     } else if (m.t === 'badge' && c.pid && m.badge && typeof m.badge === 'object' && this.e.w.players[c.pid]) { // 客户端改了徽章：实时同步给所有人
       const b = m.badge; this.e.w.players[c.pid].badge = { type: +b.type | 0, color1: +b.color1 | 0, color2: +b.color2 | 0, color3: +b.color3 | 0, param: +b.param | 0, flip: !!b.flip }; this.pushAll();
@@ -29,7 +29,7 @@ class HostSession {
   afterTick(dt) {
     this.dt = dt; if (!this.clients.size) return;
     if (this.sentRoomsVer !== this.e.w.roomsVer) { this.sentRoomsVer = this.e.w.roomsVer; this.t.broadcast(JSON.stringify(Object.assign({ t: 'rooms' }, this.e.roomsData()))); }
-    this.t.broadcast(JSON.stringify(Object.assign({ t: 'tick', dt }, this.e.snapshot())));
+    for (const [id, c] of this.clients) if (c.pid) this.t.send(id, JSON.stringify(Object.assign({ t: 'tick', dt }, this.e.snapshot(c.pid)))); // 每个玩家只收到自己视野内的对象（官方视野规则）
   }
   peerNames() { return [...this.clients.values()].filter(c => c.pid).map(c => this.e.w.players[c.pid]?.name); }
 }

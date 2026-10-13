@@ -16,7 +16,18 @@ const RESOURCES = new Set(SC.RESOURCES_ALL);
 
 function newWorld(seed = (Date.now() % 1e6) | 0) {
   const w = { v: 3, gen: WORLD_GEN, seed, time: 0, S: 0, rooms: {}, roomsVer: 0, sources: [], minerals: [], controllers: [], spawns: [], creeps: [], sites: [], structures: [], resources: [], tombstones: [], flags: [], players: {}, memory: {}, nextId: 1 };
-  w.S = SECTOR; return w;
+  w.S = SECTOR; ensureAll(w); return w;
+}
+function ensureAll(w) { for (let ry = 0; ry < w.S; ry++) for (let rx = 0; rx < w.S; rx++) ensureRoom(w, rx, ry); }
+// 官方视野规则：有自己的 creep 或自己拥有的建筑（含 Controller）的房间可见；Observer 在上一 tick 观察的房间可见（预定/旗帜不提供视野）
+function visibleRooms(w, pid) {
+  const v = new Set(), add = o => v.add(roomKey(o.x, o.y));
+  for (const c of w.creeps) if (c.owner === pid) add(c);
+  for (const s of w.spawns) if (s.owner === pid) add(s);
+  for (const s of w.structures) if (s.owner === pid) add(s);
+  for (const c of w.controllers) if (c.owner === pid) add(c);
+  const ob = w.observe && w.observe[pid]; if (ob) for (const o of ob) if (o.t === w.time - 1) v.add(o.k);
+  return v;
 }
 // 懒生成：世界边界是 S×S 个房间（起始 11×11，一个官方扇区），但房间只在需要时（有对象/邻近/被查看）才生成
 function ensureRoom(w, rx, ry) {
@@ -34,7 +45,7 @@ function ensureNear(w, rx, ry, r = 1) { for (let dy = -r; dy <= r; dy++) for (le
 function ensureSize(w, S) {
   if (S <= w.S) return false; w.S = S;
   for (const k in w.rooms) { const [rx, ry] = k.split(',').map(Number); applyBorders(w, rx, ry); }
-  w.roomsVer++; return true;
+  ensureAll(w); w.roomsVer++; return true;
 }
 const SECTOR = 11; // 起始世界：一个官方扇区（四周是高速公路，中间 (5,5) 为扇区中心）
 // 可选的空闲房间太少时向外扩一个扇区
@@ -72,6 +83,7 @@ class Engine {
   constructor(world) {
     if (!world || world.gen !== WORLD_GEN) world = newWorld(world && world.seed); // 旧格式存档无法兼容 → 新世界
     this._objVer = 0; this.w = world; this.fns = {}; this.onLog = null; this.events = [];
+    ensureAll(world);
     for (const pid in world.players) { if (!world.players[pid].badge) world.players[pid].badge = defaultBadge(pid); this.setCode(pid, world.players[pid].code || ''); }
   }
   get W() { return this.w.S * ROOM; }
@@ -369,12 +381,16 @@ class Engine {
 
   buildApi(pid) { return buildApi(this, pid); }
   findList(pid, type, k, wrap) { return findList(this, pid, type, k, wrap); }
-  snapshot() { return worldSnapshot(this.w, this.events); }
+  snapshot(pid) { return worldSnapshot(this.w, this.events, pid); }
+  visibleRooms(pid) { return visibleRooms(this.w, pid); }
   roomsData() { return roomsDataOf(this.w); }
 }
 // 快照：渲染/联机用的扁平只读视图（渲染层也可直接传入原始 world）
-function worldSnapshot(w, events) {
+function worldSnapshot(w0, events, pid) {
     const en = s => (s.store && s.store.energy) || 0;
+    // pid 给定时按官方视野过滤：地形/能量源/矿物/Controller 位置始终可见，其他对象只在有视野的房间可见
+    let w = w0, vis = null;
+    if (pid) { vis = visibleRooms(w0, pid); const F = l => (l || []).filter(o => vis.has(roomKey(o.x, o.y))); w = Object.assign({}, w0, { creeps: F(w0.creeps), spawns: F(w0.spawns), structures: F(w0.structures), sites: F(w0.sites), resources: F(w0.resources), tombstones: F(w0.tombstones), flags: (w0.flags || []).filter(f => f.owner === pid || vis.has(roomKey(f.x, f.y))) }); }
     return { time: w.time, S: w.S, roomsVer: w.roomsVer, players: Object.fromEntries(Object.entries(w.players).map(([k, p]) => [k, { name: p.name, color: p.color, needsSpawn: !!p.needsSpawn, badge: p.badge || defaultBadge(k), gcl: p.gcl || 0 }])), owned: ownedMap(w),
       sources: w.sources.map(s => ({ id: s.id, x: s.x, y: s.y, energy: s.energy, cap: s.cap })),
       minerals: w.minerals.map(m => ({ id: m.id, x: m.x, y: m.y, type: m.type, amount: m.amount })),
@@ -386,11 +402,11 @@ function worldSnapshot(w, events) {
       resources: w.resources.map(r => ({ id: r.id, x: r.x, y: r.y, resourceType: r.resourceType, amount: r.amount })),
       tombstones: w.tombstones.map(t => ({ id: t.id, x: t.x, y: t.y, owner: t.owner, creepName: t.creepName, energy: t.store.energy || 0, decay: t.decayAt - w.time })),
       flags: (w.flags || []).map(f => ({ id: f.id, x: f.x, y: f.y, owner: f.owner, name: f.name, color: f.color, secondaryColor: f.secondaryColor })),
-      events: events || [] };
+      events: (events || []).filter(e => !vis || e.x == null || vis.has(roomKey(e.x, e.y))), vis: vis ? [...vis] : null };
 }
 function roomsDataOf(w) { return { roomsVer: w.roomsVer, S: w.S, rooms: Object.fromEntries(Object.entries(w.rooms).map(([k, r]) => [k, { tiles: r.tiles.join(''), owner: r.owner, name: r.name, type: r.type }])) }; }
 Engine.prototype.saveData = function () { const w = this.w; return JSON.stringify(w, (k, v) => (k[0] === '_' ? undefined : v)); };
-if (typeof module !== 'undefined') module.exports = { Engine, newWorld, countStruct, rclOf };
+if (typeof module !== 'undefined') module.exports = { Engine, newWorld, countStruct, rclOf, visibleRooms, worldSnapshot };
 
 // ===================== 玩家 API（官方名称/语义/返回码） =====================
 function findList(E, pid, type, k, wrap) {
@@ -603,6 +619,10 @@ function buildApi(E, pid) {
         };
         v.attack = t => act(t, 'attack'); v.heal = t => act(t, 'heal'); v.repair = t => act(t, 'repair');
       }
+      if (o.type === 'observer') v.observeRoom = name => { // 官方：下一 tick 该房间可见；范围 OBSERVER_RANGE，每 tick 一次
+        if (o.owner !== pid) return ERR_NOT_OWNER; if (!E.isActive(o)) return ERR_RCL_NOT_ENOUGH; const p = typeof name === 'string' && parseRoomName(name); if (!p || p[0] < 0 || p[1] < 0 || p[0] >= w.S || p[1] >= w.S) return ERR_INVALID_ARGS;
+        const rx = Math.floor(o.x / ROOM), ry = Math.floor(o.y / ROOM); if (Math.max(Math.abs(p[0] - rx), Math.abs(p[1] - ry)) > SC.OBSERVER_RANGE) return ERR_NOT_IN_RANGE;
+        w.observe = w.observe || {}; const L = (w.observe[pid] = (w.observe[pid] || []).filter(x => x.t >= w.time - 1 && !(x.id === o.id && x.t === w.time))); L.push({ id: o.id, k: p[0] + ',' + p[1], t: w.time }); o.observing = name; return OK; };
       if (o.type === 'link') v.transferEnergy = (t, amount) => {
         if (o.owner !== pid) return ERR_NOT_OWNER; if (!E.isActive(o)) return ERR_RCL_NOT_ENOUGH; const r = raw(t);
         if (!r || r.type !== 'link' || r === o) return ERR_INVALID_TARGET; if (!sameRoom(r, o)) return ERR_NOT_IN_RANGE; if (o.cooldown > 0) return ERR_TIRED;
@@ -647,10 +667,6 @@ function buildApi(E, pid) {
           o.cooldown = cd; return OK;
         };
       }
-      if (o.type === 'observer') v.observeRoom = n => {
-        if (o.owner !== pid) return ERR_NOT_OWNER; if (!E.isActive(o)) return ERR_RCL_NOT_ENOUGH; const p = parseRoomName(n); if (!p) return ERR_INVALID_ARGS;
-        const rx = Math.floor(o.x / ROOM), ry = Math.floor(o.y / ROOM); if (Math.max(Math.abs(p[0] - rx), Math.abs(p[1] - ry)) > SC.OBSERVER_RANGE) return ERR_NOT_IN_RANGE;
-        o.observing = n; return OK; };
       if (o.type === 'terminal') v.send = (res, amount, dest) => {
         if (o.owner !== pid) return ERR_NOT_OWNER; if (!E.isActive(o)) return ERR_RCL_NOT_ENOUGH; if (o.cooldown > 0) return ERR_TIRED;
         const p = parseRoomName(dest); if (!RESOURCES.has(res) || !(amount > 0) || !p) return ERR_INVALID_ARGS;
@@ -851,12 +867,13 @@ function buildApi(E, pid) {
 
   // ---- Game ----
   const creeps = {}, spawns = {}, structures = {}, sites = {}, flags = {}, vis = new Set();
-  for (const c of w.creeps) if (c.owner === pid) { creeps[c.name] = wrap(c); vis.add(roomKey(c.x, c.y)); }
-  for (const s of w.spawns) if (s.owner === pid) { spawns[s.name] = wrap(s); structures[s.id] = spawns[s.name]; vis.add(roomKey(s.x, s.y)); }
-  for (const s of w.structures) if (s.owner === pid) { structures[s.id] = wrap(s); vis.add(roomKey(s.x, s.y)); }
-  for (const c of w.controllers) if (c.owner === pid || (c.reservation && c.reservation.owner === pid)) { if (c.owner === pid) structures[c.id] = wrap(c); vis.add(roomKey(c.x, c.y)); }
+  for (const k of visibleRooms(w, pid)) vis.add(k);
+  for (const c of w.creeps) if (c.owner === pid) { creeps[c.name] = wrap(c); }
+  for (const s of w.spawns) if (s.owner === pid) { spawns[s.name] = wrap(s); structures[s.id] = spawns[s.name]; }
+  for (const s of w.structures) if (s.owner === pid) { structures[s.id] = wrap(s); }
+  for (const c of w.controllers) if (c.owner === pid) structures[c.id] = wrap(c);
   for (const s of w.sites) if (s.owner === pid) sites[s.id] = wrap(s);
-  for (const f of w.flags) if (f.owner === pid) { flags[f.name] = wrap(f); vis.add(roomKey(f.x, f.y)); }
+  for (const f of w.flags) if (f.owner === pid) flags[f.name] = wrap(f);
   const gameRooms = {}; for (const k of vis) { const r = room(k); if (r) gameRooms[r.name] = r; }
   const gclLv = E.gclLevel(pid), gclP = w.players[pid].gcl || 0, t0 = Date.now();
   const Game = {
@@ -866,7 +883,7 @@ function buildApi(E, pid) {
     gpl: { level: 0, progress: 0, progressTotal: SC.POWER_LEVEL_MULTIPLY },
     cpu: { limit: 20, tickLimit: Math.min(500, (w.players[pid] && w.players[pid].bucket != null ? w.players[pid].bucket : 10000)), bucket: (w.players[pid] && w.players[pid].bucket != null ? w.players[pid].bucket : 10000), shardLimits: { shard0: 20 }, unlocked: true, unlockedTime: undefined, getUsed: () => Date.now() - t0, getHeapStatistics: () => ({}), halt: () => { throw new Error('Game.cpu.halt'); }, setShardLimits: () => ERR_BUSY, unlock: () => ERR_FULL, generatePixel: () => { const P = w.players[pid]; if (!P || (P.bucket != null ? P.bucket : 10000) < SC.PIXEL_CPU_COST) return ERR_NOT_ENOUGH_RESOURCES; P.bucket -= SC.PIXEL_CPU_COST; P.pixels = (P.pixels || 0) + 1; return OK; } },
     market: { credits: 0, incomingTransactions: [], outgoingTransactions: [], orders: {}, calcTransactionCost: (amount, a, b) => Math.ceil(amount * (1 - Math.exp(-Game.map.getRoomLinearDistance(a, b, true) / 30))), getAllOrders: () => [], getHistory: () => [], getOrderById: () => null, cancelOrder: () => ERR_INVALID_ARGS, changeOrderPrice: () => ERR_INVALID_ARGS, createOrder: () => ERR_NOT_ENOUGH_RESOURCES, deal: () => ERR_NOT_ENOUGH_RESOURCES, extendOrder: () => ERR_INVALID_ARGS },
-    getObjectById: id => { for (const L of [w.creeps, w.spawns, w.structures, w.controllers, w.sources, w.minerals, w.sites, w.resources, w.tombstones, w.flags]) { const o = L.find(o => o.id === id); if (o) return wrap(o); } return null; },
+    getObjectById: id => { for (const L of [w.creeps, w.spawns, w.structures, w.controllers, w.sources, w.minerals, w.sites, w.resources, w.tombstones, w.flags]) { const o = L.find(o => o.id === id); if (o) return (vis.has(roomKey(o.x, o.y)) || (L === w.sites && o.owner === pid)) ? wrap(o) : null; } return null; },
     notify: (msg) => { E.log(pid, '[notify]', msg); return OK; },
     map: {
       describeExits: n => { const p = parseRoomName(n); if (p) ensureRoom(w, p[0], p[1]); if (!p || !w.rooms[p[0] + ',' + p[1]]) return null; const out = {}; const t = w.rooms[p[0] + ',' + p[1]].tiles, open = (f) => { for (let i = 0; i < 50; i++) if (f(i) !== T_WALL) return true; return false; };

@@ -87,7 +87,19 @@ pre.mem{margin:var(--sp-1) 0 0;max-height:120px;overflow:auto;background:#0008;p
 #blocklyDiv{touch-action:none}
 .blocklyScrollbarHorizontal,.blocklyScrollbarVertical{opacity:0;pointer-events:none}
 .blocklyFlyout .blocklyScrollbarVertical{opacity:1;pointer-events:auto}
-#edTools{position:absolute;right:8px;bottom:12px;display:flex;flex-direction:column;gap:6px;z-index:5}
+#edTools{position:absolute;right:calc(8px + var(--safe-r, 0px));bottom:12px;display:flex;flex-direction:column;flex-wrap:wrap-reverse;max-height:calc(100% - 24px);gap:6px;z-index:5}
+#edTools button:disabled{opacity:.35}
+#histP{position:absolute;inset:0;z-index:30;background:#1b1d22;color:#e6e6e6;display:flex;flex-direction:column}
+#histP.hidden{display:none}
+#histP .hh{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid #2c2f36;white-space:nowrap}
+#histP .hh b{flex:1;font-size:15px}
+#histP .hl{flex:1;overflow:auto;padding:4px 12px}
+#histP .hi{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #2a2c32;white-space:nowrap}
+#histP .hi .ht{flex:1;font-size:14px;overflow:hidden;text-overflow:ellipsis}
+#histP .hi .hs{color:#8a8f99;font-size:12px;margin-left:8px}
+#histP button{height:30px;padding:0 12px;border:0;border-radius:6px;background:#5973FF;color:#fff;font-size:13px;display:inline-flex;align-items:center;gap:4px}
+#histP button.ghost{background:#2a2f3a}
+.updDot{position:absolute;top:3px;right:3px;width:8px;height:8px;border-radius:50%;background:#5973FF;box-shadow:0 0 0 2px #1b1d22;pointer-events:none}
 #edTools button{width:32px;height:32px;padding:0;border:0;border-radius:6px;background:#2a2f3a;color:#fff;display:flex;align-items:center;justify-content:center}
 #edTools button .ic{display:flex;font-size:18px}
 #edTools #edTrash.hot{background:#c44}

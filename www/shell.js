@@ -101,7 +101,7 @@
     const s = st();
     return head('设置') + `<div class="shBody">${sec('通用')}${row('none', 'language', '语言', '简体中文', 'static')}${row('sound', 'volume-off', '音效', s.sound ? '开' : '关')}
       ${sec('游戏')}${row('fps', 'gauge', '显示 FPS', showFps ? '开' : '关')}${row('defSpeed', 'player-track-next', '默认运行速度', s.speed + 'x')}${row('edDark', 'moon', '代码编辑器夜间模式', window.edDark && window.edDark() ? '开' : '关')}${row('speedPick', 'player-track-next', '当前运行速度', speed + 'x')}${row('net', 'broadcast', '局域网联机')}${row('intro', 'help', '新手提示')}${row('resetCode', 'arrow-back-up', '恢复默认积木')}
-      ${sec('更新')}${row('update', 'download', '检查更新', 'V' + esc(window.APP_VERSION || 'dev'))}
+      ${sec('更新')}${row('update', 'download', window.UPDATE_REL ? '发现新版本 ' + esc(window.UPDATE_REL.tag_name) : '检查更新', window.UPDATE_REL ? '点此更新' : '当前 V' + esc(window.APP_VERSION || 'dev'))}
       ${sec('数据')}${row('saveNow', 'device-floppy', '立即保存世界')}${row('respawn', 'refresh', '重新出生', '', 'danger')}${row('resetWorld', 'refresh', '重置世界', '', 'danger')}${row('clearAll', 'trash', '清除全部数据', '', 'danger')}</div>`;
   };
 
@@ -151,7 +151,7 @@
     wDel(b) { const L = J('sbm_worlds', []); if (!confirm(`删除「${L[b.dataset.i].name}」？`)) return; L.splice(b.dataset.i, 1); saveList('sbm_worlds', L); show('worlds', false); },
     wImport() { importText('导入存档', j => { const w = j.world || j; if (!w || !w.players) throw new Error('不是世界存档'); const L = J('sbm_worlds', []); L.unshift({ name: j.name || '导入的世界', ts: Date.now(), time: w.time || 0, data: JSON.stringify(w) }); saveList('sbm_worlds', L); toast('已导入'); show('worlds', false); }); },
     snSave() { const j = Blockly.serialization.workspaces.save(ws); ask('片段名称', '我的程序', name => { const L = J('sbm_snips', []); L.unshift({ name: name || '未命名', ts: Date.now(), blocks: countBlocks(j), ws: j }); saveList('sbm_snips', L); toast('已保存'); show('snippets', false); }); },
-    snLoad(b) { const s = J('sbm_snips', [])[b.dataset.i]; if (!s || !confirm(`用「${s.name}」替换当前积木？`)) return; ws.clear(); Blockly.serialization.workspaces.load(s.ws, ws); regen(true); toast('已载入到编辑器'); },
+    snLoad(b) { const s = J('sbm_snips', [])[b.dataset.i]; if (!s || !confirm(`用「${s.name}」替换当前积木？`)) return; window.histPush && histPush('载入片段前', true); ws.clear(); Blockly.serialization.workspaces.load(s.ws, ws); regen(true); toast('已载入到编辑器（原程序已存入历史版本）'); },
     snExport(b) { const s = J('sbm_snips', [])[b.dataset.i]; s && exportText(s.name, JSON.stringify({ kind: 'screeps-blockly-snippet', name: s.name, ws: s.ws })); },
     snDel(b) { const L = J('sbm_snips', []); if (!confirm(`删除「${L[b.dataset.i].name}」？`)) return; L.splice(b.dataset.i, 1); saveList('sbm_snips', L); show('snippets', false); },
     snImport() { importText('导入片段', j => { const w = j.ws || j; if (!w.blocks) throw new Error('不是积木程序'); const L = J('sbm_snips', []); L.unshift({ name: j.name || '导入的片段', ts: Date.now(), blocks: countBlocks(w), ws: w }); saveList('sbm_snips', L); toast('已导入'); show('snippets', false); }); },

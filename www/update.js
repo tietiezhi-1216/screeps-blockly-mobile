@@ -59,7 +59,14 @@ async function checkUpdate(manual) {
     const r = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`, { headers: { Accept: 'application/vnd.github+json' } });
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const rel = await r.json(), cur = window.APP_VERSION || '0.0.0', apk = (rel.assets || []).find(a => a.name.endsWith('.apk'));
-    if (apk && cmpVer(rel.tag_name, cur) > 0) Upd.show(rel, apk, cur);
-    else if (manual) alert(`已是最新版本（${cur}）`);
+    if (apk && cmpVer(rel.tag_name, cur) > 0) { window.UPDATE_REL = rel; updBadge(true);
+      if (manual) Upd.show(rel, apk, cur); else if (localStorage.getItem('sbm_upd_seen') !== rel.tag_name) { localStorage.setItem('sbm_upd_seen', rel.tag_name); typeof toastMsg === 'function' && toastMsg('发现新版本 ' + rel.tag_name + '，可在菜单或设置中更新'); } }
+    else { window.UPDATE_REL = null; updBadge(false); if (manual) alert(`已是最新版本（${cur}）`); }
   } catch (e) { if (manual) alert('检查更新失败：' + e.message); }
+}
+// 有新版本时在菜单按钮 / 检查更新 / 设置入口上显示蓝点（不打断游戏）
+function updBadge(on) {
+  for (const id of ['btnMenu', 'mUpdate', 'sSet']) { const b = document.getElementById(id); if (!b) continue; let d = b.querySelector('.updDot');
+    if (on && !d) { d = document.createElement('span'); d.className = 'updDot'; if (getComputedStyle(b).position === 'static') b.style.position = 'relative'; b.appendChild(d); } else if (!on && d) d.remove(); }
+  const m = document.querySelector('#mUpdate .lb'); if (m) m.textContent = on && window.UPDATE_REL ? '更新到 ' + window.UPDATE_REL.tag_name : '检查更新';
 }

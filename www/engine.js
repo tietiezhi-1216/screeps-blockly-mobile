@@ -63,7 +63,7 @@ function countStruct(w, pid, type, k) {
   return w.structures.filter(s => s.type === type && inRoom(s)).length + w.sites.filter(s => s.type === type && inRoom(s)).length + (type === 'spawn' ? w.spawns.filter(inRoom).length : 0);
 }
 function storeCap(w, o, res) { // 官方 Store.getCapacity
-  if (o.kind === 'creep') return activeParts(o, 'carry') * SC.CARRY_CAPACITY;
+  if (o.kind === 'creep') return boostPower(o, 'carry', 'capacity') * SC.CARRY_CAPACITY;
   if (o.kind === 'spawn') return res === undefined || res === 'energy' ? SC.SPAWN_ENERGY_CAPACITY : null;
   const t = o.type, E = (n) => (res === undefined || res === 'energy') ? n : null;
   if (t === 'extension') return E(SC.EXTENSION_ENERGY_CAPACITY[rclOf(w, o.x, o.y)]);
@@ -81,6 +81,8 @@ function storeCap(w, o, res) { // 官方 Store.getCapacity
 const hasStore = o => o.kind === 'creep' || o.kind === 'spawn' || o.kind === 'tombstone' || (o.kind === 'structure' && o.store);
 function freeFor(w, o, res) { const cap = storeCap(w, o, res); if (cap == null) return null; const general = storeCap(w, o, undefined) != null; return cap - (general ? storeSum(o.store) : (o.store[res] || 0)); }
 function partHits(c, i) { return Math.max(0, Math.min(100, c.hits - (c.body.length - 1 - i) * 100)); }
+function boostPower(c, type, action) { let n = 0; for (let i = 0; i < c.body.length; i++) if (c.body[i] === type && partHits(c, i) > 0) { const b = c.boosts && c.boosts[i], m = b && SC.BOOSTS[type] && SC.BOOSTS[type][b] && SC.BOOSTS[type][b][action]; n += m || 1; } return n; } // 官方 BOOSTS 效果
+function totalReactionTime(r) { const t = SC.REACTION_TIME[r]; if (!t) return 0; for (const a in SC.REACTIONS) for (const b in SC.REACTIONS[a]) if (SC.REACTIONS[a][b] === r) return t + totalReactionTime(a) + totalReactionTime(b); return t; } // 官方 utils.calcTotalReactionsTime
 function activeParts(c, type) { let n = 0; for (let i = 0; i < c.body.length; i++) if (c.body[i] === type && partHits(c, i) > 0) n++; return n; }
 
 class Engine {
@@ -219,7 +221,8 @@ class Engine {
     }
     let hostileRamp = null; for (const s of this.w.structures) if (s.type === 'rampart' && s.owner !== pid && !s.isPublic) (hostileRamp = hostileRamp || new Set()).add(s.y * WW + s.x);
     const start = from.y * WW + from.x; stamp[start] = st; gs[start] = 0; prev[start] = start; push(start, H(start));
-    let end = -1, ops = 0, maxOps = opts.maxOps || 4000, bestK = start, bestH = H(start);
+    if (opts.costCallback && !opts._cm) opts = Object.assign({}, opts, { _cm: (rx, ry) => { const b = new Uint8Array(2500), m = { _bits: b, get: (x, y) => b[y * 50 + x], set: (x, y, v) => { b[y * 50 + x] = v; } }; const r = opts.costCallback(roomNameXY(rx, ry), m); return r && r.get ? r : m; } }); // 官方 findPath/moveTo costCallback
+    let end = -1, ops = 0, maxOps = opts.maxOps || 4000, bestK = start, bestH = H(start); const cms = new Map();
     while (heap.length && ops++ < maxOps) {
       const [, k] = pop(), x = k % WW, y = (k / WW) | 0, hk = H(k);
       if (hk === 0) { end = k; break; }
@@ -230,12 +233,16 @@ class Engine {
         if (pid !== undefined && (g[nk] & 2) && this.w.sites.some(s => s.x === nx && s.y === ny && s.owner !== pid)) continue;
         if (hostileRamp && hostileRamp.has(nk)) continue;
         if (!opts.ignoreCreeps && occ.has(nk) && occ.get(nk) !== me && Math.max(Math.abs(nx - from.x), Math.abs(ny - from.y)) <= 3) continue;
-        const cost = road[nk] && !opts.ignoreRoads ? 1 : (g[nk] & 4) ? swamp : plain, ng = gs[k] + cost;
+        let cost = road[nk] && !opts.ignoreRoads ? 1 : (g[nk] & 4) ? swamp : plain;
+        if (opts._cm) { const rk = ((nx / ROOM) | 0) + ',' + ((ny / ROOM) | 0); let m = cms.get(rk); if (m === undefined) { m = opts._cm((nx / ROOM) | 0, (ny / ROOM) | 0); cms.set(rk, m); }
+          if (m === false) continue; if (m) { const v = m.get(nx % ROOM, ny % ROOM); if (v === 255) continue; if (v > 0) cost = v; } } // 官方 CostMatrix：0=默认地形，255=不可通行
+        const ng = gs[k] + cost;
         if (stamp[nk] === st && gs[nk] <= ng) continue;
         stamp[nk] = st; gs[nk] = ng; prev[nk] = k; push(nk, ng + H(nk) * 1.0001);
       }
     }
     if (end < 0) { if (!opts.partial || bestK === start) return []; end = bestK; } // 官方 PathFinder：到不了时返回到最近点的不完整路径
+    this._lastOps = ops; this._lastCost = gs[end]; this._lastIncomplete = H(end) > 0;
     const path = []; for (let k = end; k !== prev[k]; k = prev[k]) path.push({ x: k % WW, y: (k / WW) | 0 });
     return path.reverse();
   }
@@ -265,7 +272,7 @@ class Engine {
       if (lx === 0) nx--; else if (lx === ROOM - 1) nx++; else if (ly === 0) ny--; else if (ly === ROOM - 1) ny++;
       const za = this.zoneOf(Math.floor(c.x / ROOM), Math.floor(c.y / ROOM)), zb = this.zoneOf(Math.floor(nx / ROOM), Math.floor(ny / ROOM)), zoneOk = (za && za.id) === (zb && zb.id);
       if ((nx !== c.x || ny !== c.y) && zoneOk && c._arrived !== w.time && !this.blocked(nx, ny, c)) { const o = this._occ(); o.delete(c.y * this.W + c.x); c.x = nx; c.y = ny; c.px = nx; c.py = ny; o.set(c.y * this.W + c.x, c); c._path = null; }
-      c.fatigue = Math.max(0, c.fatigue - activeParts(c, 'move') * 2);
+      c.fatigue = Math.max(0, c.fatigue - boostPower(c, 'move', 'fatigue') * 2);
       c.ttl--;
     }
     for (const c of w.creeps.slice()) if (!c.spawning && (c.ttl <= 0 || c.hits <= 0)) this.killCreep(c, SC.CREEP_CORPSE_RATE);
@@ -343,8 +350,8 @@ class Engine {
       l.spawnAt = null;
       const foes = w.creeps.filter(c => c.owner !== KEEPER && !c.spawning && Math.max(Math.abs(c.x - k.x), Math.abs(c.y - k.y)) <= 3);
       const adj = foes.find(c => Math.max(Math.abs(c.x - k.x), Math.abs(c.y - k.y)) <= 1);
-      if (adj) this.damage(adj, activeParts(k, 'attack') * SC.ATTACK_POWER, KEEPER);
-      else if (foes.length) this.damage(foes[0], activeParts(k, 'ranged_attack') * SC.RANGED_ATTACK_POWER, KEEPER);
+      if (adj) this.damage(adj, boostPower(k, 'attack', 'attack') * SC.ATTACK_POWER, KEEPER);
+      else if (foes.length) this.damage(foes[0], boostPower(k, 'ranged_attack', 'rangedAttack') * SC.RANGED_ATTACK_POWER, KEEPER);
       if (Math.max(Math.abs(l.tx - k.x), Math.abs(l.ty - k.y)) > 1) { const nx = k.x + Math.sign(l.tx - k.x), ny = k.y + Math.sign(l.ty - k.y); if (!this.blocked(nx, ny, k)) { const o = this._occ(); o.delete(k.y * this.W + k.x); k.x = nx; k.y = ny; o.set(ny * this.W + nx, k); } }
     }
   }
@@ -387,6 +394,17 @@ class Engine {
       }
       if (s.type === 'rampart') s.hitsMax = SC.RAMPART_HITS_MAX[rclOf(w, s.x, s.y)] || 0;
     }
+    if (w.nukes && w.nukes.length) for (const n of w.nukes.slice()) if (w.time >= n.landTime) { // 官方核弹落地：杀死房间内所有 creep、移除工地、2 格内伤害
+      const rk = roomKey(n.x, n.y); w.nukes.splice(w.nukes.indexOf(n), 1);
+      for (const c of w.creeps.slice()) if (roomKey(c.x, c.y) === rk) this.killCreep(c, 0);
+      w.sites = w.sites.filter(t => roomKey(t.x, t.y) !== rk);
+      const hitAt = (x, y, dmg) => { const list = [...w.structures, ...w.spawns].filter(s => s.x === x && s.y === y); const ramp = list.find(s => s.type === 'rampart'); let left = dmg;
+        if (ramp) { const a = Math.min(ramp.hits, left); ramp.hits -= a; left -= a; if (ramp.hits <= 0) this.removeStruct(ramp); }
+        if (left > 0) for (const s of list) if (s !== ramp && s.hits != null) { s.hits -= left; if (s.hits <= 0) this.removeStruct(s); } };
+      for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) { const x = n.x + dx, y = n.y + dy; if (roomKey(x, y) !== rk) continue; hitAt(x, y, dx || dy ? SC.NUKE_DAMAGE[2] : SC.NUKE_DAMAGE[0]); }
+      const ct = ctrlOfRoom(w, rk); if (ct) { ct.safeMode = 0; ct.upgradeBlocked = w.time + SC.CONTROLLER_NUKE_BLOCKED_UPGRADE; }
+      this._objVer++;
+    }
   }
   tickGround() {
     const w = this.w;
@@ -407,6 +425,12 @@ class Engine {
     if (ctrl && ctrl.safeMode > w.time && ctrl.owner !== attackerOwner) return; // 安全模式
     const ramp = w.structures.find(s => s.type === 'rampart' && s.x === target.x && s.y === target.y);
     if (ramp && ramp !== target) target = ramp;
+    if (target.kind === 'creep' && target.boosts && target.boosts.some(Boolean)) { // 官方：强化 TOUGH 按部件从前往后减伤
+      let rem = amount, dealt = 0;
+      for (let i = 0; i < target.body.length && rem > 0; i++) { const h = partHits(target, i); if (h <= 0) continue; const b = target.boosts[i], k = target.body[i] === 'tough' && b && SC.BOOSTS.tough[b] ? SC.BOOSTS.tough[b].damage : 1;
+        const take = Math.min(h, Math.round(rem * k)); dealt += take; rem -= k ? take / k : rem; }
+      amount = dealt + Math.max(0, Math.round(rem));
+    }
     target.hits -= amount;
     if (target.kind !== 'creep' && target.hits <= 0) { if (target.store) for (const r in target.store) this.dropAt(target.x, target.y, r, target.store[r]); this.removeStruct(target); }
   }
@@ -608,16 +632,17 @@ function buildApi(E, pid) {
       v.spawning = o.spawning ? { name: o.spawning.name, needTime: o.spawning.needTime, remainingTime: o.spawning.spawnTime - w.time, directions: o.spawning.directions, spawn: v,
         cancel: () => { if (o.owner !== pid) return ERR_NOT_OWNER; w.creeps = w.creeps.filter(c => !(c.spawning && c.name === o.spawning.name && c.owner === pid)); o.spawning = null; return OK; },
         setDirections: d => { if (o.owner !== pid) return ERR_NOT_OWNER; if (!Array.isArray(d) || !d.length || d.some(x => !DIRS[x])) return ERR_INVALID_ARGS; o.spawning.directions = d.slice(); return OK; } } : null;
-      v.spawnCreep = (body, name, opts = {}) => {
-        if (o.owner !== pid) return ERR_NOT_OWNER;
-        if (!Array.isArray(body) || !body.length || body.length > SC.MAX_CREEP_SIZE || body.some(b => !SC.BODYPARTS_ALL.includes(b)) || typeof name !== 'string' || !name) return ERR_INVALID_ARGS;
+      v.spawnCreep = (body, name, opts = {}) => { // 校验顺序与官方 engine/src/game/structures.js 一致
+        if (!name || opts === null || typeof opts !== 'object') return ERR_INVALID_ARGS; name = String(name); if (name.length > 100) return ERR_INVALID_ARGS;
         if (w.creeps.some(c => c.owner === pid && c.name === name)) return ERR_NAME_EXISTS;
+        if (opts.directions !== undefined && (!Array.isArray(opts.directions) || !opts.directions.length || opts.directions.some(d => !DIRS[+d] || +d !== (+d | 0)))) return ERR_INVALID_ARGS;
+        if (o.owner !== pid) return ERR_NOT_OWNER;
         if (o.spawning) return ERR_BUSY;
         if (!E.isActive(o)) return ERR_RCL_NOT_ENOUGH;
+        if (!Array.isArray(body) || !body.length || body.length > SC.MAX_CREEP_SIZE || body.some(b => !SC.BODYPARTS_ALL.includes(b))) return ERR_INVALID_ARGS;
         const k = roomKey(o.x, o.y), cost = bodyCost(body);
         let srcs = opts.energyStructures ? opts.energyStructures.map(raw).filter(x => x && (x.kind === 'spawn' || x.type === 'extension') && x.owner === pid && roomKey(x.x, x.y) === k) : E.roomEnergy(k, pid).list.slice().sort((a, b) => dist(a, o) - dist(b, o));
         if (srcs.reduce((a, s) => a + (s.store.energy || 0), 0) < cost) return ERR_NOT_ENOUGH_ENERGY;
-        if (opts.directions && (!Array.isArray(opts.directions) || opts.directions.some(d => !DIRS[d]))) return ERR_INVALID_ARGS;
         if (opts.dryRun) return OK;
         let left = cost; for (const s of srcs) { const a = Math.min(left, s.store.energy || 0); s.store.energy -= a; left -= a; if (!left) break; }
         const need = body.length * SC.CREEP_SPAWN_TIME;
@@ -638,6 +663,24 @@ function buildApi(E, pid) {
     structure(v, o) {
       structBase(v, o, o.type);
       if (o.type === 'rampart') { v.isPublic = !!o.isPublic; v.setPublic = p => { if (o.owner !== pid) return ERR_NOT_OWNER; o.isPublic = !!p; return OK; }; }
+      if (o.type === 'nuker') { v.ghodium = o.store.G || 0; v.ghodiumCapacity = SC.NUKER_GHODIUM_CAPACITY; v.energy = o.store.energy || 0; v.energyCapacity = SC.NUKER_ENERGY_CAPACITY;
+        v.launchNuke = pos => { // 官方 StructureNuker.launchNuke 校验顺序
+          if (o.owner !== pid) return ERR_NOT_OWNER; if (!(pos instanceof RoomPosition)) return ERR_INVALID_ARGS;
+          const p = parseRoomName(pos.roomName); if (!p) return ERR_INVALID_ARGS; const zf = E.zoneOf ? E.zoneOf(Math.floor(o.x / ROOM), Math.floor(o.y / ROOM)) : null, zt = E.zoneOf ? E.zoneOf(p[0], p[1]) : null; if (zf || zt) return ERR_INVALID_TARGET;
+          if (o.cooldown > 0) return ERR_TIRED; if (!E.isActive(o)) return ERR_RCL_NOT_ENOUGH;
+          if (Math.abs(p[0] - Math.floor(o.x / ROOM)) > SC.NUKE_RANGE || Math.abs(p[1] - Math.floor(o.y / ROOM)) > SC.NUKE_RANGE) return ERR_NOT_IN_RANGE;
+          if ((o.store.energy || 0) < SC.NUKER_ENERGY_CAPACITY || (o.store.G || 0) < SC.NUKER_GHODIUM_CAPACITY) return ERR_NOT_ENOUGH_RESOURCES;
+          o.store.energy = 0; o.store.G = 0; o.cooldown = SC.NUKER_COOLDOWN; w.nukes = w.nukes || [];
+          w.nukes.push({ kind: 'nuke', id: 'n' + (w.nextId++), x: p[0] * ROOM + pos.x, y: p[1] * ROOM + pos.y, landTime: w.time + SC.NUKE_LAND_TIME, launchRoomName: roomName(o.x, o.y) }); return OK; }; }
+      if (o.type === 'powerSpawn') { v.power = o.store.power || 0; v.powerCapacity = SC.POWER_SPAWN_POWER_CAPACITY; v.energy = o.store.energy || 0; v.energyCapacity = SC.POWER_SPAWN_ENERGY_CAPACITY;
+        v.processPower = () => { if (o.owner !== pid) return ERR_NOT_OWNER; if (!E.isActive(o)) return ERR_RCL_NOT_ENOUGH; if ((o.store.power || 0) < 1 || (o.store.energy || 0) < SC.POWER_SPAWN_ENERGY_RATIO) return ERR_NOT_ENOUGH_RESOURCES;
+          if (o._pp === w.time) return OK; o._pp = w.time; o.store.power -= 1; o.store.energy -= SC.POWER_SPAWN_ENERGY_RATIO; const pl = w.players[pid]; pl.power = (pl.power || 0) + 1; return OK; }; }
+      if (o.type === 'factory') { v.level = o.level;
+        v.produce = res => { if (o.owner !== pid) return ERR_NOT_OWNER; if (o.cooldown > 0) return ERR_TIRED; const c = SC.COMMODITIES[res]; if (!c) return ERR_INVALID_ARGS;
+          if (c.level && c.level !== o.level) return ERR_INVALID_TARGET; if (!E.isActive(o)) return ERR_RCL_NOT_ENOUGH; if (c.level && o.level > 0) return ERR_BUSY; // 无 Power Creep：PWR_OPERATE_FACTORY 效果不存在
+          if (Object.keys(c.components).some(k => (o.store[k] || 0) < c.components[k])) return ERR_NOT_ENOUGH_RESOURCES;
+          const comp = Object.values(c.components).reduce((a, b) => a + b, 0); if (storeSum(o.store) - comp + (c.amount || 1) > SC.FACTORY_CAPACITY) return ERR_FULL;
+          for (const k in c.components) o.store[k] -= c.components[k]; o.store[res] = (o.store[res] || 0) + (c.amount || 1); o.cooldown = c.cooldown; return OK; }; }
       if (o.type === 'tower') {
         const act = (t, kind) => {
           if (o.owner !== pid) return ERR_NOT_OWNER; if (!E.isActive(o)) return ERR_RCL_NOT_ENOUGH; const r = raw(t);
@@ -692,25 +735,27 @@ function buildApi(E, pid) {
           if (can <= 0) return ERR_NOT_ENOUGH_RESOURCES;
           idx.slice(0, can).forEach(i => { r.boosts[i] = m; }); o.store[m] -= can * SC.LAB_BOOST_MINERAL; o.store.energy -= can * SC.LAB_BOOST_ENERGY; return OK;
         };
-        v.unboostCreep = c => {
-          if (o.owner !== pid) return ERR_NOT_OWNER; if (!E.isActive(o)) return ERR_RCL_NOT_ENOUGH; const r = raw(c); if (!r || r.kind !== 'creep') return ERR_INVALID_TARGET;
-          if (r.owner !== pid) return ERR_NOT_OWNER; if (!sameRoom(r, o) || dist(r, o) > 1) return ERR_NOT_IN_RANGE; if (o.cooldown > 0) return ERR_TIRED;
-          if (!r.boosts || !r.boosts.some(Boolean)) return ERR_NOT_FOUND; let cd = 0;
-          r.boosts.forEach((m, i) => { if (!m) return; const back = SC.LAB_UNBOOST_MINERAL; E.dropAt(r.x, r.y, m, back); cd += SC.REACTION_TIME[m] || 0; r.boosts[i] = null; });
-          o.cooldown = cd; return OK;
+        v.unboostCreep = c => { // 官方顺序：目标→所有者→RCL→冷却→无强化→距离；返还 LAB_UNBOOST_MINERAL/ENERGY 每部件，冷却按总反应时间
+          const r = raw(c); if (!r || r.kind !== 'creep') return ERR_INVALID_TARGET; if (o.owner !== pid || r.owner !== pid) return ERR_NOT_OWNER; if (!E.isActive(o)) return ERR_RCL_NOT_ENOUGH;
+          if (o.cooldown > 0) return ERR_TIRED; if (!r.boosts || !r.boosts.some(Boolean)) return ERR_NOT_FOUND; if (!sameRoom(r, o) || dist(r, o) > 1) return ERR_NOT_IN_RANGE;
+          const cnt = {}; r.boosts.forEach(m => { if (m) cnt[m] = (cnt[m] || 0) + 1; }); r.boosts = []; let cd = 0;
+          for (const m in cnt) { const en = cnt[m] * (SC.LAB_UNBOOST_ENERGY || 0), mi = cnt[m] * SC.LAB_UNBOOST_MINERAL; if (en > 0) E.dropAt(r.x, r.y, 'energy', en); if (mi > 0) E.dropAt(r.x, r.y, m, mi);
+            cd += cnt[m] * totalReactionTime(m) * SC.LAB_UNBOOST_MINERAL / SC.LAB_REACTION_AMOUNT; }
+          if (cd > 0) o.cooldown = Math.round(cd); return OK;
         };
       }
-      if (o.type === 'terminal') v.send = (res, amount, dest) => {
+      if (o.type === 'terminal') v.send = (res, amount, dest, description) => {
         if (o.owner !== pid) return ERR_NOT_OWNER; if (!E.isActive(o)) return ERR_RCL_NOT_ENOUGH; if (o.cooldown > 0) return ERR_TIRED;
         const p = parseRoomName(dest); if (!RESOURCES.has(res) || !(amount > 0) || !p) return ERR_INVALID_ARGS;
         const t = w.structures.find(s => s.type === 'terminal' && s !== o && Math.floor(s.x / ROOM) === p[0] && Math.floor(s.y / ROOM) === p[1]); if (!t) return ERR_INVALID_ARGS;
         const d = Math.max(Math.abs(p[0] - Math.floor(o.x / ROOM)), Math.abs(p[1] - Math.floor(o.y / ROOM))), cost = Math.ceil(amount * (1 - Math.exp(-d / 30)));
         const need = res === 'energy' ? amount + cost : amount; if ((o.store[res] || 0) < need - (res === 'energy' ? 0 : 0) || (o.store.energy || 0) < (res === 'energy' ? need : cost)) return ERR_NOT_ENOUGH_RESOURCES;
         if (freeFor(w, t, res) < amount) return ERR_FULL;
-        o.store[res] -= amount; o.store.energy -= cost; t.store[res] = (t.store[res] || 0) + amount; o.cooldown = SC.TERMINAL_COOLDOWN; return OK; };
+        o.store[res] -= amount; o.store.energy -= cost; t.store[res] = (t.store[res] || 0) + amount; o.cooldown = SC.TERMINAL_COOLDOWN;
+        w.transactions = (w.transactions || []).slice(-99); w.transactions.push({ transactionId: 't' + (w.nextId++), time: w.time, sender: { username: w.players[pid]?.name }, recipient: { username: w.players[t.owner]?.name }, _s: pid, _r: t.owner, resourceType: res, amount, from: roomName(o.x, o.y), to: dest, description: description == null ? undefined : String(description).slice(0, 100) }); return OK; };
     },
     creep(v, o) {
-      const mine = o.owner === pid, cap = activeParts(o, 'carry') * SC.CARRY_CAPACITY;
+      const mine = o.owner === pid, cap = boostPower(o, 'carry', 'capacity') * SC.CARRY_CAPACITY;
       Object.assign(v, { name: o.name, my: mine, owner: owner(o), body: o.body.map((t, i) => ({ type: t, hits: partHits(o, i), boost: o.boosts && o.boosts[i] || undefined })), fatigue: o.fatigue, hits: o.hits, hitsMax: o.body.length * 100,
         spawning: !!o.spawning, ticksToLive: o.spawning ? undefined : o.ttl, saying: o.say && w.time - o.sayT <= 1 && (mine || o.sayPublic) ? o.say : undefined, store: makeStore(o), carryCapacity: cap });
       v.carry = v.store;
@@ -752,9 +797,9 @@ function buildApi(E, pid) {
       v.harvest = t => {
         const e = pre('work'); if (e) return e; const x = raw(t); if (!x || (x.kind !== 'source' && x.kind !== 'mineral')) return ERR_INVALID_TARGET; if (!sameRoom(x, o) || dist(x, o) > 1) return ERR_NOT_IN_RANGE;
         const ctrl = ctrlOfRoom(w, roomKey(x.x, x.y)); if (ctrl && ((ctrl.owner && ctrl.owner !== pid) || (ctrl.reservation && ctrl.reservation.owner !== pid))) return ERR_NOT_OWNER;
-        if (x.kind === 'source') { if (!x.energy) return ERR_NOT_ENOUGH_RESOURCES; const a = Math.min(x.energy, activeParts(o, 'work') * SC.HARVEST_POWER); x.energy -= a; o.store.energy = (o.store.energy || 0) + a; }
+        if (x.kind === 'source') { if (!x.energy) return ERR_NOT_ENOUGH_RESOURCES; const a = Math.min(x.energy, boostPower(o, 'work', 'harvest') * SC.HARVEST_POWER); x.energy -= a; o.store.energy = (o.store.energy || 0) + a; }
         else { const ex = w.structures.find(s => s.type === 'extractor' && s.x === x.x && s.y === x.y); if (!ex) return ERR_NOT_FOUND; if (ex.owner !== pid) return ERR_NOT_OWNER; if (!E.isActive(ex)) return ERR_RCL_NOT_ENOUGH; if (ex.cooldown > 0) return ERR_TIRED; if (!x.amount) return ERR_NOT_ENOUGH_RESOURCES;
-          const a = Math.min(x.amount, activeParts(o, 'work') * SC.HARVEST_MINERAL_POWER); x.amount -= a; o.store[x.type] = (o.store[x.type] || 0) + a; ex.cooldown = SC.EXTRACTOR_COOLDOWN; }
+          const a = Math.min(x.amount, boostPower(o, 'work', 'harvest') * SC.HARVEST_MINERAL_POWER); x.amount -= a; o.store[x.type] = (o.store[x.type] || 0) + a; ex.cooldown = SC.EXTRACTOR_COOLDOWN; }
         const over = used() - cap; if (over > 0) { const r = x.kind === 'source' ? 'energy' : x.type; o.store[r] -= over; E.dropAt(o.x, o.y, r, over); } // 官方：溢出掉在地上
         ev.push({ t: 'harvest', fx: x.x, fy: x.y, x: o.x, y: o.y }); return OK;
       };
@@ -784,7 +829,7 @@ function buildApi(E, pid) {
         const e = pre('work'); if (e) return e; const x = raw(t); if (!x || x.kind !== 'site') return ERR_INVALID_TARGET; if (!sameRoom(x, o) || dist(x, o) > 3) return ERR_NOT_IN_RANGE;
         if (x.owner !== pid) return ERR_NOT_OWNER; if (!(o.store.energy > 0)) return ERR_NOT_ENOUGH_ENERGY;
         if (OBSTACLES.has(x.type) && w.creeps.some(c => !c.spawning && c.x === x.x && c.y === x.y)) return ERR_INVALID_TARGET;
-        const a = Math.min(activeParts(o, 'work') * SC.BUILD_POWER, o.store.energy, x.total - x.progress); x.progress += a; o.store.energy -= a;
+        const a = Math.min(boostPower(o, 'work', 'build') * SC.BUILD_POWER, o.store.energy, x.total - x.progress); x.progress += a; o.store.energy -= a;
         ev.push({ t: 'build', fx: o.x, fy: o.y, x: x.x, y: x.y });
         if (x.progress >= x.total) {
           w.sites.splice(w.sites.indexOf(x), 1);
@@ -796,13 +841,13 @@ function buildApi(E, pid) {
       v.repair = t => {
         const e = pre('work'); if (e) return e; const x = raw(t); if (!x || x.hits == null || x.kind === 'creep' || x.kind === 'controller') return ERR_INVALID_TARGET; if (!sameRoom(x, o) || dist(x, o) > 3) return ERR_NOT_IN_RANGE;
         if (!(o.store.energy > 0)) return ERR_NOT_ENOUGH_ENERGY; if (x.hits >= x.hitsMax) return OK;
-        const a = Math.min(activeParts(o, 'work') * SC.REPAIR_POWER, Math.floor(o.store.energy / SC.REPAIR_COST), x.hitsMax - x.hits);
+        const a = Math.min(boostPower(o, 'work', 'repair') * SC.REPAIR_POWER, Math.floor(o.store.energy / SC.REPAIR_COST), x.hitsMax - x.hits);
         o.store.energy -= Math.max(1, Math.ceil(a * SC.REPAIR_COST)); x.hits += a; ev.push({ t: 'repair', fx: o.x, fy: o.y, x: x.x, y: x.y }); return OK;
       };
       v.dismantle = t => {
         const e = pre('work'); if (e) return e; const x = raw(t); if (!x || x.kind !== 'structure' && x.kind !== 'spawn') return ERR_INVALID_TARGET; if (!sameRoom(x, o) || dist(x, o) > 1) return ERR_NOT_IN_RANGE;
         const ctrl = ctrlOfRoom(w, roomKey(x.x, x.y)); if (ctrl && ctrl.safeMode > w.time && ctrl.owner !== pid) return ERR_NO_BODYPART;
-        const a = Math.min(activeParts(o, 'work') * SC.DISMANTLE_POWER, x.hits), back = Math.floor(a * SC.DISMANTLE_COST);
+        const a = Math.min(boostPower(o, 'work', 'dismantle') * SC.DISMANTLE_POWER, x.hits), back = Math.floor(a * SC.DISMANTLE_COST);
         if (back) { o.store.energy = (o.store.energy || 0) + back; const over = used() - cap; if (over > 0) { o.store.energy -= over; E.dropAt(o.x, o.y, 'energy', over); } }
         E.damage(x, a, pid); return OK;
       };
@@ -810,7 +855,7 @@ function buildApi(E, pid) {
         const e = pre('work'); if (e) return e; const x = raw(t); if (!x || x.kind !== 'controller') return ERR_INVALID_TARGET; if (x.owner !== pid || !x.level) return ERR_NOT_OWNER;
         if (!sameRoom(x, o) || dist(x, o) > 3) return ERR_NOT_IN_RANGE; if (!(o.store.energy > 0)) return ERR_NOT_ENOUGH_RESOURCES; if (x.upgradeBlocked > w.time) return ERR_INVALID_TARGET;
         x._upTick = x._upTick === w.time ? w.time : (x._upCnt = 0, w.time);
-        let eff = Math.min(activeParts(o, 'work') * SC.UPGRADE_CONTROLLER_POWER, o.store.energy);
+        let eff = Math.min(boostPower(o, 'work', 'upgradeController') * SC.UPGRADE_CONTROLLER_POWER, o.store.energy);
         if (x.level === 8) { eff = Math.min(eff, SC.CONTROLLER_MAX_UPGRADE_PER_TICK - x._upCnt); if (eff <= 0) return OK; }
         x._upCnt += eff; o.store.energy -= eff; x._upgraded = 1; w.players[pid].gcl = (w.players[pid].gcl || 0) + eff;
         if (x.level < 8) {
@@ -844,14 +889,14 @@ function buildApi(E, pid) {
       v.generateSafeMode = t => { const e = pre(); if (e) return e; const x = tgt(t, 1, ['controller']); if (typeof x === 'number') return x; if ((o.store.G || 0) < SC.SAFE_MODE_COST) return ERR_NOT_ENOUGH_RESOURCES; o.store.G -= SC.SAFE_MODE_COST; x.safeModeAvailable++; return OK; };
       const hostileOk = x => x.kind === 'creep' ? x.owner !== pid || true : true;
       v.attack = t => { const e = pre('attack'); if (e) return e; const x = tgt(t, 1, ['creep', 'structure', 'spawn']); if (typeof x === 'number') return x; if (!hostileOk(x) || x.hits == null) return ERR_INVALID_TARGET;
-        E.damage(x, activeParts(o, 'attack') * SC.ATTACK_POWER, pid); if (x.kind === 'creep' && activeParts(x, 'attack')) E.damage(o, activeParts(x, 'attack') * SC.ATTACK_POWER, x.owner); ev.push({ t: 'attack', fx: o.x, fy: o.y, x: x.x, y: x.y }); return OK; };
+        E.damage(x, boostPower(o, 'attack', 'attack') * SC.ATTACK_POWER, pid); if (x.kind === 'creep' && activeParts(x, 'attack')) E.damage(o, boostPower(x, 'attack', 'attack') * SC.ATTACK_POWER, x.owner); ev.push({ t: 'attack', fx: o.x, fy: o.y, x: x.x, y: x.y }); return OK; };
       v.rangedAttack = t => { const e = pre('ranged_attack'); if (e) return e; const x = tgt(t, 3, ['creep', 'structure', 'spawn']); if (typeof x === 'number') return x; if (x.hits == null) return ERR_INVALID_TARGET;
-        E.damage(x, activeParts(o, 'ranged_attack') * SC.RANGED_ATTACK_POWER, pid); ev.push({ t: 'attack', fx: o.x, fy: o.y, x: x.x, y: x.y }); return OK; };
-      v.rangedMassAttack = () => { const e = pre('ranged_attack'); if (e) return e; const n = activeParts(o, 'ranged_attack') * SC.RANGED_ATTACK_POWER;
+        E.damage(x, boostPower(o, 'ranged_attack', 'rangedAttack') * SC.RANGED_ATTACK_POWER, pid); ev.push({ t: 'attack', fx: o.x, fy: o.y, x: x.x, y: x.y }); return OK; };
+      v.rangedMassAttack = () => { const e = pre('ranged_attack'); if (e) return e; const n = boostPower(o, 'ranged_attack', 'rangedMassAttack') * SC.RANGED_ATTACK_POWER;
         for (const x of w.creeps.filter(c => !c.spawning && c.owner !== pid && sameRoom(c, o) && dist(c, o) <= 3).concat(w.structures.concat(w.spawns).filter(s => s.owner && s.owner !== pid && sameRoom(s, o) && dist(s, o) <= 3))) E.damage(x, Math.round(n * ({ 0: 1, 1: 1, 2: 0.4, 3: 0.1 })[dist(x, o)]), pid);
         return OK; };
-      v.heal = t => { const e = pre('heal'); if (e) return e; const x = tgt(t, 1, ['creep']); if (typeof x === 'number') return x; x.hits = Math.min(x.body.length * 100, x.hits + activeParts(o, 'heal') * SC.HEAL_POWER); ev.push({ t: 'heal', fx: o.x, fy: o.y, x: x.x, y: x.y }); return OK; };
-      v.rangedHeal = t => { const e = pre('heal'); if (e) return e; const x = tgt(t, 3, ['creep']); if (typeof x === 'number') return x; x.hits = Math.min(x.body.length * 100, x.hits + activeParts(o, 'heal') * SC.RANGED_HEAL_POWER); ev.push({ t: 'heal', fx: o.x, fy: o.y, x: x.x, y: x.y }); return OK; };
+      v.heal = t => { const e = pre('heal'); if (e) return e; const x = tgt(t, 1, ['creep']); if (typeof x === 'number') return x; x.hits = Math.min(x.body.length * 100, x.hits + boostPower(o, 'heal', 'heal') * SC.HEAL_POWER); ev.push({ t: 'heal', fx: o.x, fy: o.y, x: x.x, y: x.y }); return OK; };
+      v.rangedHeal = t => { const e = pre('heal'); if (e) return e; const x = tgt(t, 3, ['creep']); if (typeof x === 'number') return x; x.hits = Math.min(x.body.length * 100, x.hits + boostPower(o, 'heal', 'rangedHeal') * SC.RANGED_HEAL_POWER); ev.push({ t: 'heal', fx: o.x, fy: o.y, x: x.x, y: x.y }); return OK; };
       v.pull = t => { const e = pre(); if (e) return e; const x = tgt(t, 1, ['creep']); if (typeof x === 'number') return x; if (x === o) return ERR_INVALID_TARGET; o._pulling = x; return OK; };
     },
   };
@@ -915,7 +960,7 @@ function buildApi(E, pid) {
     gcl: { level: gclLv, progress: gclP - (gclLv > 1 ? Math.pow(gclLv - 1, SC.GCL_POW) * SC.GCL_MULTIPLY : 0), progressTotal: Math.pow(gclLv, SC.GCL_POW) * SC.GCL_MULTIPLY - (gclLv > 1 ? Math.pow(gclLv - 1, SC.GCL_POW) * SC.GCL_MULTIPLY : 0) },
     gpl: { level: 0, progress: 0, progressTotal: SC.POWER_LEVEL_MULTIPLY },
     cpu: { limit: 20, tickLimit: Math.min(500, (w.players[pid] && w.players[pid].bucket != null ? w.players[pid].bucket : 10000)), bucket: (w.players[pid] && w.players[pid].bucket != null ? w.players[pid].bucket : 10000), shardLimits: { shard0: 20 }, unlocked: true, unlockedTime: undefined, getUsed: () => Date.now() - t0, getHeapStatistics: () => ({}), halt: () => { throw new Error('Game.cpu.halt'); }, setShardLimits: () => ERR_BUSY, unlock: () => ERR_FULL, generatePixel: () => { const P = w.players[pid]; if (!P || (P.bucket != null ? P.bucket : 10000) < SC.PIXEL_CPU_COST) return ERR_NOT_ENOUGH_RESOURCES; P.bucket -= SC.PIXEL_CPU_COST; P.pixels = (P.pixels || 0) + 1; return OK; } },
-    market: { credits: 0, incomingTransactions: [], outgoingTransactions: [], orders: {}, calcTransactionCost: (amount, a, b) => Math.ceil(amount * (1 - Math.exp(-Game.map.getRoomLinearDistance(a, b, true) / 30))), getAllOrders: () => [], getHistory: () => [], getOrderById: () => null, cancelOrder: () => ERR_INVALID_ARGS, changeOrderPrice: () => ERR_INVALID_ARGS, createOrder: () => ERR_NOT_ENOUGH_RESOURCES, deal: () => ERR_NOT_ENOUGH_RESOURCES, extendOrder: () => ERR_INVALID_ARGS },
+    market: { credits: 0, get incomingTransactions() { return (w.transactions || []).filter(t => t._r === pid).reverse(); }, get outgoingTransactions() { return (w.transactions || []).filter(t => t._s === pid).reverse(); }, orders: {}, calcTransactionCost: (amount, a, b) => Math.ceil(amount * (1 - Math.exp(-Game.map.getRoomLinearDistance(a, b, true) / 30))), getAllOrders: () => [], getHistory: () => [], getOrderById: () => null, cancelOrder: () => ERR_INVALID_ARGS, changeOrderPrice: () => ERR_INVALID_ARGS, createOrder: () => ERR_NOT_ENOUGH_RESOURCES, deal: () => ERR_NOT_ENOUGH_RESOURCES, extendOrder: () => ERR_INVALID_ARGS },
     getObjectById: id => { for (const L of [w.creeps, w.spawns, w.structures, w.controllers, w.sources, w.minerals, w.sites, w.resources, w.tombstones, w.flags]) { const o = L.find(o => o.id === id); if (o) return (vis.has(roomKey(o.x, o.y)) || (L === w.sites && o.owner === pid)) ? wrap(o) : null; } return null; },
     notify: (msg) => { E.log(pid, '[notify]', msg); return OK; },
     map: {
@@ -938,9 +983,14 @@ function buildApi(E, pid) {
   const P_ = w.players[pid] || {}, segStore = (w.segments = w.segments || {})[pid] = (w.segments[pid] || {}), segsNow = {}; for (const id of P_.activeSegs || []) segsNow[id] = segStore[id] || '';
   const RawMemory = { segments: segsNow, foreignSegment: undefined, get: () => JSON.stringify(mem), set: s => { const m = JSON.parse(s); for (const k in mem) delete mem[k]; Object.assign(mem, m); }, setActiveSegments: ids => { if (!Array.isArray(ids) || ids.length > 10 || ids.some(i => !(i >= 0 && i <= 99 && Number.isInteger(i)))) throw new Error('RawMemory.setActiveSegments: 最多 10 个 0~99 的整数'); if (w.players[pid]) w.players[pid].activeSegs = ids.slice(); }, setActiveForeignSegment: () => undefined, setDefaultPublicSegment: () => undefined, setPublicSegments: () => undefined, interShardSegment: '' };
   const Room = function () { throw new Error('Room 不能直接构造'); }; Room.Terrain = RoomTerrain; Room.serializePath = p => JSON.stringify(p); Room.deserializePath = s => JSON.parse(s);
-  const PathFinder = { search(origin, goal, opts = {}) { const o = gpos(origin), goals = (Array.isArray(goal) ? goal : [goal]).map(g => ({ g: gpos(g.pos || g) || gpos(g), r: g.range || 0 }));
-      let best = null; for (const { g, r } of goals) { if (!g) continue; const p = E.findPath(o, g, r, undefined, Object.assign({ ignoreCreeps: true }, opts)); if (p.length && (!best || p.length < best.length)) best = p; }
-      return { path: (best || []).map(p => new RoomPosition(p.x % ROOM, p.y % ROOM, roomName(p.x, p.y))), ops: 0, cost: best ? best.length : 0, incomplete: !best }; },
+  const PathFinder = { search(origin, goal, opts = {}) { // 官方 PathFinder.search：plainCost 1 / swampCost 5，不考虑道路与 creep；roomCallback 返回 CostMatrix 或 false
+      const o = gpos(origin), goals = (Array.isArray(goal) ? goal : [goal]).map(g => ({ g: gpos(g && g.pos || g) || gpos(g), r: (g && g.range) || 0 })).filter(x => x.g);
+      if (!o || !goals.length) return { path: [], ops: 0, cost: 0, incomplete: true };
+      const fo = { ignoreCreeps: true, ignoreRoads: true, plainCost: opts.plainCost || 1, swampCost: opts.swampCost || 5, maxOps: opts.maxOps || 2000, partial: true };
+      if (opts.roomCallback) fo._cm = (rx, ry) => { const m = opts.roomCallback(roomNameXY(rx, ry)); return m === false ? false : (m && m.get ? m : null); };
+      let best = null, meta = null; for (const { g, r } of goals) { const p = E.findPath(o, g, r, undefined, fo); const m = { ops: E._lastOps || 0, cost: p.length ? E._lastCost : 0, inc: !p.length && dist(o, g) > r ? true : !!E._lastIncomplete };
+        if (!best || (!m.inc && meta.inc) || (m.inc === meta.inc && m.cost < meta.cost)) { best = p; meta = m; } }
+      return { path: best.map(p => new RoomPosition(p.x % ROOM, p.y % ROOM, roomName(p.x, p.y))), ops: meta.ops, cost: meta.cost, incomplete: meta.inc }; },
     CostMatrix: class CostMatrix { constructor() { this._bits = new Uint8Array(2500); } set(x, y, v) { this._bits[y * 50 + x] = v; } get(x, y) { return this._bits[y * 50 + x]; } clone() { const c = new PathFinder.CostMatrix(); c._bits.set(this._bits); return c; } serialize() { return Array.from(this._bits); } static deserialize(d) { const c = new PathFinder.CostMatrix(); c._bits.set(d); return c; } },
     use: () => undefined };
   return { Game, Memory: mem, RawMemory, RoomPosition, Room, PathFinder, log: (...a) => E.log(pid, ...a) };

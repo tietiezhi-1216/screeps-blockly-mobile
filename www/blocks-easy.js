@@ -7,9 +7,6 @@ const v = (b, n, d) => JS.valueToCode(b, n, O) || d;
 const q = s => JSON.stringify(String(s));
 const C = { cmd: '#5973FF', act: '#3d85c6', cond: '#4a8f6a', spawn: '#2e8b57', build: '#a06a3a', misc: '#6b7280' };
 
-// ---------- 角色 ----------
-const ROLES = [['采集者', 'harvester'], ['升级者', 'upgrader'], ['建造者', 'builder'], ['修理工', 'repairer'], ['搬运工', 'hauler'], ['守卫', 'defender'], ['治疗者', 'healer'], ['占领者', 'claimer']];
-const roleZh = k => (ROLES.find(r => r[1] === k) || [k])[0];
 // ---------- 实时 Spawn 列表 ----------
 function spawnOptions() {
   const out = [['任意空闲的 Spawn', '*']];
@@ -56,6 +53,101 @@ function openBodyForm(value, done) {
   });
 }
 window.openBodyForm = openBodyForm;
+
+// ---------- 身份（玩家自己定义：名字 + 身体部件 + 数量；随程序一起保存） ----------
+// 名字直接写进生成脚本的 creep.memory.role
+const LEGACY = { harvester: '采集者', upgrader: '升级者', builder: '建造者', repairer: '修理工', hauler: '搬运工', defender: '守卫', healer: '治疗者', claimer: '占领者' };
+let ROLES = []; // [{ name, body: 'work,carry,move' }]（数量在「保持数量」积木上设）
+const findRole = n => ROLES.find(r => r.name === n);
+const roleZh = n => n ? (findRole(n) ? n : n + '（已删除）') : '（未选身份）';
+const rolesChanged = () => { try { window.sbmRolesChanged && window.sbmRolesChanged(); } catch (e) {} };
+Blockly.serialization.registry.register('sbmRoles', {
+  priority: 90, // 先于积木加载
+  save: () => ROLES.map(r => ({ name: r.name, body: r.body })),
+  load: st => { ROLES = (Array.isArray(st) ? st : []).filter(r => r && typeof r.name === 'string' && r.name.trim()).map(r => ({ name: r.name.trim().slice(0, 12), body: parseBody(r.body).join(',') || 'work,carry,move' })); },
+  clear: () => { ROLES = []; },
+});
+// 旧存档（内置角色）迁移：把用到的角色转成玩家身份，部件和数量取自原来的「保持数量」积木
+function migrateState(state) {
+  if (!state || state.sbmRoles || !state.blocks) return state;
+  const st = JSON.parse(JSON.stringify(state)), found = {};
+  (function walk(o) { if (!o || typeof o !== 'object') return; if (Array.isArray(o)) return o.forEach(walk);
+    if (o.type && o.fields && typeof o.fields.ROLE === 'string') { const n = LEGACY[o.fields.ROLE] || o.fields.ROLE; o.fields.ROLE = n;
+      const r = found[n] || (found[n] = { name: n, body: 'work,carry,move' });
+      if ((o.type === 'e_keep' || o.type === 'e_spawn') && o.fields.BODY) r.body = o.fields.BODY;
+      delete o.fields.BODY; }
+    for (const k in o) walk(o[k]); })(st.blocks);
+  const L = Object.values(found); if (L.length) st.sbmRoles = L; return st;
+}
+window.sbmLoadWs = (state, ws) => Blockly.serialization.workspaces.load(migrateState(state), ws);
+function roleOptions() { const L = ROLES.map(r => [r.name, r.name]); const cur = this && this.getValue && this.getValue();
+  if (cur && !findRole(cur)) L.push([cur + '（已删除）', cur]);
+  L.push([ROLES.length ? '＋ 新建身份' : '还没有身份，＋ 新建身份', '__new']); if (ROLES.length) L.push(['管理身份', '__manage']); return L; }
+class FieldRole extends Blockly.FieldDropdown {
+  constructor(v, opt) { super(roleOptions); this.detail_ = !!(opt && opt.detail); if (v != null) this.setValue(v); }
+  static fromJson(o) { return new FieldRole(o.value, o); }
+  doClassValidation_(nv) { if (nv === '__new' || nv === '__manage') { const b = this.getSourceBlock();
+      if (b && !b.isInFlyout) setTimeout(() => nv === '__new' ? openRoleEdit(null, n => { if (n) this.setValue(n); }) : openRoleManager(), 0); return null; }
+    return typeof nv === 'string' ? nv : null; }
+  getText_() { const v = this.getValue(); if (!v) return ROLES.length ? '选择身份' : '先新建身份'; const r = findRole(v);
+    if (!r) return v + '（已删除）'; return r.name; }
+}
+Blockly.fieldRegistry.register('field_role', FieldRole);
+const forEachRoleField = fn => { const w = Blockly.getMainWorkspace && Blockly.getMainWorkspace(); if (!w) return;
+  for (const b of w.getAllBlocks(false)) { const f = b.getField && b.getField('ROLE'); if (f instanceof FieldRole) fn(f, b); } };
+const refreshRoleFields = () => forEachRoleField(f => { f.forceRerender && f.forceRerender(); });
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+const ic = n => typeof icon === 'function' ? icon(n) : '';
+// 新建 / 修改身份：名字 + 数量 + 身体部件
+function openRoleEdit(old, done) {
+  const r0 = old ? findRole(old) : null; let name = r0 ? r0.name : '', L = parseBody(r0 ? r0.body : 'work,carry,move');
+  const host = document.getElementById('editor') || document.body; const d = document.createElement('div'); d.id = 'roleEdit'; d.className = 'sbmForm'; host.appendChild(d);
+  const err = () => { const n = name.trim(); if (!n) return '请输入身份名字'; if (ROLES.some(r => r.name === n && r !== r0)) return '已经有同名身份'; if (!L.length) return '至少选一个部件'; return ''; };
+  const draw = () => {
+    d.innerHTML = `<div class="bfBox"><div class="bfHead"><b>${r0 ? '修改身份' : '新建身份'}</b><span class="bfStat">${L.length}/50 个 · <b>${bodyCost(L)}</b> 能量 · 孵化 ${L.length * 3} tick</span></div>
+      <div class="rfRow"><label>名字</label><input class="rfName" maxlength="12" placeholder="例如：采集者" value="${esc(name)}"></div>
+      <div class="bfParts">${Object.keys(PART).map(p => `<button class="bfP" data-p="${p}"><i style="background:${PART[p][1]}"></i><span>${PART[p][0]}</span><em>${COST(p)}</em></button>`).join('')}</div>
+      <div class="bfCur">${L.length ? L.map((p, i) => `<button class="bfC" data-i="${i}" style="background:${PART[p][1]}">${PART[p][0]}</button>`).join('') : '<span class="bfEmpty">点上面的部件添加，点这里的部件移除</span>'}</div>
+      <div class="bfFoot"><span class="rfErr">${err()}</span><span class="sp"></span><button data-a="cancel" class="ghost">取消</button><button data-a="ok" class="primary"${err() ? ' disabled' : ''}>${r0 ? '保存' : '创建'}</button></div></div>`;
+    const inp = d.querySelector('.rfName'); inp.oninput = () => { name = inp.value; d.querySelector('.rfErr').textContent = err(); d.querySelector('[data-a="ok"]').disabled = !!err(); };
+  };
+  draw(); if (!r0) setTimeout(() => { const i = d.querySelector('.rfName'); i && i.focus(); }, 50);
+  d.addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) { if (e.target === d) { d.remove(); done && done(null); } return; }
+    if (b.dataset.p) { if (L.length < 50) L.push(b.dataset.p); }
+    else if (b.dataset.i) L.splice(+b.dataset.i, 1);
+    else if (b.dataset.a === 'cancel') { d.remove(); return done && done(null); }
+    else if (b.dataset.a === 'ok') { if (err()) return; const n = name.trim();
+      if (r0) { const was = r0.name; Object.assign(r0, { name: n, body: L.join(',') }); if (was !== n) forEachRoleField(f => { if (f.getValue() === was) f.setValue(n); }); }
+      else ROLES.push({ name: n, body: L.join(',') });
+      d.remove(); refreshRoleFields(); rolesChanged(); return done && done(n); }
+    draw();
+  });
+}
+// 身份管理：列表 + 新建 / 修改 / 删除
+function openRoleManager() {
+  const host = document.getElementById('editor') || document.body; let d = document.getElementById('roleMgr'); if (d) d.remove();
+  d = document.createElement('div'); d.id = 'roleMgr'; d.className = 'sbmForm'; host.appendChild(d);
+  const uses = n => { let k = 0; forEachRoleField(f => { if (f.getValue() === n) k++; }); return k; };
+  const draw = () => {
+    d.innerHTML = `<div class="bfBox"><div class="bfHead"><b>身份</b><span class="bfStat">${ROLES.length} 个</span></div>
+      <div class="rmList">${ROLES.length ? ROLES.map((r, i) => `<div class="rmItem"><div class="rmMain"><b>${esc(r.name)}</b><span>${bodySummary(parseBody(r.body))}</span></div>
+        <button class="rmBtn" data-e="${i}" title="修改">${ic('pencil')}</button><button class="rmBtn del" data-d="${i}" title="删除">${ic('trash')}</button></div>`).join('') : '<div class="bfEmpty rmEmpty">还没有身份</div>'}</div>
+      <div class="bfFoot"><button data-a="new" class="primary">${ic('plus')} 新建身份</button><span class="sp"></span><button data-a="close" class="ghost">完成</button></div></div>`;
+  };
+  draw();
+  d.addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) { if (e.target === d) d.remove(); return; }
+    if (b.dataset.a === 'close') return d.remove();
+    if (b.dataset.a === 'new') return openRoleEdit(null, () => draw());
+    if (b.dataset.e) return openRoleEdit(ROLES[+b.dataset.e].name, () => draw());
+    if (b.dataset.d) { const r = ROLES[+b.dataset.d], k = uses(r.name);
+      if (!confirm(k ? `删除「${r.name}」？有 ${k} 个积木用到它，需要重新选择身份。` : `删除「${r.name}」？`)) return;
+      ROLES.splice(+b.dataset.d, 1); refreshRoleFields(); rolesChanged(); draw(); }
+  });
+}
+window.openRoleManager = openRoleManager; window.openRoleEdit = openRoleEdit; window.sbmRoles = () => ROLES;
+window.sbmSetRoles = L => { ROLES = L.map(r => Object.assign({}, r)); };
 
 // ---------- 运行时助手（只要用到新手积木就会一起生成；全部是官方 API） ----------
 const LIB = `// ===== 积木助手（自动生成，全部使用官方 API）=====
@@ -120,22 +212,27 @@ function E(type, json, gen, say) {
 }
 const stmt = { previousStatement: null, nextStatement: null };
 const dd = (name, opts) => ({ type: 'field_dropdown', name, options: opts });
-const roleDD = name => ({ type: 'field_dropdown', name, options: ROLES });
+const roleDD = (name, detail) => ({ type: 'field_role', name, value: '', detail: !!detail });
+const roleV = b => b.getFieldValue('ROLE') || '';
+// 身份没选或已删除时给出提示
+function needRole(type) { const bd = Blockly.Blocks[type], old = bd.onchange;
+  bd.onchange = function (e) { if (old) old.call(this, e); if (!this.workspace || this.workspace.isFlyout || this.isInFlyout) return;
+    if (this.getField('ROLE') && !findRole(roleV(this))) this.setWarningText(roleV(this) ? '这个身份已删除，请重新选择' : '请选择身份（没有就新建一个）', 'role'); else this.setWarningText(null, 'role'); }; }
 const ctxTypes = ['e_each', 'e_role', 'e_cycle'];
 // 需要「当前 creep」的积木：不在 creep 积木里面时给出提示
 function needCreep(type) {
   const bd = Blockly.Blocks[type], old = bd.onchange;
   bd.onchange = function (e) { if (old) old.call(this, e); if (!this.workspace || this.workspace.isFlyout || this.isInFlyout) return;
     let p = this.getSurroundParent(), ok = false; while (p) { if (ctxTypes.includes(p.type)) { ok = true; break; } p = p.getSurroundParent(); }
-    this.setWarningText(ok ? null : '要放在「对每个 creep」或「角色为 … 的 creep」里面'); };
+    this.setWarningText(ok ? null : '要放在「对每个 creep」或「身份为 … 的 creep」里面'); };
 }
 
 // ===== 指挥 =====
 E('e_each', { message0: '对每个我的 creep %1 %2', args0: [{ type: 'input_dummy' }, { type: 'input_statement', name: 'DO' }], ...stmt, colour: C.cmd, tooltip: '让每个 creep 依次执行里面的积木（孵化中的会跳过）' },
   b => `for (const name in Game.creeps) {\n  const creep = Game.creeps[name];\n  if (creep.spawning) continue;\n${JS.statementToCode(b, 'DO')}}\n`,
   (b, s) => ['让每个 creep：', s('DO')]);
-E('e_role', { message0: '角色为 %1 的 creep %2 %3', args0: [roleDD('ROLE'), { type: 'input_dummy' }, { type: 'input_statement', name: 'DO' }], ...stmt, colour: C.cmd, tooltip: '只让这个角色的 creep 执行里面的积木' },
-  b => `for (const name in Game.creeps) {\n  const creep = Game.creeps[name];\n  if (creep.spawning || creep.memory.role !== ${q(b.getFieldValue('ROLE'))}) continue;\n${JS.statementToCode(b, 'DO')}}\n`,
+E('e_role', { message0: '身份为 %1 的 creep %2 %3', args0: [roleDD('ROLE'), { type: 'input_dummy' }, { type: 'input_statement', name: 'DO' }], ...stmt, colour: C.cmd, tooltip: '只让这个身份的 creep 执行里面的积木' },
+  b => !roleV(b) ? '' : `for (const name in Game.creeps) {\n  const creep = Game.creeps[name];\n  if (creep.spawning || creep.memory.role !== ${q(b.getFieldValue('ROLE'))}) continue;\n${JS.statementToCode(b, 'DO')}}\n`,
   (b, s) => [`让每个「${roleZh(b.getFieldValue('ROLE'))}」：`, s('DO')]);
 E('e_cycle', { message0: '先 %1 装满能量 %2 再 %3 用完再回去补充', args0: [dd('SRC', [['采集能量源', 'harvest'], ['从仓库或容器取', 'withdraw'], ['捡地上的能量', 'pickup']]), { type: 'input_dummy' }, { type: 'input_statement', name: 'DO' }], ...stmt, colour: C.cmd, tooltip: '背包空了就去补充能量，装满后执行里面的积木' },
   b => { const s = b.getFieldValue('SRC'); const get = s === 'harvest' ? `sbmDo(creep, creep.pos.findClosestByPath(FIND_SOURCES_ACTIVE), 'harvest');`
@@ -212,12 +309,13 @@ E('e_ttl', { message0: '剩余寿命', ...outN }, () => ['creep.ticksToLive', JS
 needCreep('e_ttl');
 
 // ===== 孵化 =====
-E('e_keep', { message0: '保持 %1 数量为 %2 %3 身体 %4 %5 用 %6 孵化', args0: [roleDD('ROLE'), { type: 'field_number', name: 'N', value: 2, min: 0, max: 50, precision: 1 }, { type: 'input_dummy' }, { type: 'field_body', name: 'BODY', value: 'work,carry,move' }, { type: 'input_dummy' }, { type: 'field_dropdown', name: 'SP', options: spawnOptions }], ...stmt, colour: C.spawn, tooltip: '不够数量时自动孵化，名字自动生成；排在上面的先孵化' },
-  b => `sbmKeep(${q(b.getFieldValue('ROLE'))}, ${b.getFieldValue('N')}, [${parseBody(b.getFieldValue('BODY')).map(p => p.toUpperCase()).join(', ')}], ${spawnExpr(b.getFieldValue('SP'))});\n`,
-  b => `始终保持 ${b.getFieldValue('N')} 个${roleZh(b.getFieldValue('ROLE'))}（${bodySummary(parseBody(b.getFieldValue('BODY')))}），不够就孵化`);
-E('e_spawn', { message0: '用 %1 孵化一个 %2 %3 身体 %4', args0: [{ type: 'field_dropdown', name: 'SP', options: spawnOptions }, roleDD('ROLE'), { type: 'input_dummy' }, { type: 'field_body', name: 'BODY', value: 'work,carry,move' }], ...stmt, colour: C.spawn },
-  b => `{ const sp = ${spawnExpr(b.getFieldValue('SP'))}; if (sp && !sp.spawning) sp.spawnCreep([${parseBody(b.getFieldValue('BODY')).map(p => p.toUpperCase()).join(', ')}], ${q(b.getFieldValue('ROLE'))} + Game.time, { memory: { role: ${q(b.getFieldValue('ROLE'))} } }); }\n`,
-  b => `孵化一个${roleZh(b.getFieldValue('ROLE'))}（${bodySummary(parseBody(b.getFieldValue('BODY')))}）`);
+const roleBody = r => `[${parseBody(r.body).map(p => p.toUpperCase()).join(', ')}]`;
+E('e_keep', { message0: '保持 %1 数量为 %2 %3 用 %4 孵化', args0: [roleDD('ROLE'), { type: 'field_number', name: 'N', value: 2, min: 0, max: 50, precision: 1 }, { type: 'input_dummy' }, { type: 'field_dropdown', name: 'SP', options: spawnOptions }], ...stmt, colour: C.spawn, tooltip: '数量不够时按身份里设定的部件自动孵化；排在上面的先孵化' },
+  b => { const r = findRole(roleV(b)); return r ? `sbmKeep(${q(r.name)}, ${b.getFieldValue('N')}, ${roleBody(r)}, ${spawnExpr(b.getFieldValue('SP'))});\n` : ''; },
+  b => { const r = findRole(roleV(b)); return r ? `始终保持 ${b.getFieldValue('N')} 个${r.name}（${bodySummary(parseBody(r.body))}），不够就孵化` : `保持数量：${roleZh(roleV(b))}`; });
+E('e_spawn', { message0: '用 %1 孵化一个 %2', args0: [{ type: 'field_dropdown', name: 'SP', options: spawnOptions }, roleDD('ROLE')], ...stmt, colour: C.spawn, tooltip: '按身份里设定的部件孵化一个' },
+  b => { const r = findRole(roleV(b)); return r ? `{ const sp = ${spawnExpr(b.getFieldValue('SP'))}; if (sp && !sp.spawning) sp.spawnCreep(${roleBody(r)}, ${q(r.name)} + Game.time, { memory: { role: ${q(r.name)} } }); }\n` : ''; },
+  b => { const r = findRole(roleV(b)); return r ? `孵化一个${r.name}（${bodySummary(parseBody(r.body))}）` : `孵化：${roleZh(roleV(b))}`; });
 E('e_clean', { message0: '清理已死亡 creep 的记忆', ...stmt, colour: C.spawn }, () => `for (const name in Memory.creeps) if (!Game.creeps[name]) delete Memory.creeps[name];\n`, () => '清理已死亡 creep 的记忆');
 
 // ===== 建筑 =====
@@ -240,28 +338,29 @@ const EASY_CATS = [
   { id: 'e_cond', name: '判断', colour: C.cond, items: [IFC('e_store'), IFC('e_exists', true), X('e_store'), X('e_exists'), X('e_hp'), X('e_isrole'),
       X('logic_compare', { inputs: { A: { block: { type: 'e_count' } }, B: { shadow: { type: 'math_number', fields: { NUM: 3 } } } }, fields: { OP: 'LT' } }), X('logic_operation'), X('logic_negate'),
       X('e_count'), X('e_energy'), X('e_level'), X('e_ttl'), X('math_number')] },
-  { id: 'e_spawn', name: '孵化', colour: C.spawn, items: [X('e_keep'), X('e_spawn'), X('e_clean')] },
+  { id: 'e_spawn', name: '孵化', colour: C.spawn, items: [{ kind: 'button', text: '新建身份', callbackKey: 'sbmNewRole' }, { kind: 'button', text: '管理身份', callbackKey: 'sbmRoles' }, X('e_keep'), X('e_spawn'), X('e_clean')] },
   { id: 'e_build', name: '建筑', colour: C.build, items: [X('e_place'), X('e_tower'), X('e_safe')] },
   { id: 'e_misc', name: '其他', colour: C.misc, items: [X('e_log', { inputs: { T: { shadow: { type: 'text', fields: { TEXT: '你好' } } } } }), X('text'), X('controls_repeat_ext', { inputs: { TIMES: { shadow: { type: 'math_number', fields: { NUM: 3 } } } } })] },
 ];
 CATS.forEach(c => c.adv = true);
 CATS.unshift(...EASY_CATS);
-window.EASY_BLOCKS = EASY; window.ROLES = ROLES;
+['e_role', 'e_isrole', 'e_count', 'e_keep', 'e_spawn'].forEach(needRole);
+window.EASY_BLOCKS = EASY;
 
 // ---------- 默认入门程序（全部用新手积木） ----------
 const N = (type, o) => ({ block: Object.assign({ type }, o || {}) });
 const chain = (...L) => { for (let i = L.length - 2; i >= 0; i--) L[i].block.next = L[i + 1]; return L[0]; };
-const keep = (role, n, body) => N('e_keep', { fields: { ROLE: role, N: n, BODY: body, SP: '*' } });
+const keep = (role, n) => N('e_keep', { fields: { ROLE: role, N: n, SP: '*' } });
 const role = (r, inner) => N('e_role', { fields: { ROLE: r }, inputs: { DO: inner } });
 const cycle = inner => N('e_cycle', { fields: { SRC: 'harvest' }, inputs: { DO: inner } });
 const ifElse = (cond, a, b) => N('controls_if', { extraState: { hasElse: true }, inputs: { IF0: N(cond.t, { fields: cond.f }), DO0: a, ELSE: b } });
 DEFAULT_WS = { blocks: { languageVersion: 0, blocks: [Object.assign(chain(
   N('e_clean'),
-  keep('harvester', 2, 'work,carry,move'), keep('upgrader', 2, 'work,carry,move'), keep('builder', 1, 'work,carry,move'),
-  role('harvester', cycle(ifElse({ t: 'e_exists', f: { T: 'need' } }, N('e_deliver', { fields: { T: 'spawnext' } }), N('e_upgrade')))),
-  role('upgrader', cycle(N('e_upgrade'))),
-  role('builder', cycle(ifElse({ t: 'e_exists', f: { T: 'site' } }, N('e_build'), N('e_upgrade')))),
-).block, { x: 16, y: 16 })] } };
+  keep('采集者', 2), keep('升级者', 2), keep('建造者', 1),
+  role('采集者', cycle(ifElse({ t: 'e_exists', f: { T: 'need' } }, N('e_deliver', { fields: { T: 'spawnext' } }), N('e_upgrade')))),
+  role('升级者', cycle(N('e_upgrade'))),
+  role('建造者', cycle(ifElse({ t: 'e_exists', f: { T: 'site' } }, N('e_build'), N('e_upgrade')))),
+).block, { x: 16, y: 16 })] }, sbmRoles: [{ name: '采集者', body: 'work,carry,move' }, { name: '升级者', body: 'work,carry,move' }, { name: '建造者', body: 'work,carry,move' }] };
 
 // ---------- 程序说明（白话） ----------
 function describe(ws) {

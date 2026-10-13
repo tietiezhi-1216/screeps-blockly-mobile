@@ -200,3 +200,41 @@ pre.mem{margin:var(--sp-1) 0 0;max-height:120px;overflow:auto;background:#0008;p
 #bodyForm .bfFoot button{height:32px;padding:0 14px;border:0;border-radius:4px;font-size:13px;background:#2a2f3a;color:#e6e6e6}
 #bodyForm .bfFoot button.primary{background:#5973FF;color:#fff}
 #bodyForm .bfFoot button:disabled{opacity:.4}
+/* 身份：新建 / 修改 / 管理（与身体部件表单同一风格） */
+.sbmForm{position:absolute;inset:0;z-index:41;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);box-sizing:border-box}
+#roleEdit{z-index:42}
+.sbmForm .bfBox{background:#1f2229;color:#e6e6e6;border-radius:6px;width:min(560px,94%);max-height:94%;overflow:auto;padding:10px 12px;display:flex;flex-direction:column;gap:8px;box-sizing:border-box;scrollbar-width:none}
+.sbmForm .bfBox::-webkit-scrollbar{display:none}
+.sbmForm .bfHead{display:flex;align-items:center;gap:8px;white-space:nowrap}
+.sbmForm .bfHead b{font-size:14px}
+.sbmForm .bfStat{margin-left:auto;font-size:12px;color:#aab}
+.sbmForm .bfStat b{color:#ffe56d}
+.sbmForm .bfParts{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.sbmForm .bfP{display:flex;align-items:center;gap:6px;height:34px;padding:0 8px;border:0;border-radius:4px;background:#2a2f3a;color:#e6e6e6;font-size:13px;white-space:nowrap}
+.sbmForm .bfP i{width:14px;height:14px;border-radius:50%;flex:0 0 auto}
+.sbmForm .bfP em{margin-left:auto;font-style:normal;font-size:11px;color:#8a8f99}
+.sbmForm .bfCur{display:flex;flex-wrap:wrap;gap:4px;min-height:34px;padding:6px;background:#15171c;border-radius:4px;box-sizing:border-box}
+.sbmForm .bfC{height:24px;padding:0 6px;border:0;border-radius:3px;color:#111;font-size:11px;font-weight:600}
+.sbmForm .bfEmpty{font-size:12px;color:#777;align-self:center}
+.sbmForm .bfFoot{display:flex;gap:8px;align-items:center}
+.sbmForm .bfFoot .sp{flex:1}
+.sbmForm .bfFoot button{height:32px;padding:0 14px;border:0;border-radius:4px;font-size:13px;background:#2a2f3a;color:#e6e6e6;display:inline-flex;align-items:center;gap:4px}
+.sbmForm .bfFoot button.primary{background:#5973FF;color:#fff}
+.sbmForm .bfFoot button:disabled{opacity:.4}
+.sbmForm .rfRow{display:flex;align-items:center;gap:8px}
+.sbmForm .rfRow label{width:36px;font-size:13px;color:#aab;flex:0 0 auto}
+.sbmForm .rfName{flex:1;min-width:0;height:34px;padding:0 10px;border:0;border-radius:4px;background:#15171c;color:#e6e6e6;font-size:14px;outline:none}
+.sbmForm .rfName:focus{box-shadow:inset 0 0 0 1px #5973FF}
+.sbmForm .rfStep{width:34px;height:34px;border:0;border-radius:4px;background:#2a2f3a;color:#e6e6e6;font-size:16px;display:flex;align-items:center;justify-content:center}
+.sbmForm .rfCnt{min-width:28px;text-align:center;font-size:15px;font-weight:600}
+.sbmForm .rfTip{font-size:12px;color:#777;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sbmForm .rfErr{font-size:12px;color:#f58a8a}
+.sbmForm .rmList{display:flex;flex-direction:column;gap:6px}
+.sbmForm .rmItem{display:flex;align-items:center;gap:6px;background:#2a2f3a;border-radius:4px;padding:6px 6px 6px 10px}
+.sbmForm .rmMain{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.sbmForm .rmMain b{font-size:14px}
+.sbmForm .rmMain span{font-size:12px;color:#aab;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sbmForm .rmBtn{width:34px;height:34px;border:0;border-radius:4px;background:transparent;color:#cfd3dc;font-size:18px;display:flex;align-items:center;justify-content:center}
+.sbmForm .rmBtn.del{color:#f58a8a}
+.sbmForm .rmEmpty{padding:14px 0;text-align:center}
+@media (max-height:480px){.sbmForm .bfParts{grid-template-columns:repeat(8,1fr)}.sbmForm .bfP{flex-direction:column;justify-content:center;gap:0;height:44px;font-size:12px}.sbmForm .bfP em{margin:0}}

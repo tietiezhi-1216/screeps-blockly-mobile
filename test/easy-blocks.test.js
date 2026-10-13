@@ -9,7 +9,7 @@ const assert = (c, m) => { if (!c) { console.error('FAIL', m); process.exit(1); 
 const ws = new Blockly.Workspace(); Blockly.serialization.workspaces.load(__DEF, ws);
 const code = Blockly.JavaScript.workspaceToCode(ws);
 assert(!/Game\.spawns\['Spawn1'\]/.test(code) && code.includes('sbmKeep(') && code.includes("'upgradeController'"), '默认程序只用新手积木生成');
-assert(describeProgram(ws).some(l => l.includes('采集者')), '白话说明含角色');
+assert(describeProgram(ws).some(l => l.includes('采集者')), '白话说明含身份');
 // 每个新手积木单独放进「对每个 creep」里都能编译
 for (const e of EASY_BLOCKS) { const w2 = new Blockly.Workspace(); const b = w2.newBlock(e.type); let c;
   if (b.outputConnection) { const i = w2.newBlock('controls_if'); i.getInput('IF0').connection.connect(b.outputConnection); const p = w2.newBlock('e_each'); p.getInput('DO').connection.connect(i.previousConnection); }
@@ -27,3 +27,20 @@ const roles = Object.values((w.memory.p1 || {}).creeps || {}).map(m => m.role);
 assert(maxCreeps >= 4, '按「保持数量」孵化了 creep：' + maxCreeps + ' 角色 ' + [...new Set(roles)].join(','));
 const c = ctrl(); assert(c && (c.level > 1 || c.progress > prog0), `控制器在升级：等级 ${c.level} 进度 ${c.progress}`);
 console.log('ok - 入门程序在引擎里跑通');
+// ---- 玩家自定义身份 ----
+assert(!/harvester|upgrader|builder|战士|弓箭手|医疗兵|工人/.test(code), '生成代码里没有内置角色');
+const st = Blockly.serialization.workspaces.save(ws);
+assert(Array.isArray(st.sbmRoles) && st.sbmRoles.length === 3 && st.sbmRoles[0].name === '采集者', '身份随程序保存');
+const w3 = new Blockly.Workspace(); sbmLoadWs({ blocks: { languageVersion: 0, blocks: [{ type: 'e_keep', fields: { ROLE: '', N: 4, SP: '*' } }] }, sbmRoles: [] }, w3);
+const opts = w3.getAllBlocks()[0].getField('ROLE').getOptions(false);
+assert(sbmRoles().length === 0 && opts[0][1] === '__new' && /新建/.test(opts[0][0]) && w3.getAllBlocks()[0].getField('ROLE').getText().includes('新建'), '没有身份时下拉只提示新建');
+assert(Blockly.JavaScript.workspaceToCode(w3).indexOf('sbmKeep(') === Blockly.JavaScript.workspaceToCode(w3).lastIndexOf('sbmKeep('), '未选身份不生成孵化调用');
+sbmSetRoles([{ name: '矿工', body: 'work,work,move' }]); w3.getAllBlocks()[0].getField('ROLE').setValue('矿工');
+const c3 = Blockly.JavaScript.workspaceToCode(w3);
+assert(c3.includes('sbmKeep("矿工", 4, [WORK, WORK, MOVE]') && c3.includes('memory: { role: role }'), '自定义身份写入 memory.role，部件取自身份、数量取自积木');
+assert(JSON.stringify(w3.getAllBlocks()[0].getField('ROLE').getOptions(false).map(o => o[1])) === '["矿工","__new","__manage"]', '下拉只列玩家身份');
+sbmSetRoles([]); assert(!Blockly.JavaScript.workspaceToCode(w3).includes('sbmKeep("矿工"') && w3.getAllBlocks()[0].getField('ROLE').getText().includes('已删除'), '删除身份后积木提示已删除且不再孵化');
+const w4 = new Blockly.Workspace(); sbmLoadWs({ blocks: { languageVersion: 0, blocks: [{ type: 'e_keep', fields: { ROLE: 'hauler', N: 3, BODY: 'carry,move', SP: '*' } }] } }, w4);
+assert(Blockly.JavaScript.workspaceToCode(w4).includes('sbmKeep("搬运工", 3, [CARRY, MOVE]'), '旧存档自动转成玩家身份（保留数量和部件）');
+const w5 = new Blockly.Workspace(); sbmLoadWs(JSON.parse(JSON.stringify(Blockly.serialization.workspaces.save(w4))), w5);
+assert(sbmRoles().length === 1 && sbmRoles()[0].body === 'carry,move' && w5.getAllBlocks()[0].getFieldValue('N') === 3, '保存后重新载入身份不变');

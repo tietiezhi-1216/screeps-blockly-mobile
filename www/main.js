@@ -39,6 +39,10 @@ function initBlockly() {
     renderer: 'zelos', horizontalLayout: false, toolboxPosition: 'start', theme: edDark() ? DARK_THEME : LIGHT_THEME });
   $('editor').classList.toggle('dark', edDark());
   fly = ws.getFlyout();
+  // 身份：抽屉里的按钮 + 改动后重新生成代码并保存
+  ws.registerButtonCallback('sbmNewRole', () => { closeFlyout(); openRoleEdit(null, () => {}); });
+  ws.registerButtonCallback('sbmRoles', () => { closeFlyout(); openRoleManager(); });
+  window.sbmRolesChanged = () => { for (const b of ws.getAllBlocks(false)) if (b.onchange) try { b.onchange({}); } catch (e) {} regen(false); localStorage.setItem(SAVE_C, JSON.stringify(Blockly.serialization.workspaces.save(ws))); histTouch(); };
   // 全屏列表覆盖在工作区之上，不占工作区坐标：否则打开/收起列表时工作区原点平移一个屏宽，拖出的积木会跳到右侧、拖动时乱跳
   { const mm = ws.getMetricsManager(), of = mm.getFlyoutMetrics.bind(mm); mm.getFlyoutMetrics = function (own) { const m = of(own); return Object.assign({}, m, { width: 0, height: 0 }); }; }
   // 全屏积木列表：flyout 铺满编辑区，按最宽积木缩放到屏宽，竖向滚动
@@ -65,7 +69,7 @@ function initBlockly() {
   let migrated = false;
   if (saved && !localStorage.getItem('sbm_easy1')) { const t = JSON.stringify(saved); if (!t.includes('"e_')) { try { const L = histList(); L.unshift({ ts: Date.now(), reason: '旧版程序', n: (t.match(/"type"/g) || []).length, st: t }); localStorage.setItem(HIST_K, JSON.stringify(L.slice(0, HIST_N))); } catch (e) {} saved = null; migrated = true; } }
   localStorage.setItem('sbm_easy1', '1');
-  try { Blockly.serialization.workspaces.load(saved || DEFAULT_WS, ws); } catch (e) { console.warn('旧积木存档不兼容，已恢复默认', e); ws.clear(); Blockly.serialization.workspaces.load(DEFAULT_WS, ws); }
+  try { sbmLoadWs(saved || DEFAULT_WS, ws); } catch (e) { console.warn('旧积木存档不兼容，已恢复默认', e); ws.clear(); sbmLoadWs(DEFAULT_WS, ws); }
   ws.addChangeListener(e => {
     if (e.type === Blockly.Events.BLOCK_DRAG) { // 从抽屉拖出后自动收起
       if (e.isStart && fly.isVisible()) closeFlyout(); // 长按拖出：列表收起，积木继续跟手
@@ -106,7 +110,7 @@ function histShow() {
   applyIcons(p); p.classList.remove('hidden');
   p.onclick = e => { const b = e.target.closest('button'); if (!b) return; if (b.dataset.a === 'back') return p.classList.add('hidden');
     if (b.dataset.a === 'restore') { const h = histList()[+b.dataset.i]; if (!h || !confirm(`恢复到 ${dt(h.ts)} 的版本？当前版本会先存入历史。`)) return; histPush('恢复前', true);
-      Blockly.Events.setGroup(true); ws.clear(); Blockly.serialization.workspaces.load(JSON.parse(h.st), ws); Blockly.Events.setGroup(false); regen(true); histPush('已恢复', true); p.classList.add('hidden'); toastMsg && toastMsg('已恢复历史版本'); } };
+      Blockly.Events.setGroup(true); ws.clear(); sbmLoadWs(JSON.parse(h.st), ws); Blockly.Events.setGroup(false); regen(true); histPush('已恢复', true); p.classList.add('hidden'); toastMsg && toastMsg('已恢复历史版本'); } };
 }
 let showAdv = false; // 「高级」= 完整官方 API 积木
 function buildCatBar() {
@@ -233,7 +237,7 @@ $('btnMenu').onclick = () => $('menu').classList.remove('hidden');
 $('mClose').onclick = () => $('menu').classList.add('hidden');
 $('mSave').onclick = () => { save(); alert('已保存'); };
 $('mReset').onclick = () => { if (mode === 'client') return alert('客户端不能重置房主的世界'); if (confirm('确定重置整个世界？（代码会保留）')) { localStorage.removeItem(SAVE_W); const peers = hostS ? Object.keys(engine.w.players) : []; loadEngine(); if (hostS) { hostS.e = engine; rebindHost(); } $('menu').classList.add('hidden'); } };
-$('mResetCode').onclick = () => { if (confirm('恢复默认积木程序？当前程序会存入历史版本，可在编辑器里恢复。')) { histPush('恢复默认前', true); ws.clear(); Blockly.serialization.workspaces.load(DEFAULT_WS, ws); regen(true); } };
+$('mResetCode').onclick = () => { if (confirm('恢复默认积木程序？当前程序会存入历史版本，可在编辑器里恢复。')) { histPush('恢复默认前', true); ws.clear(); sbmLoadWs(DEFAULT_WS, ws); regen(true); } };
 $('mIntro').onclick = () => { $('menu').classList.add('hidden'); $('intro').classList.remove('hidden'); };
 $('introOk').onclick = () => { $('intro').classList.add('hidden'); localStorage.setItem('sbm_intro', '1'); };
 // 开始界面

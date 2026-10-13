@@ -1,0 +1,31 @@
+// 自定义身份截图：程序 / 孵化分类 / 身份下拉 / 管理 / 新建 / 修改 / 空状态 / 预览（横屏 + 竖屏）
+const p = require('puppeteer-core'); const W = ms => new Promise(r => setTimeout(r, ms)); const O = '/workspace/shots-roles/';
+const PORT = process.env.PORT || 8795;
+async function run(b, vw, vh, tag) { const errs = [];
+  const pg = await b.newPage(); await pg.setViewport({ width: vw, height: vh, deviceScaleFactor: 2, isMobile: true, hasTouch: true }); pg.on('pageerror', e => errs.push(e.message));
+  pg.on('dialog', d => d.accept());
+  await pg.evaluateOnNewDocument(() => { if (!sessionStorage.getItem('x')) { localStorage.clear(); sessionStorage.setItem('x', 1); } localStorage.setItem('sbm_intro', '1'); const F = window.fetch; window.fetch = (u, o) => String(u).includes('api.github.com') ? Promise.reject(new Error('x')) : F(u, o); });
+  await pg.goto(`http://localhost:${PORT}/index.html`); await W(1200); await pg.tap('#sPlay'); await W(500);
+  await pg.evaluate(() => { document.querySelectorAll('.shDlg').forEach(d => d.remove()); try { engine.placeSpawn(myPid); _snap = null; } catch (e) {} $('wmap').classList.add('hidden'); $('btnCode').click(); });
+  await W(600); await pg.evaluate(() => { ws.setScale(0.62); ws.scroll(20, 20); }); await W(300);
+  const s = async n => pg.screenshot({ path: O + tag + '-' + n + '.png' });
+  await s('1-program');
+  await pg.evaluate(() => selectCat('e_spawn')); await W(500); await s('2-spawn-cat');
+  await pg.evaluate(() => { closeFlyout(); ws.getAllBlocks(false).find(b => b.type === 'e_keep').getField('ROLE').showEditor_(); }); await W(400); await s('3-role-dropdown');
+  await pg.evaluate(() => { Blockly.DropDownDiv.hideWithoutAnimation(); Blockly.WidgetDiv.hide(); openRoleManager(); }); await W(300); await s('4-manager');
+  await pg.evaluate(() => document.querySelector('#roleMgr [data-a="new"]').click()); await W(200);
+  await pg.evaluate(() => { const i = document.querySelector('#roleEdit .rfName'); i.value = '矿工'; i.dispatchEvent(new Event('input'));
+    const q = x => document.querySelector('#roleEdit ' + x); q('.bfP[data-p="work"]').click(); q('.bfP[data-p="work"]').click(); }); await W(200); await s('5-new-role');
+  await pg.evaluate(() => document.querySelector('#roleEdit [data-a="ok"]').click()); await W(200); await s('6-manager-after');
+  await pg.evaluate(() => document.querySelector('#roleMgr [data-e="0"]').click()); await W(200);
+  await pg.evaluate(() => { const i = document.querySelector('#roleEdit .rfName'); i.value = '采集'; i.dispatchEvent(new Event('input')); }); await W(100); await s('7-edit-role');
+  await pg.evaluate(() => { document.querySelector('#roleEdit [data-a="ok"]').click(); document.querySelector('#roleMgr [data-a="close"]').click(); }); await W(300); await s('8-renamed');
+  await pg.evaluate(() => { previewShow('code'); }); await W(300); await s('9-preview-code');
+  const code = await pg.evaluate(() => Blockly.JavaScript.workspaceToCode(ws));
+  await pg.evaluate(() => { $('prevP').classList.add('hidden'); sbmSetRoles([]); sbmRolesChanged(); ws.getAllBlocks(false).forEach(b => b.getField('ROLE') && b.getField('ROLE').forceRerender()); }); await W(300);
+  await pg.evaluate(() => { ws.getAllBlocks(false).find(b => b.type === 'e_keep').getField('ROLE').showEditor_(); }); await W(400); await s('10-empty-dropdown');
+  const saved = await pg.evaluate(() => JSON.parse(localStorage.getItem(SAVE_C)).sbmRoles);
+  await pg.close(); return { tag, errs, renamed: code.includes('"采集"') && !code.includes('"采集者"'), miner: code.includes('"矿工"'), saved };
+}
+(async () => { const b = await p.launch({ executablePath: '/usr/bin/google-chrome', args: ['--no-sandbox'] });
+  const R = [await run(b, 915, 412, 'landscape'), await run(b, 412, 915, 'portrait')]; console.log(JSON.stringify(R)); await b.close(); })();

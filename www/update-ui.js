@@ -12,7 +12,21 @@
       .replace(/\*\*([^*]+)\*\*|__([^_]+)__/g, (m, a, b) => '<b>' + (a || b) + '</b>').replace(/(^|[^*])\*([^*\s][^*]*)\*/g, '$1<i>$2</i>').replace(/~~([^~]+)~~/g, '<s>$1</s>');
     return s.replace(/\u0000(\d+)\u0000/g, (m, i) => '<code>' + codes[i] + '</code>');
   }
+  // 玩家看不到开发者信息：去掉说明里的哈希/校验行、对应小节和 GitHub 链接
+  const DEV = /sha-?256|\.sha256|校验|哈希|checksum|\b[0-9a-f]{40,64}\b|github|commit|提交/i;
+  function clean(src) {
+    const out = []; let skip = 0;
+    for (const raw of String(src || '').replace(/\r/g, '').split('\n')) {
+      const h = raw.match(/^\s{0,3}(#{1,6})\s/);
+      if (h) { if (skip && h[1].length > skip) continue; skip = 0; if (DEV.test(raw)) { skip = h[1].length; continue; } }
+      else if (skip) continue;
+      if (DEV.test(raw)) continue;
+      out.push(raw);
+    }
+    return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  }
   function md(src) {
+    src = clean(src);
     const out = []; let list = null, para = [], code = null;
     const flushP = () => { if (para.length) out.push('<p>' + inline(para.join(' ')) + '</p>'); para = []; };
     const flushL = () => { if (list) out.push(`<${list.t}>` + list.items.map(x => '<li>' + inline(x) + '</li>').join('') + `</${list.t}>`); list = null; };
@@ -54,5 +68,5 @@
     };
     return ui;
   }
-  G.UpdateUI = { create, md };
+  G.UpdateUI = { create, md, clean };
 })(window);

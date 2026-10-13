@@ -182,3 +182,5 @@ body.barMin{--lbar:0px}
 #edTools button .ic{font-size:18px}
 #edEmpty{position:absolute;left:0;right:0;top:50%;transform:translateY(-50%);text-align:center;color:#8a8f99;opacity:.55;font-size:13px;line-height:20px;pointer-events:none;z-index:1;white-space:nowrap}
 #edEmpty.hidden{display:none}
+/* v1.8.8 底部分类栏避开屏幕圆角和手势条：两端 安全区+16px，底部 安全区+12px（与 Arena 一致） */
+#editor #edTabs{--ed-corner:16px;--ed-lift:12px;padding-top:6px;padding-left:calc(var(--sal,0px) + var(--ed-corner))!important;padding-right:calc(var(--sar,0px) + var(--ed-corner))!important;padding-bottom:calc(max(var(--sab,0px), env(safe-area-inset-bottom,0px)) + var(--ed-lift))!important}

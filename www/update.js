@@ -21,8 +21,8 @@ const Upd = {
   async start() {
     const P = nativePlugin('AppUpdater'); if (!P) { this.ui_.info('当前环境不支持应用内安装，请在安卓设备上更新'); return; }
     this.busy = true; this.ui_.downloading(0, this.apk.size);
-    const sha = (this.apk.digest || '').startsWith('sha256:') ? this.apk.digest.slice(7) : (((this.rel && this.rel.body) || '').match(/SHA-?256[^0-9a-fA-F]*([0-9a-fA-F]{64})/i) || [])[1]?.toLowerCase() || ''; // GitHub 资产摘要，或发布说明里的 SHA-256
-    try { const r = await P.download({ url: this.apk.browser_download_url, size: this.apk.size, sha256: sha }); if (!this.busy) return; this.path = r.path; this.busy = false; this.ui_.install(`下载完成，已校验${sha ? ' SHA-256' : '大小'}`); this.tryInstall(); }
+    const sha = await expectedSha(this.rel, this.apk); // 后台静默校验：GitHub 资产摘要 → .sha256 资产 → 旧版说明里的哈希；不向玩家展示
+    try { const r = await P.download({ url: this.apk.browser_download_url, size: this.apk.size, sha256: sha }); if (!this.busy) return; this.path = r.path; this.busy = false; this.ui_.install('下载完成'); this.tryInstall(); }
     catch (e) { if (this.busy) this.fail(e.message || String(e)); }
   },
   async tryInstall() {
@@ -34,16 +34,22 @@ const Upd = {
     } catch (e) { this.fail(e.message || String(e)); }
   },
 };
+async function expectedSha(rel, apk) {
+  if ((apk.digest || '').startsWith('sha256:')) return apk.digest.slice(7).toLowerCase();
+  const a = ((rel && rel.assets) || []).find(x => x.name === apk.name + '.sha256');
+  if (a) { try { const t = await (await fetch(a.browser_download_url)).text(); const m = t.match(/[0-9a-fA-F]{64}/); if (m) return m[0].toLowerCase(); } catch (e) {} }
+  return ((((rel && rel.body) || '').match(/SHA-?256[^0-9a-fA-F]*([0-9a-fA-F]{64})/i) || [])[1] || '').toLowerCase();
+}
 async function checkUpdate(manual) {
   try {
     const r = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`, { headers: { Accept: 'application/vnd.github+json' } });
-    if (!r.ok) throw new Error('HTTP ' + r.status);
+    if (!r.ok) throw new Error('net');
     const rel = await r.json(), cur = window.APP_VERSION || '0.0.0', apk = (rel.assets || []).find(a => a.name.endsWith('.apk'));
     if (apk && cmpVer(rel.tag_name, cur) > 0) { window.UPDATE_REL = rel; updBadge(true);
       // 自动检查发现新版本：直接在游戏内弹窗（同一版本「稍后」后本次运行不再打扰，下次启动再提示）
       if (manual || (checkUpdate.shown !== rel.tag_name && !Upd.busy && (!Upd.el || Upd.el.classList.contains('hidden')))) { checkUpdate.shown = rel.tag_name; Upd.show(rel, apk, cur); } return 'new'; }
     else { window.UPDATE_REL = null; updBadge(false); if (manual === true) alert(`已是最新版本（${cur}）`); return 'latest'; }
-  } catch (e) { if (manual === true) alert('检查更新失败：' + e.message); return 'fail'; }
+  } catch (e) { if (manual === true) alert('检查更新失败，请检查网络后重试'); return 'fail'; }
 }
 // 有新版本时在菜单按钮 / 检查更新 / 设置入口上显示蓝点（不打断游戏）
 function updBadge(on) {

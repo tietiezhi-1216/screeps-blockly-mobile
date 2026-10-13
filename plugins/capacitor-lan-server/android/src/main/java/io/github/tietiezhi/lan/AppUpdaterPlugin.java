@@ -59,7 +59,7 @@ public class AppUpdaterPlugin extends Plugin {
                 StringBuilder sb = new StringBuilder(); for (byte b : md.digest()) sb.append(String.format("%02x", b));
                 String sha = sb.toString();
                 if (expectSize > 0 && got != expectSize) throw new Exception("文件大小不符：" + got + " ≠ " + expectSize);
-                if (expectSha != null && !expectSha.isEmpty() && !expectSha.equalsIgnoreCase(sha)) throw new Exception("SHA-256 校验失败");
+                if (expectSha != null && !expectSha.isEmpty() && !expectSha.equalsIgnoreCase(sha)) throw new Exception("安装包不完整，请重试");
                 if (out.exists()) out.delete();
                 if (!part.renameTo(out)) throw new Exception("保存失败");
                 JSObject p = new JSObject(); p.put("received", got); p.put("total", got); notifyListeners("progress", p);

@@ -15,6 +15,9 @@ async function run(b, vw, vh, tag) {
   console.log(tag, JSON.stringify(m));
   ok(m.blockly[0] === 0 && m.blockly[2] === vw && m.blockly[1] === 0, tag + ' 工作区满屏无边距');
   ok(m.sb === 0, tag + ' 工作区滚动条隐藏'); ok(m.tabs[1] + m.tabs[3] === vh, tag + ' 分类栏在最底部'); ok(m.tools[0] <= 12 && m.tools[1] <= 12, tag + ' 操作按钮在左上');
+  const cr = await pg.evaluate(() => { const bs = [...document.querySelectorAll('#edTabs button')].filter(b => b.offsetParent).map(b => b.getBoundingClientRect()), cs = getComputedStyle($('edTabs'));
+    return { l: Math.min(...bs.map(r => r.left)), r: Math.max(...bs.map(r => r.right)), pb: parseFloat(cs.paddingBottom), bot: Math.max(...bs.map(r => r.bottom)) }; });
+  ok(cr.l >= 16 && cr.r <= vw - 16 && cr.pb >= 12 && cr.bot <= vh - 12, tag + ' 分类栏两端避开圆角、底部抬离手势区 ' + JSON.stringify(cr));
   await pg.screenshot({ path: `${OUT}/editor-${tag}.png` });
   // 拖动平移
   const s0 = await pg.evaluate(() => [ws.scrollX, ws.scrollY]); const [cx, cy] = await pg.evaluate((vw, vh) => { for (let y = vh * 0.76; y > vh * 0.3; y -= 20) for (let x = vw * 0.73; x > vw * 0.3; x -= 20) { const e = document.elementFromPoint(x, y); if (e && e.classList.contains('blocklyMainBackground') && document.elementFromPoint(x - 90, y - 100)?.classList.contains('blocklyMainBackground')) return [x, y]; } return [vw * 0.6, vh * 0.45]; }, vw, vh);

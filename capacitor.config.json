@@ -1,2 +1,13 @@
-{ "appId": "io.github.tietiezhi.screepsblockly", "appName": "Screeps World", "webDir": "www",
-  "android": { "allowMixedContent": true } }
+{
+  "appId": "io.github.tietiezhi.screepsblockly",
+  "appName": "Screeps World",
+  "webDir": "www",
+  "android": {
+    "allowMixedContent": true
+  },
+  "plugins": {
+    "SplashScreen": {
+      "backgroundColor": "#1C2533"
+    }
+  }
+}

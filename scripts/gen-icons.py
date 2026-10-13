@@ -20,3 +20,6 @@ for d,k in D.items():
     rd.putalpha(m.resize((n,n),Image.LANCZOS)); rd.save(f'{p}/ic_launcher_round.png')
     compose(round(108*k),0.56).save(f'{p}/ic_launcher_foreground.png')
 compose(512,0.72,BG).save('assets-art/icon-512.png')
+
+# In-app logo, favicon and Android splash are derived from assets-art/icon.png;
+# regenerate them with the snippet in the commit "icon: unify in-app logo".

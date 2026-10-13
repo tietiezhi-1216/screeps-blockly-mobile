@@ -1163,7 +1163,7 @@ function buildApi(E, pid) {
   const gclLv = E.gclLevel(pid), gclP = w.players[pid].gcl || 0, t0 = Date.now();
   const Game = {
     time: w.time, creeps, spawns, structures, constructionSites: sites, flags, rooms: gameRooms, powerCreeps: {}, resources: { pixel: (w.players[pid] && w.players[pid].pixels) || 0 },
-    shard: { name: 'shard0', type: 'normal', ptr: false },
+    shard: { name: 'shard0', type: 'normal', ptr: false, access: true, activateAccess: () => SC.ERR_INVALID_TARGET },
     gcl: { level: gclLv, progress: gclP - (gclLv > 1 ? Math.pow(gclLv - 1, SC.GCL_POW) * SC.GCL_MULTIPLY : 0), progressTotal: Math.pow(gclLv, SC.GCL_POW) * SC.GCL_MULTIPLY - (gclLv > 1 ? Math.pow(gclLv - 1, SC.GCL_POW) * SC.GCL_MULTIPLY : 0) },
     gpl: { level: 0, progress: 0, progressTotal: SC.POWER_LEVEL_MULTIPLY },
     cpu: { limit: 20, tickLimit: Math.min(500, (w.players[pid] && w.players[pid].bucket != null ? w.players[pid].bucket : 10000)), bucket: (w.players[pid] && w.players[pid].bucket != null ? w.players[pid].bucket : 10000), shardLimits: { shard0: 20 }, unlocked: true, unlockedTime: undefined, getUsed: () => Date.now() - t0, getHeapStatistics: () => ({}), halt: () => { throw new Error('Game.cpu.halt'); }, setShardLimits: () => ERR_BUSY, unlock: () => ERR_FULL, generatePixel: () => { const P = w.players[pid]; if (!P || (P.bucket != null ? P.bucket : 10000) < SC.PIXEL_CPU_COST) return ERR_NOT_ENOUGH_RESOURCES; P.bucket -= SC.PIXEL_CPU_COST; P.pixels = (P.pixels || 0) + 1; return OK; } },

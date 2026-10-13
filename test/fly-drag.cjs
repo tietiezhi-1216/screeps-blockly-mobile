@@ -4,7 +4,7 @@ async function run(b, vw, vh) {
   const pg = await b.newPage(); await pg.setViewport({ width: vw, height: vh, deviceScaleFactor: 2.6, isMobile: true, hasTouch: true });
   await pg.evaluateOnNewDocument(() => { localStorage.setItem('sbm_intro', '1'); const F = window.fetch; window.fetch = (u, o) => String(u).includes('api.github.com') ? Promise.reject(new Error('x')) : F(u, o); });
   await pg.goto('http://localhost:'+(process.env.PORT||8781)+'/index.html'); await W(1200); await pg.tap('#sPlay'); await W(300);
-  await pg.evaluate(() => { document.querySelectorAll('.shDlg').forEach(d => d.remove()); $('wmap').classList.add('hidden'); $('btnCode').click(); ws.setScale(1.1); ws.scroll(-137, -59); }); await W(400);
+  await pg.evaluate(() => { document.querySelectorAll('.shDlg').forEach(d => d.remove()); $('wmap').classList.add('hidden'); $('btnCode').click(); ws.clear(); ws.setScale(1.1); ws.scroll(-137, -59); }); await W(400);
   await pg.evaluate(() => selectCat(CATS[1].id)); await W(600);
   const r = await pg.evaluate(() => { const b = fly.getWorkspace().getTopBlocks(true)[0]; const e = b.getSvgRoot().getBoundingClientRect(); return { x: e.left + 12, y: e.top + 10, ox: 12, oy: 10 }; });
   const s = await pg.target().createCDPSession(); const T = (type, x, y) => s.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y }] });

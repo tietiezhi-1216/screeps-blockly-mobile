@@ -39,6 +39,7 @@ function initBlockly() {
     renderer: 'zelos', horizontalLayout: false, toolboxPosition: 'start', theme: edDark() ? DARK_THEME : LIGHT_THEME });
   $('editor').classList.toggle('dark', edDark());
   fly = ws.getFlyout();
+  if (Blockly.Tooltip && Blockly.Tooltip.block) Blockly.Tooltip.block(); // 不弹提示框（积木上的中文就是说明）
   // 身份：抽屉里的按钮 + 改动后重新生成代码并保存
   ws.registerButtonCallback('sbmNewRole', () => { closeFlyout(); openRoleEdit(null, () => {}); });
   ws.registerButtonCallback('sbmRoles', () => { closeFlyout(); openRoleManager(); });
@@ -66,9 +67,6 @@ function initBlockly() {
   { const em = document.createElement('div'); em.id = 'edEmpty'; em.textContent = '点下方分类添加积木'; $('blocklyDiv').appendChild(em);
     const upd = () => em.classList.toggle('hidden', ws.getTopBlocks(false).length > 0); ws.addChangeListener(upd); upd(); }
   let saved = null; try { saved = JSON.parse(localStorage.getItem(SAVE_C)); } catch (e) {}
-  let migrated = false;
-  if (saved && !localStorage.getItem('sbm_easy1')) { const t = JSON.stringify(saved); if (!t.includes('"e_')) { try { const L = histList(); L.unshift({ ts: Date.now(), reason: '旧版程序', n: (t.match(/"type"/g) || []).length, st: t }); localStorage.setItem(HIST_K, JSON.stringify(L.slice(0, HIST_N))); } catch (e) {} saved = null; migrated = true; } }
-  localStorage.setItem('sbm_easy1', '1');
   try { sbmLoadWs(saved || DEFAULT_WS, ws); } catch (e) { console.warn('旧积木存档不兼容，已恢复默认', e); ws.clear(); sbmLoadWs(DEFAULT_WS, ws); }
   ws.addChangeListener(e => {
     if (e.type === Blockly.Events.BLOCK_DRAG) { // 从抽屉拖出后自动收起
@@ -81,7 +79,6 @@ function initBlockly() {
   // 点击 flyout 里的积木 = 添加到可见区域中心
   fly.getWorkspace().addChangeListener(e => { if (e.type === Blockly.Events.CLICK && e.blockId && fly.isVisible()) setTimeout(() => tapAdd(e.blockId), 0); });
   regen(false); ws.clearUndo(); histPush('启动时'); undoUI();
-  if (migrated) setTimeout(() => { try { toastMsg('已换成新的入门积木程序，旧程序在历史版本里'); } catch (e) {} }, 800);
 }
 let fly = null, activeCat = null, dragFromFly = false, lastPt = [0, 0], flyScale = 0.7, lpArmed = false;
 // 小号工具按钮（32px）：缩放 / 居中 / 垃圾桶（拖到上面删除，点一下删除选中积木）
@@ -112,7 +109,7 @@ function histShow() {
     if (b.dataset.a === 'restore') { const h = histList()[+b.dataset.i]; if (!h || !confirm(`恢复到 ${dt(h.ts)} 的版本？当前版本会先存入历史。`)) return; histPush('恢复前', true);
       Blockly.Events.setGroup(true); ws.clear(); sbmLoadWs(JSON.parse(h.st), ws); Blockly.Events.setGroup(false); regen(true); histPush('已恢复', true); p.classList.add('hidden'); toastMsg && toastMsg('已恢复历史版本'); } };
 }
-let showAdv = false; // 「高级」= 完整官方 API 积木
+const showAdv = false; // 分类栏只有一层（没有新手 / 高级之分）
 function buildCatBar() {
   const bar = $('catBar');
   if (bar.children.length && bar.dataset.adv === String(showAdv)) { for (const b of bar.children) b.classList.toggle('on', b.dataset.cat === activeCat); return; }
@@ -122,11 +119,8 @@ function buildCatBar() {
     b.addEventListener('pointerdown', e => { d0 = [e.clientX, e.clientY]; });
     b.addEventListener('pointerup', e => { if (d0 && Math.hypot(e.clientX - d0[0], e.clientY - d0[1]) < 10) fn(); d0 = null; });
     b.addEventListener('pointercancel', () => { d0 = null; }); bar.appendChild(b); };
-  if (showAdv) mk('_back', '返回', null, () => { showAdv = false; closeFlyout(); buildCatBar(); }, 'adv');
-  for (const c of CATS) if (!!c.adv === showAdv) mk(c.id, c.name, c.colour, () => selectCat(c.id));
-  if (!showAdv) mk('_adv', '高级', null, () => { showAdv = true; closeFlyout(); buildCatBar(); }, 'adv');
+  for (const c of CATS) mk(c.id, c.name, c.colour, () => selectCat(c.id));
 }
-window.setAdv = v => { showAdv = !!v; buildCatBar(); };
 // ===== 预览：白话说明 + 生成的代码（只读） =====
 $('edPreview').onclick = () => previewShow();
 function previewShow(tab) {

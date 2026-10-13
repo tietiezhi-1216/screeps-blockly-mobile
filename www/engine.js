@@ -603,10 +603,61 @@ function buildApi(E, pid) {
         if (!r || r.type !== 'link' || r === o) return ERR_INVALID_TARGET; if (!sameRoom(r, o)) return ERR_NOT_IN_RANGE; if (o.cooldown > 0) return ERR_TIRED;
         amount = amount == null ? o.store.energy || 0 : amount; if (amount < 0) return ERR_INVALID_ARGS; if ((o.store.energy || 0) < amount || !amount) return ERR_NOT_ENOUGH_ENERGY; if (freeFor(w, r, 'energy') < amount) return ERR_FULL;
         o.store.energy -= amount; r.store.energy = (r.store.energy || 0) + amount - Math.ceil(amount * SC.LINK_LOSS_RATIO); o.cooldown = SC.LINK_COOLDOWN * dist(o, r); ev.push({ t: 'transfer', fx: o.x, fy: o.y, x: r.x, y: r.y }); return OK; };
+      const labMin = s => Object.keys(s.store || {}).find(k => k !== 'energy' && s.store[k] > 0);
+      if (o.type === 'lab') {
+        v.mineralType = labMin(o); v.mineralAmount = v.mineralType ? o.store[v.mineralType] : 0; v.mineralCapacity = SC.LAB_MINERAL_CAPACITY;
+        const react = (a, b, rev) => {
+          if (o.owner !== pid) return ERR_NOT_OWNER; if (!E.isActive(o)) return ERR_RCL_NOT_ENOUGH; if (o.cooldown > 0) return ERR_TIRED;
+          const l1 = raw(a), l2 = raw(b); if (!l1 || !l2 || l1.type !== 'lab' || l2.type !== 'lab' || l1 === o || l2 === o) return ERR_INVALID_TARGET;
+          if (!sameRoom(l1, o) || !sameRoom(l2, o) || dist(l1, o) > 2 || dist(l2, o) > 2) return ERR_NOT_IN_RANGE;
+          const n = SC.LAB_REACTION_AMOUNT, m0 = labMin(o), m1 = labMin(l1), m2 = labMin(l2);
+          if (!rev) {
+            if (!m1 || !m2 || l1.store[m1] < n || l2.store[m2] < n) return ERR_NOT_ENOUGH_RESOURCES;
+            const p = SC.REACTIONS[m1] && SC.REACTIONS[m1][m2]; if (!p) return ERR_INVALID_ARGS;
+            if ((m0 && m0 !== p) || (o.store[p] || 0) + n > SC.LAB_MINERAL_CAPACITY) return ERR_FULL;
+            l1.store[m1] -= n; l2.store[m2] -= n; o.store[p] = (o.store[p] || 0) + n; o.cooldown = SC.REACTION_TIME[p] || 0; return OK;
+          }
+          if (!m0 || o.store[m0] < n) return ERR_NOT_ENOUGH_RESOURCES;
+          let pair = null; for (const r1 in SC.REACTIONS) for (const r2 in SC.REACTIONS[r1]) if (SC.REACTIONS[r1][r2] === m0 && !pair) pair = [r1, r2];
+          if (!pair) return ERR_INVALID_ARGS;
+          if ((m1 && m1 !== pair[0]) || (m2 && m2 !== pair[1]) || (l1.store[pair[0]] || 0) + n > SC.LAB_MINERAL_CAPACITY || (l2.store[pair[1]] || 0) + n > SC.LAB_MINERAL_CAPACITY) return ERR_FULL;
+          o.store[m0] -= n; l1.store[pair[0]] = (l1.store[pair[0]] || 0) + n; l2.store[pair[1]] = (l2.store[pair[1]] || 0) + n; o.cooldown = SC.REACTION_TIME[m0] || 0; return OK;
+        };
+        v.runReaction = (a, b) => react(a, b, false); v.reverseReaction = (a, b) => react(a, b, true);
+        v.boostCreep = (c, count) => {
+          if (o.owner !== pid) return ERR_NOT_OWNER; if (!E.isActive(o)) return ERR_RCL_NOT_ENOUGH; const r = raw(c); if (!r || r.kind !== 'creep' || r.spawning) return ERR_INVALID_TARGET;
+          if (!sameRoom(r, o) || dist(r, o) > 1) return ERR_NOT_IN_RANGE; const m = labMin(o); if (!m) return ERR_NOT_ENOUGH_RESOURCES;
+          const part = Object.keys(SC.BOOSTS).find(p => SC.BOOSTS[p][m]); if (!part) return ERR_NOT_FOUND;
+          r.boosts = r.boosts || []; let idx = r.body.map((t, i) => i).filter(i => r.body[i] === part && !r.boosts[i]); if (!idx.length) return ERR_NOT_FOUND;
+          if (count != null) idx = idx.slice(0, count);
+          const can = Math.min(idx.length, Math.floor(o.store[m] / SC.LAB_BOOST_MINERAL), Math.floor((o.store.energy || 0) / SC.LAB_BOOST_ENERGY));
+          if (can <= 0) return ERR_NOT_ENOUGH_RESOURCES;
+          idx.slice(0, can).forEach(i => { r.boosts[i] = m; }); o.store[m] -= can * SC.LAB_BOOST_MINERAL; o.store.energy -= can * SC.LAB_BOOST_ENERGY; return OK;
+        };
+        v.unboostCreep = c => {
+          if (o.owner !== pid) return ERR_NOT_OWNER; if (!E.isActive(o)) return ERR_RCL_NOT_ENOUGH; const r = raw(c); if (!r || r.kind !== 'creep') return ERR_INVALID_TARGET;
+          if (r.owner !== pid) return ERR_NOT_OWNER; if (!sameRoom(r, o) || dist(r, o) > 1) return ERR_NOT_IN_RANGE; if (o.cooldown > 0) return ERR_TIRED;
+          if (!r.boosts || !r.boosts.some(Boolean)) return ERR_NOT_FOUND; let cd = 0;
+          r.boosts.forEach((m, i) => { if (!m) return; const back = SC.LAB_UNBOOST_MINERAL; E.dropAt(r.x, r.y, m, back); cd += SC.REACTION_TIME[m] || 0; r.boosts[i] = null; });
+          o.cooldown = cd; return OK;
+        };
+      }
+      if (o.type === 'observer') v.observeRoom = n => {
+        if (o.owner !== pid) return ERR_NOT_OWNER; if (!E.isActive(o)) return ERR_RCL_NOT_ENOUGH; const p = parseRoomName(n); if (!p) return ERR_INVALID_ARGS;
+        const rx = Math.floor(o.x / ROOM), ry = Math.floor(o.y / ROOM); if (Math.max(Math.abs(p[0] - rx), Math.abs(p[1] - ry)) > SC.OBSERVER_RANGE) return ERR_NOT_IN_RANGE;
+        o.observing = n; return OK; };
+      if (o.type === 'terminal') v.send = (res, amount, dest) => {
+        if (o.owner !== pid) return ERR_NOT_OWNER; if (!E.isActive(o)) return ERR_RCL_NOT_ENOUGH; if (o.cooldown > 0) return ERR_TIRED;
+        const p = parseRoomName(dest); if (!RESOURCES.has(res) || !(amount > 0) || !p) return ERR_INVALID_ARGS;
+        const t = w.structures.find(s => s.type === 'terminal' && s !== o && Math.floor(s.x / ROOM) === p[0] && Math.floor(s.y / ROOM) === p[1]); if (!t) return ERR_INVALID_ARGS;
+        const d = Math.max(Math.abs(p[0] - Math.floor(o.x / ROOM)), Math.abs(p[1] - Math.floor(o.y / ROOM))), cost = Math.ceil(amount * (1 - Math.exp(-d / 30)));
+        const need = res === 'energy' ? amount + cost : amount; if ((o.store[res] || 0) < need - (res === 'energy' ? 0 : 0) || (o.store.energy || 0) < (res === 'energy' ? need : cost)) return ERR_NOT_ENOUGH_RESOURCES;
+        if (freeFor(w, t, res) < amount) return ERR_FULL;
+        o.store[res] -= amount; o.store.energy -= cost; t.store[res] = (t.store[res] || 0) + amount; o.cooldown = SC.TERMINAL_COOLDOWN; return OK; };
     },
     creep(v, o) {
       const mine = o.owner === pid, cap = activeParts(o, 'carry') * SC.CARRY_CAPACITY;
-      Object.assign(v, { name: o.name, my: mine, owner: owner(o), body: o.body.map((t, i) => ({ type: t, hits: partHits(o, i) })), fatigue: o.fatigue, hits: o.hits, hitsMax: o.body.length * 100,
+      Object.assign(v, { name: o.name, my: mine, owner: owner(o), body: o.body.map((t, i) => ({ type: t, hits: partHits(o, i), boost: o.boosts && o.boosts[i] || undefined })), fatigue: o.fatigue, hits: o.hits, hitsMax: o.body.length * 100,
         spawning: !!o.spawning, ticksToLive: o.spawning ? undefined : o.ttl, saying: o.say && w.time - o.sayT <= 1 && (mine || o.sayPublic) ? o.say : undefined, store: makeStore(o), carryCapacity: cap });
       v.carry = v.store;
       Object.defineProperty(v, 'memory', { get: () => { if (!mine) return undefined; mem.creeps = mem.creeps || {}; return (mem.creeps[o.name] = mem.creeps[o.name] || {}); }, set: x => { if (mine) { mem.creeps = mem.creeps || {}; mem.creeps[o.name] = x; } } });
@@ -658,8 +709,8 @@ function buildApi(E, pid) {
         if (!hasStore(x) || x.kind === 'tombstone' || x === o) return ERR_INVALID_TARGET; if (x.kind === 'creep' && x.spawning) return ERR_INVALID_TARGET;
         const have = o.store[res] || 0; if (amount != null && amount < 0) return ERR_INVALID_ARGS; if (!have || (amount != null && have < amount)) return ERR_NOT_ENOUGH_RESOURCES;
         const free = freeFor(w, x, res); if (free == null) return ERR_INVALID_TARGET; if (free <= 0) return ERR_FULL;
-        if (amount != null && amount > free) return ERR_FULL; const a = Math.min(amount ?? have, free);
-        o.store[res] -= a; x.store[res] = (x.store[res] || 0) + a; if (x.kind === 'controller') return ERR_INVALID_TARGET;
+        if (amount != null && amount > free) return ERR_FULL; if (x.kind === 'controller') return ERR_INVALID_TARGET; const a = Math.min(amount ?? have, free);
+        o.store[res] -= a; x.store[res] = (x.store[res] || 0) + a;
         ev.push({ t: 'transfer', fx: o.x, fy: o.y, x: x.x, y: x.y }); return OK;
       };
       v.withdraw = (t, res, amount) => {
@@ -673,7 +724,7 @@ function buildApi(E, pid) {
       };
       v.pickup = t => { const e = pre(); if (e) return e; const x = tgt(t, 1, ['resource']); if (typeof x === 'number') return x; const free = cap - used(); if (free <= 0) return ERR_FULL;
         const a = Math.min(free, x.amount); x.amount -= a; o.store[x.resourceType] = (o.store[x.resourceType] || 0) + a; if (x.amount <= 0) w.resources.splice(w.resources.indexOf(x), 1); return OK; };
-      v.drop = (res, amount) => { const e = pre(); if (e) return e; if (!RESOURCES.has(res)) return ERR_INVALID_ARGS; const have = o.store[res] || 0; if (!have || (amount != null && amount > have)) return ERR_NOT_ENOUGH_RESOURCES;
+      v.drop = (res, amount) => { const e = pre(); if (e) return e; if (!RESOURCES.has(res)) return ERR_INVALID_ARGS; if (amount != null && !(amount > 0)) return ERR_INVALID_ARGS; const have = o.store[res] || 0; if (!have || (amount != null && amount > have)) return ERR_NOT_ENOUGH_RESOURCES;
         const a = amount ?? have; o.store[res] -= a; E.dropAt(o.x, o.y, res, a); return OK; };
       v.build = t => {
         const e = pre('work'); if (e) return e; const x = raw(t); if (!x || x.kind !== 'site') return ERR_INVALID_TARGET; if (!sameRoom(x, o) || dist(x, o) > 3) return ERR_NOT_IN_RANGE;

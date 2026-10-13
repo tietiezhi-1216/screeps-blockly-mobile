@@ -152,7 +152,7 @@ m('struct', 'Tower', 'tower', 'attack', ['目标'], '塔攻击', true); m('struc
 m('struct', 'Link', 'link', 'transferEnergy', ['目标'], '传送能量', true); m('struct', 'Link', 'link', 'transferEnergy', ['目标', '数量'], '传送能量数量', true); p('struct', 'Link', 'link', 'cooldown', '冷却');
 p('struct', 'Container', 'container', 'ticksToDecay', '衰减倒计时');
 m('struct', 'Terminal', 'terminal', 'send', ['资源类型', '数量', '目标房间'], '发送', true);
-m('struct', 'Lab', 'lab', 'runReaction', ['lab1', 'lab2'], '反应', true); m('struct', 'Lab', 'lab', 'boostCreep', ['creep'], '强化', true); p('struct', 'Lab', 'lab', 'mineralType', '矿物类型');
+m('struct', 'Lab', 'lab', 'runReaction', ['lab1', 'lab2'], '反应', true); m('struct', 'Lab', 'lab', 'boostCreep', ['creep'], '强化', true); p('struct', 'Lab', 'lab', 'mineralType', '矿物类型'); m('struct', 'Lab', 'lab', 'reverseReaction', ['lab1', 'lab2'], '逆反应', true); m('struct', 'Lab', 'lab', 'unboostCreep', ['creep'], '解除强化', true); p('struct', 'Lab', 'lab', 'mineralAmount', '矿物数量');
 m('struct', '其他', 'observer', 'observeRoom', ['房间名'], '观察', true); m('struct', '其他', 'factory', 'produce', ['资源类型'], '生产', true);
 m('struct', '其他', 'powerSpawn', 'processPower', [], '处理 power', true); m('struct', '其他', 'nuker', 'launchNuke', ['位置'], '发射核弹', true);
 m('struct', '其他', 'rampart', 'setPublic', ['公开'], '设为公开', true); p('struct', '其他', 'rampart', 'isPublic', '是否公开');

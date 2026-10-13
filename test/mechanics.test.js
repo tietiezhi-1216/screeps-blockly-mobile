@@ -42,7 +42,7 @@ assert(ksrc.length >= 3 && lairs.length >= 3 && !e.w.controllers.some(c => roomK
 assert(e.checkSpawnAt('p1', 4 * 50 + 25, 4 * 50 + 25) !== null, 'Keeper 房间不能出生');
 e.fns.p1 = null; for (let i = 0; i < 301; i++) e.tick();
 assert(ksrc.every(s => s.cap === 4000), 'Keeper 房间能量源容量 4000');
-const keepers = e.w.creeps.filter(c => c.owner === '__keeper');
+const keepers = e.w.creeps.filter(c => c.owner === '__keeper' && lairs.some(l => l.id === c.lair));
 assert(keepers.length === lairs.length && keepers[0].body.length === 50 && keepers[0].hits === 5000, 'Lair 300 tick 后生成 Keeper（50 部件 5000 hits）');
 // 新手区
 assert(run(e, `console.log(Game.map.getRoomStatus('${rn}').status)`) === 'novice', '出生房间所在区域为 novice');

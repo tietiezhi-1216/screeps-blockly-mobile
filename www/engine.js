@@ -228,8 +228,13 @@ class Engine {
     for (const c of w.creeps) { c._did = {}; c.px = c.x; c.py = c.y; }
     for (const pid in w.players) {
       const f = this.fns[pid]; if (!f) continue; const api = this.buildApi(pid), t0 = Date.now();
+      const P = w.players[pid]; if (P.bucket == null) P.bucket = SC.PIXEL_CPU_COST;
       try { f(api); } catch (e) { this.log(pid, '代码错误:', e && e.stack ? String(e.stack).split('\n').slice(0, 2).join(' ') : e); }
       this.cpuUsed = Date.now() - t0;
+      // 官方 CPU：bucket += limit - used（上限 10000）
+      P.bucket = Math.max(0, Math.min(SC.PIXEL_CPU_COST, P.bucket + 20 - this.cpuUsed));
+      // 官方 Memory：tick 结束时 JSON 序列化；不可序列化的内容（函数/循环引用）不会保存
+      try { const str = JSON.stringify(w.memory[pid]); if (str.length > 2 * 1024 * 1024) this.log(pid, 'Memory 超过 2MB 限制，未保存'); else { w.memory[pid] = JSON.parse(str); (this._memOk = this._memOk || {})[pid] = str; } } catch (e) { this.log(pid, 'Memory 序列化失败:', String(e && e.message || e)); const ok = this._memOk && this._memOk[pid]; if (ok) w.memory[pid] = JSON.parse(ok); }
     }
     this.resolveMoves();
     for (const c of w.creeps) {
@@ -859,7 +864,7 @@ function buildApi(E, pid) {
     shard: { name: 'shard0', type: 'normal', ptr: false },
     gcl: { level: gclLv, progress: gclP - (gclLv > 1 ? Math.pow(gclLv - 1, SC.GCL_POW) * SC.GCL_MULTIPLY : 0), progressTotal: Math.pow(gclLv, SC.GCL_POW) * SC.GCL_MULTIPLY - (gclLv > 1 ? Math.pow(gclLv - 1, SC.GCL_POW) * SC.GCL_MULTIPLY : 0) },
     gpl: { level: 0, progress: 0, progressTotal: SC.POWER_LEVEL_MULTIPLY },
-    cpu: { limit: 20, tickLimit: 500, bucket: 10000, shardLimits: { shard0: 20 }, unlocked: true, unlockedTime: undefined, getUsed: () => Date.now() - t0, getHeapStatistics: () => ({}), halt: () => { throw new Error('Game.cpu.halt'); }, setShardLimits: () => ERR_BUSY, unlock: () => ERR_FULL, generatePixel: () => ERR_NOT_ENOUGH_RESOURCES },
+    cpu: { limit: 20, tickLimit: Math.min(500, (w.players[pid] && w.players[pid].bucket != null ? w.players[pid].bucket : 10000)), bucket: (w.players[pid] && w.players[pid].bucket != null ? w.players[pid].bucket : 10000), shardLimits: { shard0: 20 }, unlocked: true, unlockedTime: undefined, getUsed: () => Date.now() - t0, getHeapStatistics: () => ({}), halt: () => { throw new Error('Game.cpu.halt'); }, setShardLimits: () => ERR_BUSY, unlock: () => ERR_FULL, generatePixel: () => { const P = w.players[pid]; if (!P || (P.bucket != null ? P.bucket : 10000) < SC.PIXEL_CPU_COST) return ERR_NOT_ENOUGH_RESOURCES; P.bucket -= SC.PIXEL_CPU_COST; P.pixels = (P.pixels || 0) + 1; return OK; } },
     market: { credits: 0, incomingTransactions: [], outgoingTransactions: [], orders: {}, calcTransactionCost: (amount, a, b) => Math.ceil(amount * (1 - Math.exp(-Game.map.getRoomLinearDistance(a, b, true) / 30))), getAllOrders: () => [], getHistory: () => [], getOrderById: () => null, cancelOrder: () => ERR_INVALID_ARGS, changeOrderPrice: () => ERR_INVALID_ARGS, createOrder: () => ERR_NOT_ENOUGH_RESOURCES, deal: () => ERR_NOT_ENOUGH_RESOURCES, extendOrder: () => ERR_INVALID_ARGS },
     getObjectById: id => { for (const L of [w.creeps, w.spawns, w.structures, w.controllers, w.sources, w.minerals, w.sites, w.resources, w.tombstones, w.flags]) { const o = L.find(o => o.id === id); if (o) return wrap(o); } return null; },
     notify: (msg) => { E.log(pid, '[notify]', msg); return OK; },

@@ -1,0 +1,37 @@
+// 官方机制对照：Memory 序列化、CPU bucket/generatePixel、首房安全模式、出口格跨房、地图 API
+const fs = require('fs'), vm = require('vm'), path = require('path');
+const W = p => fs.readFileSync(path.join(__dirname, '../www', p), 'utf8');
+vm.runInThisContext(W('screeps-const.js') + W('worldgen.js') + W('engine.js'));
+const assert = (c, m) => { if (!c) { console.error('FAIL', m); process.exit(1); } console.log('ok -', m); };
+const run = (e, code) => { const f = compileUser(code); let r; f(Object.assign({}, e.buildApi('p1'), { log: (...a) => { r = a[0]; } })); return r; };
+const e = new Engine(newWorld(7)); e.addPlayer('p1', 'T');
+const ctrl = e.w.controllers.find(c => c.owner === 'p1');
+assert(ctrl.safeMode > e.w.time && ctrl.safeMode - e.w.time === SC.SAFE_MODE_DURATION, '首个房间自动开启安全模式 20000 tick');
+// Memory：tick 末 JSON 序列化
+e.setCode ? null : null;
+e.fns.p1 = api => { api.Memory.fn = () => 1; api.Memory.d = new Date(0); api.Memory.n = 5; };
+e.tick(); const m = e.w.memory.p1;
+assert(!('fn' in m) && m.n === 5 && typeof m.d === 'string', 'Memory 每 tick JSON 序列化（函数丢弃，Date→字符串）');
+e.fns.p1 = api => { const a = {}; a.self = a; api.Memory.loop = a; };
+e.tick(); assert(e.w.memory.p1.n === 5 && !('loop' in e.w.memory.p1), '循环引用：序列化失败时保留上一 tick Memory');
+e.fns.p1 = null;
+// CPU
+assert(run(e, 'console.log(Game.cpu.bucket)') <= 10000 && run(e, 'console.log(Game.cpu.tickLimit)') <= 500, 'Game.cpu.bucket/tickLimit');
+e.w.players.p1.bucket = 10000;
+assert(run(e, 'console.log(Game.cpu.generatePixel())') === OK && e.w.players.p1.pixels === 1, 'bucket 满 10000 时 generatePixel OK');
+e.tick(); assert(e.w.players.p1.bucket < 100, 'generatePixel 扣除 10000 bucket: ' + e.w.players.p1.bucket);
+assert(run(e, 'console.log(Game.cpu.generatePixel())') === ERR_NOT_ENOUGH_RESOURCES, 'bucket 不足 ERR_NOT_ENOUGH_RESOURCES');
+// 地图 API
+const rn = roomName(ctrl.x, ctrl.y);
+assert(run(e, `console.log(JSON.stringify(Game.map.describeExits('${rn}')))`).length > 2, 'describeExits 返回出口');
+assert(typeof run(e, `console.log(Game.map.getRoomTerrain('${rn}').get(0,0))`) === 'number', 'getRoomTerrain 任意房间可读');
+assert(run(e, `console.log(Game.map.getRoomStatus('${rn}').status)`) === 'normal', 'getRoomStatus');
+// 出口格：站在边缘 → 下一 tick 出现在相邻房间对侧边缘
+const sp = e.w.spawns[0], ox = Math.floor(sp.x / 50) * 50, oy = Math.floor(sp.y / 50) * 50;
+let ey = -1; for (let y = 1; y < 49; y++) if (!e.blocked(ox + 49, oy + y) && !e.blocked(ox + 50, oy + y)) { ey = y; break; }
+if (ey >= 0) {
+  const c = { kind: 'creep', id: 'cx', owner: 'p1', name: 'x', body: ['move'], hits: 100, x: ox + 49, y: oy + ey, px: ox + 49, py: oy + ey, store: {}, ttl: 100, fatigue: 0 };
+  e.w.creeps.push(c); e._occCache = null; e.tick();
+  assert(c.x === ox + 50 && c.y === oy + ey, '出口格 x=49 → 下一 tick 到相邻房间 x=0');
+} else console.log('skip - 无开放出口');
+console.log('mechanics passed');

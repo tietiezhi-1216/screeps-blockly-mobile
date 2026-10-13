@@ -10,25 +10,13 @@
   const DEPOSIT_TYPES = ['silicon', 'metal', 'biomass', 'mist'];
 
   // ---------- 事件日志：把本 tick 的渲染事件 + 销毁事件转换为官方 EVENT_*，供下一 tick getEventLog 读取 ----------
-  const EV_MAP = { attack: SC.EVENT_ATTACK, build: SC.EVENT_BUILD, harvest: SC.EVENT_HARVEST, heal: SC.EVENT_HEAL, repair: SC.EVENT_REPAIR, transfer: SC.EVENT_TRANSFER, upgrade: SC.EVENT_UPGRADE_CONTROLLER };
-  function objAt(w, x, y, kinds) { for (const L of [w.creeps, w.structures, w.spawns, w.controllers, w.sources, w.minerals, w.sites, w.deposits || []]) for (const o of L) if (o.x === x && o.y === y && (!kinds || kinds.includes(o.kind))) return o; return null; }
+  // 官方条目在各动作处由 E.elog 写入（objectId/targetId/amount/damage 等完整 data），这里只按房间归档 + OBJECT_DESTROYED + EXIT
   function buildEventLog(E) {
     const w = E.w, log = {};
-    const push = (x, y, e) => { const k = roomKey(x, y); (log[k] = log[k] || []).push(e); };
-    for (const ev of E.events || []) {
-      const type = EV_MAP[ev.t]; if (type == null) continue;
-      const src = ev.t === 'harvest' ? objAt(w, ev.x, ev.y, ['creep']) : objAt(w, ev.fx, ev.fy, ['creep', 'structure', 'spawn']);
-      const tgt = ev.t === 'harvest' ? objAt(w, ev.fx, ev.fy, ['source', 'mineral', 'deposit']) : objAt(w, ev.x, ev.y);
-      const data = { targetId: tgt ? tgt.id : undefined };
-      if (ev.amount != null) data.amount = ev.amount;
-      if (ev.t === 'attack') data.attackType = dist({ x: ev.fx, y: ev.fy }, ev) > 1 ? SC.EVENT_ATTACK_TYPE_RANGED : SC.EVENT_ATTACK_TYPE_MELEE;
-      if (ev.t === 'heal') data.healType = dist({ x: ev.fx, y: ev.fy }, ev) > 1 ? SC.EVENT_HEAL_TYPE_RANGED : SC.EVENT_HEAL_TYPE_MELEE;
-      if (ev.t === 'transfer') data.resourceType = 'energy';
-      push(ev.t === 'harvest' ? ev.x : ev.fx, ev.t === 'harvest' ? ev.y : ev.fy, { event: type, objectId: src ? src.id : undefined, data });
-    }
-    for (const d of w._destroyed || []) push(d.x, d.y, { event: SC.EVENT_OBJECT_DESTROYED, objectId: d.id, data: { type: d.type } });
-    for (const d of w._evExtra || []) push(d.x, d.y, d.e);
-    w._destroyed = []; w._evExtra = [];
+    const push = (k, e) => { (log[k] = log[k] || []).push(e); };
+    for (const it of w._elog || []) push(it.k, it.e);
+    for (const d of w._destroyed || []) push(roomKey(d.x, d.y), { event: SC.EVENT_OBJECT_DESTROYED, objectId: d.id, data: { type: d.type } });
+    w._destroyed = []; w._elog = [];
     return log;
   }
 
@@ -46,8 +34,13 @@
   P.tick = function () {
     const w = this.w; w.deposits = w.deposits || []; w.powerCreeps = w.powerCreeps || []; w.market = w.market || { orders: [], history: [], deals: {} };
     w._visuals = {}; // 官方：视觉只保留到下一 tick 代码运行前
-    w.market.deals = {};
+    w.market.deals = {}; w.market.intents = [];
+    w._elog = []; const pre = new Map(); for (const c of w.creeps) if (!c.spawning) pre.set(c, roomKey(c.x, c.y));
     const r = _tick.call(this);
+    // 官方 EVENT_EXIT：creep 离开房间时写入旧房间，data = { room, x, y }（新房间名与落点）
+    for (const [c, k] of pre) if (w.creeps.includes(c) && roomKey(c.x, c.y) !== k) w._elog.push({ k, e: { event: SC.EVENT_EXIT, objectId: c.id, data: { room: roomName(c.x, c.y), x: c.x % ROOM, y: c.y % ROOM } } });
+    // 官方 global processor：市场 intent 在所有房间结算之后按登记顺序处理
+    for (const it of w.market.intents.splice(0)) it();
     G.__w_time = w.time;
     for (const c of w.creeps) if (c.pc) c.fatigue = 0; // Power Creep 不产生疲劳
     // 源再生（PWR_REGEN_SOURCE）
@@ -102,28 +95,28 @@
     Object.defineProperty(M, 'credits', { get: () => +pl.credits.toFixed(3), enumerable: true });
     Object.defineProperty(M, 'orders', { get: () => Object.fromEntries(w.market.orders.filter(o => o.owner === pid).map(o => [o.id, orderView(o)])), enumerable: true });
     M.calcTransactionCost = (amount, a, b) => txCost(amount, a, b);
-    M.createOrder = (params, ...rest) => {
+    const createOrder = (dry, params, ...rest) => {
       if (typeof params !== 'object' || params === null) params = { type: params, resourceType: rest[0], price: rest[1], totalAmount: rest[2], roomName: rest[3] };
       const { type, resourceType, price, totalAmount, roomName: rn } = params;
       if ((type !== 'buy' && type !== 'sell') || !RESOURCES.has(resourceType) || !(price > 0) || !(totalAmount > 0)) return ERR_INVALID_ARGS;
       if (resourceType !== 'token' && !terminalIn(w, pid, rn)) return ERR_NOT_OWNER;
       if (w.market.orders.filter(o => o.owner === pid).length >= SC.MARKET_MAX_ORDERS) return ERR_FULL;
       const f = fee(price * totalAmount); if (pl.credits < f) return ERR_NOT_ENOUGH_RESOURCES;
-      pl.credits -= f; w.market.orders.push({ id: 'mo' + (w.nextId++), owner: pid, created: w.time, createdTimestamp: Date.now(), active: true, type, resourceType, roomName: rn, price, amount: totalAmount, remainingAmount: totalAmount, totalAmount });
+      if (dry) return OK; pl.credits -= f; w.market.orders.push({ id: 'mo' + (w.nextId++), owner: pid, created: w.time, createdTimestamp: Date.now(), active: true, type, resourceType, roomName: rn, price, amount: totalAmount, remainingAmount: totalAmount, totalAmount });
       return OK;
     };
-    M.cancelOrder = id => { const i = w.market.orders.findIndex(o => o.id === id && o.owner === pid); if (i < 0) return ERR_INVALID_ARGS; w.market.orders.splice(i, 1); return OK; };
-    M.changeOrderPrice = (id, np) => { const o = w.market.orders.find(o => o.id === id && o.owner === pid); if (!o || !(np > 0)) return ERR_INVALID_ARGS;
-      const f = np > o.price ? fee((np - o.price) * o.remainingAmount) : 0; if (pl.credits < f) return ERR_NOT_ENOUGH_RESOURCES; pl.credits -= f; o.price = np; return OK; };
-    M.extendOrder = (id, add) => { const o = w.market.orders.find(o => o.id === id && o.owner === pid); if (!o || !(add > 0)) return ERR_INVALID_ARGS;
-      const f = fee(o.price * add); if (pl.credits < f) return ERR_NOT_ENOUGH_RESOURCES; pl.credits -= f; o.amount += add; o.remainingAmount += add; o.totalAmount += add; return OK; };
+    const cancelOrder = (dry, id) => { const i = w.market.orders.findIndex(o => o.id === id && o.owner === pid); if (i < 0) return ERR_INVALID_ARGS; if (dry) return OK; w.market.orders.splice(i, 1); return OK; };
+    const changeOrderPrice = (dry, id, np) => { const o = w.market.orders.find(o => o.id === id && o.owner === pid); if (!o || !(np > 0)) return ERR_INVALID_ARGS;
+      const f = np > o.price ? fee((np - o.price) * o.remainingAmount) : 0; if (pl.credits < f) return ERR_NOT_ENOUGH_RESOURCES; if (dry) return OK; pl.credits -= f; o.price = np; return OK; };
+    const extendOrder = (dry, id, add) => { const o = w.market.orders.find(o => o.id === id && o.owner === pid); if (!o || !(add > 0)) return ERR_INVALID_ARGS;
+      const f = fee(o.price * add); if (pl.credits < f) return ERR_NOT_ENOUGH_RESOURCES; if (dry) return OK; pl.credits -= f; o.amount += add; o.remainingAmount += add; o.totalAmount += add; return OK; };
     M.getAllOrders = filter => { let L = w.market.orders.filter(o => o.active && o.remainingAmount > 0).map(orderView);
       if (typeof filter === 'function') L = L.filter(filter); else if (filter && typeof filter === 'object') L = L.filter(o => Object.keys(filter).every(k => o[k] === filter[k])); return L; };
     M.getOrderById = id => { const o = w.market.orders.find(o => o.id === id); return o ? orderView(o) : null; };
     M.getHistory = res => w.market.history.filter(h => !res || h.resourceType === res).map(h => ({ resourceType: h.resourceType, date: h.date, transactions: h.transactions, volume: h.volume, avgPrice: h.avgPrice, stddevPrice: h.stddevPrice }));
-    M.deal = (id, amount, yourRoom) => { // 官方顺序：参数 → 每 tick 10 笔 → 订单 → 终端 → 资源/信用点
+    const deal = (dry, id, amount, yourRoom) => { // 官方顺序：参数 → 每 tick 10 笔 → 订单 → 终端 → 资源/信用点
       if (!(amount > 0)) return ERR_INVALID_ARGS; amount = Math.floor(amount);
-      const dl = w.market.deals[pid] || 0; if (dl >= 10) return ERR_FULL;
+      const dl = w.market.deals[pid] || 0; if (dry && dl >= 10) return ERR_FULL;
       const o = w.market.orders.find(o => o.id === id); if (!o || o.owner === pid || !o.active) return ERR_INVALID_ARGS;
       amount = Math.min(amount, o.remainingAmount); if (!amount) return ERR_INVALID_ARGS;
       const t = terminalIn(w, pid, yourRoom); if (!t) return ERR_NOT_OWNER; if (t.cooldown > 0) return ERR_TIRED;
@@ -133,20 +126,27 @@
         if (pl.credits < o.price * amount || (t.store.energy || 0) < cost) return ERR_NOT_ENOUGH_RESOURCES;
         if (ot && (ot.store[o.resourceType] || 0) < amount) return ERR_NOT_ENOUGH_RESOURCES;
         if (freeFor(w, t, o.resourceType) < amount) return ERR_FULL;
+        if (dry) return OK;
         pl.credits -= o.price * amount; if (other) other.credits = (other.credits || 0) + o.price * amount; if (ot) ot.store[o.resourceType] -= amount;
         t.store.energy -= cost; t.store[o.resourceType] = (t.store[o.resourceType] || 0) + amount;
       } else { // 我卖
         const need = o.resourceType === 'energy' ? amount + cost : amount; if ((t.store[o.resourceType] || 0) < need || (t.store.energy || 0) < cost) return ERR_NOT_ENOUGH_RESOURCES;
         if (other && (other.credits || 0) < o.price * amount) return ERR_NOT_ENOUGH_RESOURCES;
+        if (dry) return OK;
         t.store[o.resourceType] -= amount; t.store.energy -= cost; pl.credits += o.price * amount; if (other) other.credits -= o.price * amount; if (ot) ot.store[o.resourceType] = (ot.store[o.resourceType] || 0) + amount;
       }
+      if (dry) return OK;
       t.cooldown = SC.TERMINAL_COOLDOWN; o.remainingAmount -= amount; o.amount = o.remainingAmount; if (!o.npc && o.remainingAmount <= 0) w.market.orders.splice(w.market.orders.indexOf(o), 1);
-      w.market.deals[pid] = dl + 1; addHistory(w, o.resourceType, amount, o.price);
+      addHistory(w, o.resourceType, amount, o.price);
       w.transactions = (w.transactions || []).slice(-99);
       const fromSender = o.type === 'sell' ? o.owner : pid, toRecv = o.type === 'sell' ? pid : o.owner;
       w.transactions.push({ transactionId: 't' + (w.nextId++), time: w.time, sender: fromSender ? { username: w.players[fromSender].name } : undefined, recipient: toRecv ? { username: w.players[toRecv].name } : undefined, _s: fromSender, _r: toRecv, resourceType: o.resourceType, amount, from: o.type === 'sell' ? o.roomName : yourRoom, to: o.type === 'sell' ? yourRoom : o.roomName, order: { id: o.id, type: o.type, price: o.price } });
       return OK;
     };
+    // 官方：调用时校验并登记 intent（market.deal 每 tick 最多 10 笔），tick 末 global processor 再次校验后结算
+    const queue = (fn, isDeal) => (...a) => { const r = fn(true, ...a); if (r !== OK) return r; if (isDeal) w.market.deals[pid] = (w.market.deals[pid] || 0) + 1; (w.market.intents = w.market.intents || []).push(() => fn(false, ...a)); return OK; };
+    M.createOrder = queue(createOrder); M.cancelOrder = queue(cancelOrder); M.changeOrderPrice = queue(changeOrderPrice); M.extendOrder = queue(extendOrder); M.deal = queue(deal, true);
+    M._flushNow = () => { for (const it of (w.market.intents || []).splice(0)) it(); };
     return M;
   }
 
@@ -216,7 +216,7 @@
         else if (power === SC.PWR_OPERATE_EXTENSION) { const k = roomKey(live.x, live.y), need = w.structures.concat(w.spawns).filter(s => (s.type === 'extension' || s.kind === 'spawn') && s.owner === pid && roomKey(s.x, s.y) === k);
           let budget = Math.floor(need.reduce((a, s) => a + storeCapOfS(s), 0) * info.effect[p.level - 1]); for (const s of need) { const free = storeCapOfS(s) - (s.store.energy || 0), a = Math.min(free, budget, x.store.energy || 0); if (a > 0) { s.store.energy = (s.store.energy || 0) + a; x.store.energy -= a; budget -= a; } } }
         else if (x) { if (power === SC.PWR_OPERATE_FACTORY && !x.level) x.level = p.level; x.effects = (x.effects || []).filter(f => f.power !== power); x.effects.push({ power, level: p.level, endTime: w.time + (info.duration || 1) }); }
-        (w._evExtra = w._evExtra || []).push({ x: live.x, y: live.y, e: { event: SC.EVENT_POWER, objectId: live.id, data: { power, targetId: x ? x.id : undefined } } });
+        E.elog(live, SC.EVENT_POWER, { power, targetId: x ? x.id : undefined });
         return OK; };
       return v;
     }
@@ -272,11 +272,13 @@
     for (const n in Game.creeps) { const v = Game.creeps[n], o = v._raw, h0 = v.harvest;
       v.harvest = t => { const d = t && t._raw; if (!d || d.kind !== 'deposit') return h0(t);
         if (o.spawning) return ERR_BUSY; if (!activeParts(o, 'work')) return ERR_NO_BODYPART; if (roomKey(d.x, d.y) !== roomKey(o.x, o.y) || dist(d, o) > 1) return ERR_NOT_IN_RANGE;
-        if (d.cooldownTime > w.time) return ERR_TIRED; if (o._did && o._did.depositHarvest) return OK;
+        if (d.cooldownTime > w.time) return ERR_TIRED;
+        if (!o._flushing) { o._intents = o._intents || {}; o._intents.harvest = [t]; return OK; } // 官方：登记 harvest intent，tick 末与其他动作一起按优先级结算
+        if (!w.deposits.includes(d)) return ERR_INVALID_TARGET;
         const amt = boostPower(o, 'work', 'harvest') * SC.HARVEST_DEPOSIT_POWER; o.store[d.depositType] = (o.store[d.depositType] || 0) + amt;
         const cap = activeParts(o, 'carry') * SC.CARRY_CAPACITY, over = storeSum(o.store) - cap; if (over > 0) { o.store[d.depositType] -= over; E.dropAt(o.x, o.y, d.depositType, over); }
         d.harvested += amt; d.lastCooldown = Math.ceil(SC.DEPOSIT_EXHAUST_MULTIPLY * Math.pow(d.harvested, SC.DEPOSIT_EXHAUST_POW)); d.cooldownTime = w.time + d.lastCooldown; d.decayAt = w.time + SC.DEPOSIT_DECAY_TIME;
-        (o._did = o._did || {}).depositHarvest = true; E.events.push({ t: 'harvest', fx: d.x, fy: d.y, x: o.x, y: o.y, amount: amt }); return OK; };
+        E.elog(o, SC.EVENT_HARVEST, { targetId: d.id, amount: amt }); E.events.push({ t: 'harvest', fx: d.x, fy: d.y, x: o.x, y: o.y, amount: amt }); return OK; };
     }
     // Power Creep 的 store 容量 = 100 × (level+1)：由 2×(level+1) 个 CARRY 体积实现，getCapacity 自然一致
     return api;

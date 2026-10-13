@@ -416,7 +416,7 @@ class Engine {
       const rk = roomKey(n.x, n.y); w.nukes.splice(w.nukes.indexOf(n), 1);
       for (const c of w.creeps.slice()) if (roomKey(c.x, c.y) === rk) this.killCreep(c, 0);
       w.sites = w.sites.filter(t => roomKey(t.x, t.y) !== rk);
-      const hitAt = (x, y, dmg) => { const list = [...w.structures, ...w.spawns].filter(s => s.x === x && s.y === y); const ramp = list.find(s => s.type === 'rampart'); let left = dmg;
+      const hitAt = (x, y, dmg) => { for (const s of [...w.structures, ...w.spawns]) if (s.x === x && s.y === y && s.hits != null) this.elog(n, SC.EVENT_ATTACK, { targetId: s.id, damage: dmg, attackType: SC.EVENT_ATTACK_TYPE_NUKE }); const list = [...w.structures, ...w.spawns].filter(s => s.x === x && s.y === y); const ramp = list.find(s => s.type === 'rampart'); let left = dmg;
         if (ramp) { const a = Math.min(ramp.hits, left); ramp.hits -= a; left -= a; if (ramp.hits <= 0) { this.ruinOf(ramp); this.removeStruct(ramp); } }
         if (left > 0) for (const s of list) if (s !== ramp && s.hits != null) { s.hits -= left; if (s.hits <= 0) { this.ruinOf(s); this.removeStruct(s); } } };
       for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) { const x = n.x + dx, y = n.y + dy; if (roomKey(x, y) !== rk) continue; hitAt(x, y, dx || dy ? SC.NUKE_DAMAGE[2] : SC.NUKE_DAMAGE[0]); }
@@ -439,6 +439,8 @@ class Engine {
     const ex = w.resources.find(r => r.x === x && r.y === y && r.resourceType === res);
     if (ex) ex.amount += amount; else w.resources.push({ kind: 'resource', id: 'r' + (w.nextId++), x, y, resourceType: res, amount });
   }
+  // 官方事件日志：room.getEventLog() 的条目（engine/src/processor 各 intent 的 eventLog.push）
+  elog(o, event, data) { (this.w._elog = this.w._elog || []).push({ k: roomKey(o.x, o.y), e: { event, objectId: o.id, data: data || {} } }); }
   damage(target, amount, attackerOwner) {
     const w = this.w, ctrl = ctrlOfRoom(w, roomKey(target.x, target.y));
     if (ctrl && ctrl.safeMode > w.time && ctrl.owner !== attackerOwner) return; // 安全模式
@@ -719,6 +721,7 @@ function buildApi(E, pid) {
           if (kind === 'heal' && r.kind !== 'creep') return ERR_INVALID_TARGET; if (kind === 'repair' && r.kind === 'creep') return ERR_INVALID_TARGET;
           o.store.energy -= SC.TOWER_ENERGY_COST;
           if (kind === 'attack') E.damage(r, amt, pid); else r.hits = Math.min(kind === 'heal' ? r.body.length * 100 : r.hitsMax, r.hits + amt);
+          if (kind === 'attack') E.elog(o, SC.EVENT_ATTACK, { targetId: r.id, damage: amt, attackType: SC.EVENT_ATTACK_TYPE_RANGED }); else if (kind === 'heal') E.elog(o, SC.EVENT_HEAL, { targetId: r.id, amount: amt, healType: SC.EVENT_HEAL_TYPE_RANGED }); else E.elog(o, SC.EVENT_REPAIR, { targetId: r.id, amount: amt, energySpent: SC.TOWER_ENERGY_COST });
           ev.push({ t: kind, fx: o.x, fy: o.y, x: r.x, y: r.y }); return OK;
         };
         v.attack = t => act(t, 'attack'); v.heal = t => act(t, 'heal'); v.repair = t => act(t, 'repair');
@@ -731,7 +734,7 @@ function buildApi(E, pid) {
         if (o.owner !== pid) return ERR_NOT_OWNER; if (!E.isActive(o)) return ERR_RCL_NOT_ENOUGH; const r = raw(t);
         if (!r || r.type !== 'link' || r === o) return ERR_INVALID_TARGET; if (!sameRoom(r, o)) return ERR_NOT_IN_RANGE; if (o.cooldown > 0) return ERR_TIRED;
         amount = amount == null ? o.store.energy || 0 : amount; if (amount < 0) return ERR_INVALID_ARGS; if ((o.store.energy || 0) < amount || !amount) return ERR_NOT_ENOUGH_ENERGY; if (freeFor(w, r, 'energy') < amount) return ERR_FULL;
-        o.store.energy -= amount; r.store.energy = (r.store.energy || 0) + amount - Math.ceil(amount * SC.LINK_LOSS_RATIO); o.cooldown = SC.LINK_COOLDOWN * dist(o, r); ev.push({ t: 'transfer', fx: o.x, fy: o.y, x: r.x, y: r.y }); return OK; };
+        o.store.energy -= amount; r.store.energy = (r.store.energy || 0) + amount - Math.ceil(amount * SC.LINK_LOSS_RATIO); o.cooldown = SC.LINK_COOLDOWN * dist(o, r); E.elog(o, SC.EVENT_TRANSFER, { targetId: r.id, resourceType: 'energy', amount }); ev.push({ t: 'transfer', fx: o.x, fy: o.y, x: r.x, y: r.y }); return OK; };
       const labMin = s => Object.keys(s.store || {}).find(k => k !== 'energy' && s.store[k] > 0);
       if (o.type === 'lab') {
         v.mineralType = labMin(o); v.mineralAmount = v.mineralType ? o.store[v.mineralType] : 0; v.mineralCapacity = SC.LAB_MINERAL_CAPACITY;
@@ -825,11 +828,11 @@ function buildApi(E, pid) {
       v.harvest = t => {
         const e = pre('work'); if (e) return e; const x = raw(t); if (!x || (x.kind !== 'source' && x.kind !== 'mineral')) return ERR_INVALID_TARGET; if (!sameRoom(x, o) || dist(x, o) > 1) return ERR_NOT_IN_RANGE;
         const ctrl = ctrlOfRoom(w, roomKey(x.x, x.y)); if (ctrl && ((ctrl.owner && ctrl.owner !== pid) || (ctrl.reservation && ctrl.reservation.owner !== pid))) return ERR_NOT_OWNER;
-        if (x.kind === 'source') { if (!x.energy) return ERR_NOT_ENOUGH_RESOURCES; if (o._intentOnly) return OK; const a = Math.min(x.energy, boostPower(o, 'work', 'harvest') * SC.HARVEST_POWER); x.energy -= a; o.store.energy = (o.store.energy || 0) + a; }
+        if (x.kind === 'source') { if (!x.energy) return ERR_NOT_ENOUGH_RESOURCES; if (o._intentOnly) return OK; const a = Math.min(x.energy, boostPower(o, 'work', 'harvest') * SC.HARVEST_POWER); x.energy -= a; o.store.energy = (o.store.energy || 0) + a; o._ha = a; }
         else { const ex = w.structures.find(s => s.type === 'extractor' && s.x === x.x && s.y === x.y); if (!ex) return ERR_NOT_FOUND; if (ex.owner !== pid) return ERR_NOT_OWNER; if (!E.isActive(ex)) return ERR_RCL_NOT_ENOUGH; if (ex.cooldown > 0) return ERR_TIRED; if (!x.amount) return ERR_NOT_ENOUGH_RESOURCES; if (o._intentOnly) return OK;
-          const a = Math.min(x.amount, boostPower(o, 'work', 'harvest') * SC.HARVEST_MINERAL_POWER); x.amount -= a; o.store[x.type] = (o.store[x.type] || 0) + a; ex.cooldown = SC.EXTRACTOR_COOLDOWN; }
+          const a = Math.min(x.amount, boostPower(o, 'work', 'harvest') * SC.HARVEST_MINERAL_POWER); x.amount -= a; o.store[x.type] = (o.store[x.type] || 0) + a; o._ha = a; ex.cooldown = SC.EXTRACTOR_COOLDOWN; }
         const over = used() - cap; if (over > 0) { const r = x.kind === 'source' ? 'energy' : x.type; o.store[r] -= over; E.dropAt(o.x, o.y, r, over); } // 官方：溢出掉在地上
-        ev.push({ t: 'harvest', fx: x.x, fy: x.y, x: o.x, y: o.y }); return OK;
+        E.elog(o, SC.EVENT_HARVEST, { targetId: x.id, amount: o._ha }); ev.push({ t: 'harvest', fx: x.x, fy: x.y, x: o.x, y: o.y }); return OK;
       };
       v.transfer = (t, res, amount) => {
         const e = pre(); if (e) return e; if (!RESOURCES.has(res)) return ERR_INVALID_ARGS; const x = tgt(t, 1); if (typeof x === 'number') return x;
@@ -837,7 +840,7 @@ function buildApi(E, pid) {
         const have = o.store[res] || 0; if (amount != null && amount < 0) return ERR_INVALID_ARGS; if (!have || (amount != null && have < amount)) return ERR_NOT_ENOUGH_RESOURCES;
         const free = freeFor(w, x, res); if (free == null) return ERR_INVALID_TARGET; if (free <= 0) return ERR_FULL;
         if (amount != null && amount > free) return ERR_FULL; if (x.kind === 'controller') return ERR_INVALID_TARGET; if (o._intentOnly) return OK; const a = Math.min(amount ?? have, free);
-        o.store[res] -= a; x.store[res] = (x.store[res] || 0) + a;
+        o.store[res] -= a; x.store[res] = (x.store[res] || 0) + a; E.elog(o, SC.EVENT_TRANSFER, { targetId: x.id, resourceType: res, amount: a });
         ev.push({ t: 'transfer', fx: o.x, fy: o.y, x: x.x, y: x.y }); return OK;
       };
       v.withdraw = (t, res, amount) => {
@@ -847,7 +850,7 @@ function buildApi(E, pid) {
         if (x.kind === 'structure' && w.structures.some(s => s.type === 'rampart' && s.x === x.x && s.y === x.y && s.owner !== pid && !s.isPublic)) return ERR_NOT_OWNER;
         const have = x.store[res] || 0; if (amount != null && amount < 0) return ERR_INVALID_ARGS; if (!have || (amount != null && have < amount)) return ERR_NOT_ENOUGH_RESOURCES;
         const free = cap - used(); if (free <= 0 || (amount != null && amount > free)) return ERR_FULL; if (o._intentOnly) return OK; const a = Math.min(amount ?? have, free);
-        x.store[res] -= a; o.store[res] = (o.store[res] || 0) + a; ev.push({ t: 'transfer', fx: x.x, fy: x.y, x: o.x, y: o.y }); return OK;
+        x.store[res] -= a; o.store[res] = (o.store[res] || 0) + a; E.elog(x, SC.EVENT_TRANSFER, { targetId: o.id, resourceType: res, amount: a }); ev.push({ t: 'transfer', fx: x.x, fy: x.y, x: o.x, y: o.y }); return OK;
       };
       v.pickup = t => { const e = pre(); if (e) return e; const x = tgt(t, 1, ['resource']); if (typeof x === 'number') return x; const free = cap - used(); if (free <= 0) return ERR_FULL; if (o._intentOnly) return OK;
         const a = Math.min(free, x.amount); x.amount -= a; o.store[x.resourceType] = (o.store[x.resourceType] || 0) + a; if (x.amount <= 0) w.resources.splice(w.resources.indexOf(x), 1); return OK; };
@@ -862,7 +865,7 @@ function buildApi(E, pid) {
         if (!base) return ERR_NOT_ENOUGH_ENERGY;
         if (o._intentOnly) return OK;
         const boosted = Math.min(Math.floor(base + boostExtra(o, 'work', 'build', base)), x.total - x.progress);
-        x.progress += boosted; o.store.energy -= base;
+        x.progress += boosted; o.store.energy -= base; E.elog(o, SC.EVENT_BUILD, { targetId: x.id, amount: boosted, energySpent: base, structureType: x.type, x: x.x % ROOM, y: x.y % ROOM, incomplete: x.progress < x.total });
         ev.push({ t: 'build', fx: o.x, fy: o.y, x: x.x, y: x.y });
         if (x.progress >= x.total) {
           w.sites.splice(w.sites.indexOf(x), 1);
@@ -879,7 +882,7 @@ function buildApi(E, pid) {
         if (!base) return ERR_NOT_ENOUGH_ENERGY;
         if (o._intentOnly) return OK;
         const boosted = Math.min(Math.floor(base + boostExtra(o, 'work', 'repair', base)), x.hitsMax - x.hits);
-        o.store.energy -= Math.ceil(base * SC.REPAIR_COST); x.hits += boosted; ev.push({ t: 'repair', fx: o.x, fy: o.y, x: x.x, y: x.y }); return OK;
+        o.store.energy -= Math.ceil(base * SC.REPAIR_COST); x.hits += boosted; E.elog(o, SC.EVENT_REPAIR, { targetId: x.id, amount: boosted, energySpent: Math.ceil(base * SC.REPAIR_COST) }); ev.push({ t: 'repair', fx: o.x, fy: o.y, x: x.x, y: x.y }); return OK;
       };
       v.dismantle = t => {
         const e = pre('work'); if (e) return e; const x = raw(t); if (!x || x.kind !== 'structure' && x.kind !== 'spawn') return ERR_INVALID_TARGET; if (!sameRoom(x, o) || dist(x, o) > 1) return ERR_NOT_IN_RANGE;
@@ -887,7 +890,7 @@ function buildApi(E, pid) {
         if (o._intentOnly) return OK;
         const a = Math.min(boostPower(o, 'work', 'dismantle') * SC.DISMANTLE_POWER, x.hits), back = Math.floor(a * SC.DISMANTLE_COST);
         if (back) { o.store.energy = (o.store.energy || 0) + back; const over = used() - cap; if (over > 0) { o.store.energy -= over; E.dropAt(o.x, o.y, 'energy', over); } }
-        E.damage(x, a, pid); return OK;
+        E.elog(o, SC.EVENT_ATTACK, { targetId: x.id, damage: a, attackType: SC.EVENT_ATTACK_TYPE_DISMANTLE }); E.damage(x, a, pid); return OK;
       };
       v.upgradeController = t => {
         const e = pre('work'); if (e) return e; const x = raw(t); if (!x || x.kind !== 'controller') return ERR_INVALID_TARGET; if (x.owner !== pid || !x.level) return ERR_NOT_OWNER;
@@ -898,7 +901,7 @@ function buildApi(E, pid) {
         if (x.level === 8) { base = Math.min(base, SC.CONTROLLER_MAX_UPGRADE_PER_TICK - x._upCnt); if (base <= 0) return OK; }
         if (o._intentOnly) return OK;
         const eff = Math.floor(base + boostExtra(o, 'work', 'upgradeController', base));
-        x._upCnt += base; o.store.energy -= base; x._upgraded = 1; w.players[pid].gcl = (w.players[pid].gcl || 0) + eff;
+        x._upCnt += base; o.store.energy -= base; x._upgraded = 1; E.elog(o, SC.EVENT_UPGRADE_CONTROLLER, { amount: eff, energySpent: base }); w.players[pid].gcl = (w.players[pid].gcl || 0) + eff;
         if (x.level < 8) {
           const next = SC.CONTROLLER_LEVELS[x.level];
           if (x.progress + eff >= next && x.downgradeTime + SC.CONTROLLER_DOWNGRADE_RESTORE >= w.time + SC.CONTROLLER_DOWNGRADE[x.level]) {
@@ -918,13 +921,13 @@ function buildApi(E, pid) {
         const e = pre('claim'); if (e) return e; const x = tgt(t, 1, ['controller']); if (typeof x === 'number') return x;
         if (x.owner || (x.reservation && x.reservation.owner !== pid)) return ERR_INVALID_TARGET;
         const end = x.reservation ? x.reservation.endTime : w.time + 1, add = activeParts(o, 'claim') * SC.CONTROLLER_RESERVE;
-        if (end - w.time + add > SC.CONTROLLER_RESERVE_MAX) return ERR_FULL; if (o._intentOnly) return OK; x.reservation = { owner: pid, endTime: end + add }; return OK;
+        if (end - w.time + add > SC.CONTROLLER_RESERVE_MAX) return ERR_FULL; if (o._intentOnly) return OK; x.reservation = { owner: pid, endTime: end + add }; E.elog(o, SC.EVENT_RESERVE_CONTROLLER, { amount: add }); return OK;
       };
       v.attackController = t => {
         const e = pre('claim'); if (e) return e; const x = tgt(t, 1, ['controller']); if (typeof x === 'number') return x;
         if (!x.owner && !x.reservation) return ERR_INVALID_TARGET; if (x.owner === pid || (x.reservation && x.reservation.owner === pid)) return ERR_INVALID_TARGET; if (x.upgradeBlocked > w.time) return ERR_TIRED;
         if (o._intentOnly) return OK;
-        const n = activeParts(o, 'claim');
+        const n = activeParts(o, 'claim'); E.elog(o, SC.EVENT_ATTACK_CONTROLLER, {});
         if (x.reservation) { x.reservation.endTime -= n * SC.CONTROLLER_RESERVE; } else { x.downgradeTime -= n * SC.CONTROLLER_CLAIM_DOWNGRADE; x.upgradeBlocked = w.time + SC.CONTROLLER_ATTACK_BLOCKED_UPGRADE; }
         return OK;
       };
@@ -933,15 +936,16 @@ function buildApi(E, pid) {
       const hostileOk = x => x.kind === 'creep' ? x.owner !== pid || true : true;
       v.attack = t => { const e = pre('attack'); if (e) return e; const x = tgt(t, 1, ['creep', 'structure', 'spawn']); if (typeof x === 'number') return x; if (!hostileOk(x) || x.hits == null) return ERR_INVALID_TARGET;
         if (o._intentOnly) return OK;
-        E.damage(x, boostPower(o, 'attack', 'attack') * SC.ATTACK_POWER, pid); if (x.kind === 'creep' && activeParts(x, 'attack')) E.damage(o, boostPower(x, 'attack', 'attack') * SC.ATTACK_POWER, x.owner); ev.push({ t: 'attack', fx: o.x, fy: o.y, x: x.x, y: x.y }); return OK; };
+        { const dm = boostPower(o, 'attack', 'attack') * SC.ATTACK_POWER; E.elog(o, SC.EVENT_ATTACK, { targetId: x.id, damage: dm, attackType: SC.EVENT_ATTACK_TYPE_MELEE }); E.damage(x, dm, pid); }
+        if (x.kind === 'creep' && activeParts(x, 'attack')) { const hb = boostPower(x, 'attack', 'attack') * SC.ATTACK_POWER; E.elog(x, SC.EVENT_ATTACK, { targetId: o.id, damage: hb, attackType: SC.EVENT_ATTACK_TYPE_HIT_BACK }); E.damage(o, hb, x.owner); } ev.push({ t: 'attack', fx: o.x, fy: o.y, x: x.x, y: x.y }); return OK; };
       v.rangedAttack = t => { const e = pre('ranged_attack'); if (e) return e; const x = tgt(t, 3, ['creep', 'structure', 'spawn']); if (typeof x === 'number') return x; if (x.hits == null) return ERR_INVALID_TARGET;
         if (o._intentOnly) return OK;
-        E.damage(x, boostPower(o, 'ranged_attack', 'rangedAttack') * SC.RANGED_ATTACK_POWER, pid); ev.push({ t: 'attack', fx: o.x, fy: o.y, x: x.x, y: x.y }); return OK; };
+        { const dm = boostPower(o, 'ranged_attack', 'rangedAttack') * SC.RANGED_ATTACK_POWER; E.elog(o, SC.EVENT_ATTACK, { targetId: x.id, damage: dm, attackType: SC.EVENT_ATTACK_TYPE_RANGED }); E.damage(x, dm, pid); } ev.push({ t: 'attack', fx: o.x, fy: o.y, x: x.x, y: x.y }); return OK; };
       v.rangedMassAttack = () => { const e = pre('ranged_attack'); if (e) return e; if (o._intentOnly) return OK; const n = boostPower(o, 'ranged_attack', 'rangedMassAttack') * SC.RANGED_ATTACK_POWER;
-        for (const x of w.creeps.filter(c => !c.spawning && c.owner !== pid && sameRoom(c, o) && dist(c, o) <= 3).concat(w.structures.concat(w.spawns).filter(s => s.owner && s.owner !== pid && sameRoom(s, o) && dist(s, o) <= 3))) E.damage(x, Math.round(n * ({ 0: 1, 1: 1, 2: 0.4, 3: 0.1 })[dist(x, o)]), pid);
+        for (const x of w.creeps.filter(c => !c.spawning && c.owner !== pid && sameRoom(c, o) && dist(c, o) <= 3).concat(w.structures.concat(w.spawns).filter(s => s.owner && s.owner !== pid && sameRoom(s, o) && dist(s, o) <= 3))) { const dm = Math.round(n * ({ 0: 1, 1: 1, 2: 0.4, 3: 0.1 })[dist(x, o)]); E.elog(o, SC.EVENT_ATTACK, { targetId: x.id, damage: dm, attackType: SC.EVENT_ATTACK_TYPE_RANGED_MASS }); E.damage(x, dm, pid); }
         return OK; };
-      v.heal = t => { const e = pre('heal'); if (e) return e; const x = tgt(t, 1, ['creep']); if (typeof x === 'number') return x; if (o._intentOnly) return OK; x.hits = Math.min(x.body.length * 100, x.hits + boostPower(o, 'heal', 'heal') * SC.HEAL_POWER); ev.push({ t: 'heal', fx: o.x, fy: o.y, x: x.x, y: x.y }); return OK; };
-      v.rangedHeal = t => { const e = pre('heal'); if (e) return e; const x = tgt(t, 3, ['creep']); if (typeof x === 'number') return x; if (o._intentOnly) return OK; x.hits = Math.min(x.body.length * 100, x.hits + boostPower(o, 'heal', 'rangedHeal') * SC.RANGED_HEAL_POWER); ev.push({ t: 'heal', fx: o.x, fy: o.y, x: x.x, y: x.y }); return OK; };
+      v.heal = t => { const e = pre('heal'); if (e) return e; const x = tgt(t, 1, ['creep']); if (typeof x === 'number') return x; if (o._intentOnly) return OK; { const hv = boostPower(o, 'heal', 'heal') * SC.HEAL_POWER; E.elog(o, SC.EVENT_HEAL, { targetId: x.id, amount: hv, healType: SC.EVENT_HEAL_TYPE_MELEE }); x.hits = Math.min(x.body.length * 100, x.hits + hv); } ev.push({ t: 'heal', fx: o.x, fy: o.y, x: x.x, y: x.y }); return OK; };
+      v.rangedHeal = t => { const e = pre('heal'); if (e) return e; const x = tgt(t, 3, ['creep']); if (typeof x === 'number') return x; if (o._intentOnly) return OK; { const hv = boostPower(o, 'heal', 'rangedHeal') * SC.RANGED_HEAL_POWER; E.elog(o, SC.EVENT_HEAL, { targetId: x.id, amount: hv, healType: SC.EVENT_HEAL_TYPE_RANGED }); x.hits = Math.min(x.body.length * 100, x.hits + hv); } ev.push({ t: 'heal', fx: o.x, fy: o.y, x: x.x, y: x.y }); return OK; };
       v.pull = t => { const e = pre(); if (e) return e; const x = tgt(t, 1, ['creep']); if (typeof x === 'number') return x; if (x === o) return ERR_INVALID_TARGET; o._pulling = x; return OK; };
       // 官方同时动作：调用时只校验并登记 intent，tick 末按优先级结算（engine/src/processor/intents/creeps/intents.js）
       // priorities[name] 列出会挡住 name 的更高优先级动作；同一方法每 tick 只保留最后一次成功登记

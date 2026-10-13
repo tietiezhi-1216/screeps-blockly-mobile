@@ -3,7 +3,7 @@ const fs = require('fs'), vm = require('vm'), path = require('path');
 const W = p => fs.readFileSync(path.join(__dirname, '../www', p), 'utf8');
 vm.runInThisContext(W('screeps-const.js') + W('worldgen.js') + W('engine.js'));
 const assert = (c, m) => { if (!c) { console.error('FAIL', m); process.exit(1); } console.log('ok -', m); };
-const run = (e, code) => { const f = compileUser(code); let r; const api = e.buildApi('p1'); f(Object.assign({}, api, { log: (...a) => { r = a[0]; } })); for (const c of e.w.creeps) if (c.owner === 'p1' && c._flushIntents) c._flushIntents(); return r; };
+const run = (e, code) => { const f = compileUser(code); let r; const api = e.buildApi('p1'); f(Object.assign({}, api, { log: (...a) => { r = a[0]; } })); for (const c of e.w.creeps) if (c.owner === 'p1' && c._flushIntents) c._flushIntents(); e.applyHits(); /* 模拟 tick 末伤害/治疗结算 */ return r; };
 const e = new Engine(newWorld(42)); e.addPlayer('p1', 'T');
 const ctrl = e.w.controllers.find(c => c.owner === 'p1'); ctrl.level = 8; const sp = e.w.spawns[0]; ctrl.safeMode = 0;
 const fresh = () => { e._objVer++; e._o = null; };
@@ -26,7 +26,7 @@ assert(run(e, `console.log(${id(L)}.unboostCreep(Game.creeps.b))`) === ERR_TIRED
 L.cooldown = 0; assert(run(e, `console.log(${id(L)}.unboostCreep(Game.creeps.b))`) === ERR_NOT_FOUND, '无强化 ERR_NOT_FOUND');
 // TOUGH 强化减伤
 const t = { kind: 'creep', body: ['tough', 'move'], boosts: ['GO', null], hits: 200, x: 1, y: 1 };
-e.damage(t, 100, 'zz'); assert(t.hits === 200 - 70, 'GO 强化 TOUGH：100 伤害只扣 70，实际 ' + (200 - t.hits));
+e.w.creeps.push(t); e.damage(t, 100, 'zz'); e.applyHits(); e.w.creeps.splice(e.w.creeps.indexOf(t), 1); assert(t.hits === 200 - 70, 'GO 强化 TOUGH：100 伤害只扣 70，实际 ' + (200 - t.hits));
 // PowerSpawn
 const ps = mk('powerSpawn', 0, -3); ps.store = { energy: 100, power: 2 }; fresh();
 assert(run(e, `console.log(${id(ps)}.processPower())`) === OK && ps.store.power === 1 && ps.store.energy === 50, 'processPower 1 power + 50 energy');

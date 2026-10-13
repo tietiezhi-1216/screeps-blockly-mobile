@@ -303,6 +303,7 @@ class Engine {
       c.fatigue = Math.max(0, c.fatigue - boostPower(c, 'move', 'fatigue') * 2);
       if (!c.noAge) c.ttl--; // Keeper 不衰老（官方无 ageTime）
     }
+    this.applyHits();
     for (const c of w.creeps.slice()) if (!c.spawning && (c.ttl <= 0 || c.hits <= 0)) this.killCreep(c, SC.CREEP_CORPSE_RATE);
     this.tickKeepers(); this.tickZones(); this.tickSpawns(); this.tickSources(); this.tickControllers(); this.tickStructures(); this.tickGround();
     this._o = null;
@@ -397,7 +398,7 @@ class Engine {
       const minHits = L => L.reduce((a, c) => (!a || c.hits < a.hits ? c : a), null);
       const mt = minHits(melee);
       if (mt) { const dm = boostPower(k, 'attack', 'attack') * SC.ATTACK_POWER; this.elog(k, SC.EVENT_ATTACK, { targetId: mt.id, damage: dm, attackType: SC.EVENT_ATTACK_TYPE_MELEE }); this.damage(mt, dm, KEEPER);
-        if (activeParts(mt, 'attack')) { const hb = boostPower(mt, 'attack', 'attack') * SC.ATTACK_POWER; this.elog(mt, SC.EVENT_ATTACK, { targetId: k.id, damage: hb, attackType: SC.EVENT_ATTACK_TYPE_HIT_BACK }); this.damage(k, hb, mt.owner); }
+        if (activeParts(mt, 'attack') && !w.structures.some(s => s.type === 'rampart' && s.x === k.x && s.y === k.y)) { const hb = boostPower(mt, 'attack', 'attack') * SC.ATTACK_POWER; this.elog(mt, SC.EVENT_ATTACK, { targetId: k.id, damage: hb, attackType: SC.EVENT_ATTACK_TYPE_HIT_BACK }); this.damage(k, hb, mt.owner); }
         this.events.push({ t: 'attack', fx: k.x, fy: k.y, x: mt.x, y: mt.y }); }
       if (ranged.length) {
         const byR = [10, 10, 4, 1], mass = ranged.reduce((a, c) => a + byR[dist(k, c)], 0), n = boostPower(k, 'ranged_attack', 'rangedAttack') * SC.RANGED_ATTACK_POWER;
@@ -499,14 +500,16 @@ class Engine {
     if ((target.type === 'constructedWall' || target.type === 'rampart') && (target.effects || []).some(f => f.power === SC.PWR_FORTIFY && f.endTime > w.time)) return; // PWR_FORTIFY：无敌（_damage.js，核弹除外）
     const ramp = w.structures.find(s => s.type === 'rampart' && s.x === target.x && s.y === target.y);
     if (ramp && ramp !== target) target = ramp;
-    if (target.kind === 'creep' && target.boosts && target.boosts.some(Boolean)) { // 官方：强化 TOUGH 按部件从前往后减伤
-      let rem = amount, dealt = 0;
-      for (let i = 0; i < target.body.length && rem > 0; i++) { const h = partHits(target, i); if (h <= 0) continue; const b = target.boosts[i], k = target.body[i] === 'tough' && b && SC.BOOSTS.tough[b] ? SC.BOOSTS.tough[b].damage : 1;
-        const take = Math.min(h, Math.round(rem * k)); dealt += take; rem -= k ? take / k : rem; }
-      amount = dealt + Math.max(0, Math.round(rem));
-    }
+    if (target.kind === 'creep') { target._dmg = (target._dmg || 0) + amount; return; } // 官方 _damage.js：creep 记 _damageToApply，tick 末统一结算
     target.hits -= amount;
     if (target.kind !== 'creep' && target.hits <= 0) { this.ruinOf(target); this.removeStruct(target); }
+  }
+  applyHits() { const w = this.w;
+    for (const c of w.creeps) if (c._dmg || c._heal) { // 官方 creeps/tick.js：先伤害（强化 TOUGH 减伤）再治疗，最后封顶
+      if (c._dmg) { let dmg = c._dmg, reduce = 0, eff = dmg;
+        if (c.boosts && c.boosts.some(Boolean)) for (let i = 0; i < c.body.length && eff > 0; i++) { const b = c.boosts[i], br = b && SC.BOOSTS[c.body[i]] && SC.BOOSTS[c.body[i]][b] && SC.BOOSTS[c.body[i]][b].damage; const ratio = br || 1, he = partHits(c, i) / ratio; reduce += Math.min(he, eff) * (1 - ratio); eff -= Math.min(he, eff); }
+        c.hits -= dmg - Math.round(reduce); }
+      if (c._heal) c.hits += c._heal; c._dmg = 0; c._heal = 0; if (c.hits > c.body.length * 100) c.hits = c.body.length * 100; }
   }
   cpuLimit(pid) { const P = this.w.players[pid]; return P && (P.cpuUnlockedUntil || 0) > Date.now() ? Math.min(300, 20 + 10 * this.gclLevel(pid)) : 20; } // 官方：解锁后 10×GCL+20（≤300）
   gclLevel(pid) { const p = this.w.players[pid].gcl || 0; let lv = 1; while (p >= Math.pow(lv, SC.GCL_POW) * SC.GCL_MULTIPLY) lv++; return lv; }
@@ -775,7 +778,7 @@ function buildApi(E, pid) {
           let amt = base; if (d > SC.TOWER_OPTIMAL_RANGE) amt -= amt * SC.TOWER_FALLOFF * (Math.min(d, SC.TOWER_FALLOFF_RANGE) - SC.TOWER_OPTIMAL_RANGE) / (SC.TOWER_FALLOFF_RANGE - SC.TOWER_OPTIMAL_RANGE); for (const pw of [SC.PWR_OPERATE_TOWER, SC.PWR_DISRUPT_TOWER]) { const f = pwrFx(o, pw, w.time); if (f != null) amt *= f; } amt = Math.floor(amt); if (!amt) return OK;
           if (kind === 'heal' && r.kind !== 'creep') return ERR_INVALID_TARGET; if (kind === 'repair' && r.kind === 'creep') return ERR_INVALID_TARGET;
           o.store.energy -= SC.TOWER_ENERGY_COST;
-          if (kind === 'attack') E.damage(r, amt, pid); else r.hits = Math.min(kind === 'heal' ? r.body.length * 100 : r.hitsMax, r.hits + amt);
+          if (kind === 'attack') E.damage(r, amt, pid); else (kind === 'heal' ? (r._heal = (r._heal || 0) + amt) : (r.hits = Math.min(r.hitsMax, r.hits + amt)));
           if (kind === 'attack') E.elog(o, SC.EVENT_ATTACK, { targetId: r.id, damage: amt, attackType: SC.EVENT_ATTACK_TYPE_RANGED }); else if (kind === 'heal') E.elog(o, SC.EVENT_HEAL, { targetId: r.id, amount: amt, healType: SC.EVENT_HEAL_TYPE_RANGED }); else E.elog(o, SC.EVENT_REPAIR, { targetId: r.id, amount: amt, energySpent: SC.TOWER_ENERGY_COST });
           ev.push({ t: kind, fx: o.x, fy: o.y, x: r.x, y: r.y }); return OK;
         };
@@ -997,15 +1000,15 @@ function buildApi(E, pid) {
       v.attack = t => { const e = pre('attack'); if (e) return e; const x = tgt(t, 1, ['creep', 'structure', 'spawn']); if (typeof x === 'number') return x; if (!hostileOk(x) || x.hits == null || fortified(x)) return ERR_INVALID_TARGET;
         if (o._intentOnly) return OK;
         { const dm = boostPower(o, 'attack', 'attack') * SC.ATTACK_POWER; E.elog(o, SC.EVENT_ATTACK, { targetId: x.id, damage: dm, attackType: SC.EVENT_ATTACK_TYPE_MELEE }); E.damage(x, dm, pid); }
-        if (x.kind === 'creep' && activeParts(x, 'attack')) { const hb = boostPower(x, 'attack', 'attack') * SC.ATTACK_POWER; E.elog(x, SC.EVENT_ATTACK, { targetId: o.id, damage: hb, attackType: SC.EVENT_ATTACK_TYPE_HIT_BACK }); E.damage(o, hb, x.owner); } ev.push({ t: 'attack', fx: o.x, fy: o.y, x: x.x, y: x.y }); return OK; };
+        if (x.kind === 'creep' && activeParts(x, 'attack') && !w.structures.some(s => s.type === 'rampart' && s.x === o.x && s.y === o.y) && !(() => { const rc = ctrlOfRoom(w, roomKey(o.x, o.y)); return rc && rc.owner === pid && rc.safeMode > w.time; })()) { const hb = boostPower(x, 'attack', 'attack') * SC.ATTACK_POWER; E.elog(x, SC.EVENT_ATTACK, { targetId: o.id, damage: hb, attackType: SC.EVENT_ATTACK_TYPE_HIT_BACK }); E.damage(o, hb, x.owner); } ev.push({ t: 'attack', fx: o.x, fy: o.y, x: x.x, y: x.y }); return OK; };
       v.rangedAttack = t => { const e = pre('ranged_attack'); if (e) return e; const x = tgt(t, 3, ['creep', 'structure', 'spawn']); if (typeof x === 'number') return x; if (x.hits == null || fortified(x)) return ERR_INVALID_TARGET;
         if (o._intentOnly) return OK;
         { const dm = boostPower(o, 'ranged_attack', 'rangedAttack') * SC.RANGED_ATTACK_POWER; E.elog(o, SC.EVENT_ATTACK, { targetId: x.id, damage: dm, attackType: SC.EVENT_ATTACK_TYPE_RANGED }); E.damage(x, dm, pid); } ev.push({ t: 'attack', fx: o.x, fy: o.y, x: x.x, y: x.y }); return OK; };
       v.rangedMassAttack = () => { const e = pre('ranged_attack'); if (e) return e; if (o._intentOnly) return OK; const n = boostPower(o, 'ranged_attack', 'rangedMassAttack') * SC.RANGED_ATTACK_POWER;
         for (const x of w.creeps.filter(c => !c.spawning && c.owner !== pid && sameRoom(c, o) && dist(c, o) <= 3).concat(w.structures.concat(w.spawns).filter(s => s.owner && s.owner !== pid && sameRoom(s, o) && dist(s, o) <= 3))) { const dm = Math.round(n * ({ 0: 1, 1: 1, 2: 0.4, 3: 0.1 })[dist(x, o)]); E.elog(o, SC.EVENT_ATTACK, { targetId: x.id, damage: dm, attackType: SC.EVENT_ATTACK_TYPE_RANGED_MASS }); E.damage(x, dm, pid); }
         return OK; };
-      v.heal = t => { const e = pre('heal'); if (e) return e; const x = tgt(t, 1, ['creep']); if (typeof x === 'number') return x; if (o._intentOnly) return OK; { const hv = boostPower(o, 'heal', 'heal') * SC.HEAL_POWER; E.elog(o, SC.EVENT_HEAL, { targetId: x.id, amount: hv, healType: SC.EVENT_HEAL_TYPE_MELEE }); x.hits = Math.min(x.body.length * 100, x.hits + hv); } ev.push({ t: 'heal', fx: o.x, fy: o.y, x: x.x, y: x.y }); return OK; };
-      v.rangedHeal = t => { const e = pre('heal'); if (e) return e; const x = tgt(t, 3, ['creep']); if (typeof x === 'number') return x; if (o._intentOnly) return OK; { const hv = boostPower(o, 'heal', 'rangedHeal') * SC.RANGED_HEAL_POWER; E.elog(o, SC.EVENT_HEAL, { targetId: x.id, amount: hv, healType: SC.EVENT_HEAL_TYPE_RANGED }); x.hits = Math.min(x.body.length * 100, x.hits + hv); } ev.push({ t: 'heal', fx: o.x, fy: o.y, x: x.x, y: x.y }); return OK; };
+      v.heal = t => { const e = pre('heal'); if (e) return e; const x = tgt(t, 1, ['creep']); if (typeof x === 'number') return x; if (o._intentOnly) return OK; { const hv = boostPower(o, 'heal', 'heal') * SC.HEAL_POWER; E.elog(o, SC.EVENT_HEAL, { targetId: x.id, amount: hv, healType: SC.EVENT_HEAL_TYPE_MELEE }); x._heal = (x._heal || 0) + hv; /* 官方 _healToApply：tick 末结算 */ } ev.push({ t: 'heal', fx: o.x, fy: o.y, x: x.x, y: x.y }); return OK; };
+      v.rangedHeal = t => { const e = pre('heal'); if (e) return e; const x = tgt(t, 3, ['creep']); if (typeof x === 'number') return x; if (o._intentOnly) return OK; { const hv = boostPower(o, 'heal', 'rangedHeal') * SC.RANGED_HEAL_POWER; E.elog(o, SC.EVENT_HEAL, { targetId: x.id, amount: hv, healType: SC.EVENT_HEAL_TYPE_RANGED }); x._heal = (x._heal || 0) + hv; /* 官方 _healToApply：tick 末结算 */ } ev.push({ t: 'heal', fx: o.x, fy: o.y, x: x.x, y: x.y }); return OK; };
       v.pull = t => { const e = pre(); if (e) return e; const x = tgt(t, 1, ['creep']); if (typeof x === 'number') return x; if (x === o) return ERR_INVALID_TARGET; if (o._intentOnly) return OK; o._pulling = x; return OK; };
       // 官方同时动作：调用时只校验并登记 intent，tick 末按优先级结算（engine/src/processor/intents/creeps/intents.js）
       // priorities[name] 列出会挡住 name 的更高优先级动作；同一方法每 tick 只保留最后一次成功登记

@@ -16,6 +16,8 @@ class HostSession {
       this.t.send(id, JSON.stringify({ t: 'welcome', pid })); this.t.send(id, JSON.stringify(Object.assign({ t: 'rooms' }, this.e.roomsData())));
       this.t.send(id, JSON.stringify(Object.assign({ t: 'tick', dt: this.dt || 500 }, this.e.snapshot())));
       this.onPeers && this.onPeers();
+    } else if (m.t === 'badge' && c.pid && m.badge && typeof m.badge === 'object' && this.e.w.players[c.pid]) { // 客户端改了徽章：实时同步给所有人
+      const b = m.badge; this.e.w.players[c.pid].badge = { type: +b.type | 0, color1: +b.color1 | 0, color2: +b.color2 | 0, color3: +b.color3 | 0, param: +b.param | 0, flip: !!b.flip }; this.pushAll();
     } else if (m.t === 'spawnAt' && c.pid) { // 新玩家在世界地图上选好的出生点（房主按官方规则校验）
       const err = this.e.placeSpawnAt(c.pid, +m.x | 0, +m.y | 0); this.t.send(id, JSON.stringify({ t: 'spawnRes', err })); if (!err) this.pushAll();
     } else if (m.t === 'gen' && c.pid) { // 客户端要查看某房间地形
@@ -40,6 +42,7 @@ class ClientSession {
     ws.onerror = () => this.onStatus && this.onStatus('连接失败');
     ws.onmessage = ev => { const m = JSON.parse(typeof ev.data === 'string' ? ev.data : ev.data.toString()); this.handle(m); };
   }
+  setBadge(b) { this.badge = b; try { this.ws && this.ws.readyState === 1 && this.ws.send(JSON.stringify({ t: 'badge', badge: b })); } catch (e) { } }
   handle(m) {
     if (m.t === 'rooms') { this.rooms = {}; for (const k in m.rooms) this.rooms[k] = { tiles: Array.from(m.rooms[k].tiles, Number), owner: m.rooms[k].owner, name: m.rooms[k].name, type: m.rooms[k].type }; this.roomsVer = m.roomsVer; }
     else if (m.t === 'tick') { this.view = Object.assign(m, { rooms: this.rooms || {} }); this.onTick && this.onTick(this.view); }

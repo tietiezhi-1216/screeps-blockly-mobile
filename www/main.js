@@ -128,12 +128,13 @@ function applyCode() { if (mode === 'client') client && client.sendCode(code); e
 let _snap = null; // 单机/房主也用快照（字段与客户端一致：spawn.energy/cap 等）
 function view() { if (mode === 'client') return client?.view; if (!engine) return null; if (!_snap || _snap.time !== engine.w.time || _snap.S !== engine.w.S) _snap = engine.snapshot(); return _snap; }
 const chip = (ic, html) => `<span class="chip${ic === 'bolt' ? ' en' : ''}"><span class="ic">${icon(ic)}</span>${html}</span>`;
+const chipX = (ic, html) => chip(ic, html).replace('class="chip', 'class="chip xl');
 function stats() {
   const v = view(); let H;
   if (!v) H = chip('plug-connected', mode === 'client' ? '等待房主…' : '');
   else {
     const re = roomEnergy(v), n = v.creeps.filter(c => c.owner === myPid).length, np = Object.keys(v.players).length;
-    H = chip(mode === 'solo' ? 'device-gamepad-2' : mode === 'host' ? 'home' : 'wifi', mode === 'client' ? '客户端' : running ? '运行' : '暂停') + chip('refresh', `<b>${v.time}</b>`) + chip('bolt', `<b>${re ? re[0] + '/' + re[1] : '-'}</b>`) + chip('bug', `<b>${n}</b>`) + chip('users', `${np}`) + chip('map', `${v.S}×${v.S}`);
+    H = chip(mode === 'solo' ? 'device-gamepad-2' : mode === 'host' ? 'home' : 'wifi', mode === 'client' ? '客户端' : running ? '运行' : '暂停') + chip('refresh', `<b>${v.time}</b>`) + chip('bolt', `<b>${re ? re[0] + '/' + re[1] : '-'}</b>`) + chip('bug', `<b>${n}</b>`) + chipX('users', `${np}`) + chipX('map', `${v.S}×${v.S}`);
   }
   if (showFps) H += chip('gauge', `${renderer.fps.toFixed(0)} fps · ${tickMs.toFixed(1)}ms`);
   const need = !!(v && v.players[myPid]?.needsSpawn); $('rbSpawn').classList.toggle('hidden', !need || build.type === 'spawn1');

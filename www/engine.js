@@ -72,7 +72,7 @@ class Engine {
   constructor(world) {
     if (!world || world.gen !== WORLD_GEN) world = newWorld(world && world.seed); // 旧格式存档无法兼容 → 新世界
     this._objVer = 0; this.w = world; this.fns = {}; this.onLog = null; this.events = [];
-    for (const pid in world.players) this.setCode(pid, world.players[pid].code || '');
+    for (const pid in world.players) { if (!world.players[pid].badge) world.players[pid].badge = defaultBadge(pid); this.setCode(pid, world.players[pid].code || ''); }
   }
   get W() { return this.w.S * ROOM; }
   log(pid, ...a) { const s = `[${this.w.time}] ` + a.map(v => typeof v === 'object' ? JSON.stringify(v) : String(v)).join(' '); this.onLog && this.onLog(pid, s); }

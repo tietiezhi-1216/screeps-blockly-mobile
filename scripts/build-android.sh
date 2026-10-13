@@ -26,6 +26,10 @@ package io.github.tietiezhi.screepsblockly;
 import android.os.Build;
 import android.os.Bundle;
 import android.view.WindowManager;
+import android.view.View;
+import android.webkit.WebView;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
@@ -46,7 +50,33 @@ public class MainActivity extends BridgeActivity {
             getWindow().setAttributes(lp);
         }
         hideSystemBars();
+        // 挖孔/刘海安全区：WebView 的 env(safe-area-inset-*) 经常是 0，这里读原生 DisplayCutout 注入 CSS 变量（横屏两个方向都会重新分发）
+        View root = getWindow().getDecorView();
+        ViewCompat.setOnApplyWindowInsetsListener(root, (v, ins) -> {
+            Insets c = ins.getInsets(WindowInsetsCompat.Type.displayCutout());
+            float d = getResources().getDisplayMetrics().density;
+            sl = Math.round(c.left / d); sr = Math.round(c.right / d); st = Math.round(c.top / d); sb = Math.round(c.bottom / d);
+            pushInsets();
+            return ViewCompat.onApplyWindowInsets(v, ins);
+        });
+        for (int i = 1; i <= 6; i++) root.postDelayed(this::pushInsets, i * 700L);
+        // 横屏 180° 翻转不会触发 onConfigurationChanged，监听显示旋转后重新取安全区
+        ((android.hardware.display.DisplayManager) getSystemService(DISPLAY_SERVICE)).registerDisplayListener(new android.hardware.display.DisplayManager.DisplayListener() {
+            public void onDisplayAdded(int id) {}
+            public void onDisplayRemoved(int id) {}
+            public void onDisplayChanged(int id) { ViewCompat.requestApplyInsets(root); root.postDelayed(MainActivity.this::pushInsets, 250); }
+        }, new android.os.Handler(android.os.Looper.getMainLooper()));
     }
+
+    private int sl, sr, st, sb;
+    private void pushInsets() {
+        if (getBridge() == null) return; WebView w = getBridge().getWebView(); if (w == null) return;
+        String js = "(function(){var s=document.documentElement.style;s.setProperty('--nsal','" + sl + "px');s.setProperty('--nsar','" + sr + "px');s.setProperty('--nsat','" + st + "px');s.setProperty('--nsab','" + sb + "px');window.__cutout={l:" + sl + ",r:" + sr + ",t:" + st + ",b:" + sb + "};window.dispatchEvent(new Event('cutout'));})()";
+        w.post(() -> w.evaluateJavascript(js, null));
+    }
+
+    @Override
+    public void onConfigurationChanged(android.content.res.Configuration c) { super.onConfigurationChanged(c); View r = getWindow().getDecorView(); ViewCompat.requestApplyInsets(r); r.postDelayed(this::pushInsets, 300); }
 
     private void hideSystemBars() {
         WindowInsetsControllerCompat c = WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
@@ -55,7 +85,7 @@ public class MainActivity extends BridgeActivity {
     }
 
     @Override
-    public void onResume() { super.onResume(); hideSystemBars(); }
+    public void onResume() { super.onResume(); hideSystemBars(); pushInsets(); }
 
     @Override
     public void onWindowFocusChanged(boolean hasFocus) { super.onWindowFocusChanged(hasFocus); if (hasFocus) hideSystemBars(); }
@@ -65,5 +95,7 @@ JAVA
 sed -i 's/<application/<application android:usesCleartextTraffic="true"/' android/app/src/main/AndroidManifest.xml
 # 横屏（v1.5.0 起整个应用横屏，随重力在两个横向之间切换）
 sed -i "s/<activity/<activity android:screenOrientation=\"sensorLandscape\"/" android/app/src/main/AndroidManifest.xml
+# lint 对 BridgeActivity 子类（含匿名监听器）误报 Instantiatable，代码可正常编译运行
+printf "\nandroid { lint { disable 'Instantiatable' } }\n" >> android/app/build.gradle
 grep -E "versionCode|versionName" android/app/build.gradle
 (cd android && ./gradlew assembleRelease --no-daemon -q)

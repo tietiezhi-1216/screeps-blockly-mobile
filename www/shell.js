@@ -140,7 +140,7 @@
     btype(b) { draft.type = +b.dataset.t; const y = S.scrollTop; show('badge', false); S.scrollTop = y; },
     bflip() { draft.flip = !draft.flip; const y = S.scrollTop; show('badge', false); S.scrollTop = y; },
     bcol(b) { draft[b.dataset.k] = +b.dataset.c; const y = S.scrollTop; show('badge', false); S.scrollTop = y; },
-    bsave() { const p = prof(); p.badge = draft; draft = null; saveList('sbm_profile', p); if (engine?.w.players[myPid]) { engine.w.players[myPid].badge = p.badge; _snap = null; } toast('徽章已保存'); back(); },
+    bsave() { const p = prof(); p.badge = draft; draft = null; saveList('sbm_profile', p); if (engine?.w.players[myPid]) { engine.w.players[myPid].badge = p.badge; _snap = null; } if (typeof client !== 'undefined' && client && client.setBadge) client.setBadge(p.badge); if (typeof renderer !== 'undefined' && engine && mode !== 'client') { renderer.setView(engine.w, 1); if (typeof hostS !== 'undefined' && hostS) hostS.pushAll(); } toast('徽章已保存'); back(); },
     ptab(b) { ptab = b.dataset.t; show('profile', false); },
     worldMap() { hide(); window.openWorldMap && window.openWorldMap(false); },
     respawn() { if (!confirm('重新出生？你的所有 creep、建筑和房间都会被清除，然后在世界地图上重新选择出生点。')) return; window.doRespawn && window.doRespawn(); hide(); },

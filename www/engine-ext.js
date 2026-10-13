@@ -43,8 +43,6 @@
     for (const it of w.market.intents.splice(0)) it();
     G.__w_time = w.time;
     for (const c of w.creeps) if (c.pc) c.fatigue = 0; // Power Creep 不产生疲劳
-    // 源再生（PWR_REGEN_SOURCE）
-    for (const s of w.sources) { const e = (s.effects || []).find(f => f.power === SC.PWR_REGEN_SOURCE && f.endTime > w.time); if (e && (e.endTime - w.time) % PW(SC.PWR_REGEN_SOURCE).period === 0) s.energy = Math.min(s.cap + PW(SC.PWR_REGEN_SOURCE).effect[e.level - 1], s.energy + PW(SC.PWR_REGEN_SOURCE).effect[e.level - 1]); }
     for (const L of [w.sources, w.structures, w.spawns, w.controllers, w.minerals]) for (const o of L) if (o.effects) o.effects = o.effects.filter(f => f.endTime > w.time);
     // Deposits：高速公路房间随机生成，DEPOSIT_DECAY_TIME 内无人采集则消失
     w.deposits = w.deposits.filter(d => w.time < d.decayAt);
@@ -120,7 +118,7 @@
       const o = w.market.orders.find(o => o.id === id); if (!o || o.owner === pid || !o.active) return ERR_INVALID_ARGS;
       amount = Math.min(amount, o.remainingAmount); if (!amount) return ERR_INVALID_ARGS;
       const t = terminalIn(w, pid, yourRoom); if (!t) return ERR_NOT_OWNER; if (t.cooldown > 0) return ERR_TIRED;
-      const cost = txCost(amount, yourRoom, o.roomName), other = o.owner ? w.players[o.owner] : null, ot = o.owner ? terminalIn(w, o.owner, o.roomName) : null;
+      const opT = pwrFx(t, SC.PWR_OPERATE_TERMINAL, w.time), cost = opT != null ? Math.ceil(txCost(amount, yourRoom, o.roomName) * opT) : txCost(amount, yourRoom, o.roomName), other = o.owner ? w.players[o.owner] : null, ot = o.owner ? terminalIn(w, o.owner, o.roomName) : null;
       if (o.owner && !ot) return ERR_INVALID_ARGS;
       if (o.type === 'sell') { // 我买
         if (pl.credits < o.price * amount || (t.store.energy || 0) < cost) return ERR_NOT_ENOUGH_RESOURCES;
@@ -136,7 +134,7 @@
         t.store[o.resourceType] -= amount; t.store.energy -= cost; pl.credits += o.price * amount; if (other) other.credits -= o.price * amount; if (ot) ot.store[o.resourceType] = (ot.store[o.resourceType] || 0) + amount;
       }
       if (dry) return OK;
-      t.cooldown = SC.TERMINAL_COOLDOWN; o.remainingAmount -= amount; o.amount = o.remainingAmount; if (!o.npc && o.remainingAmount <= 0) w.market.orders.splice(w.market.orders.indexOf(o), 1);
+      t.cooldown = opT != null ? Math.round(SC.TERMINAL_COOLDOWN * opT) : SC.TERMINAL_COOLDOWN; o.remainingAmount -= amount; o.amount = o.remainingAmount; if (!o.npc && o.remainingAmount <= 0) w.market.orders.splice(w.market.orders.indexOf(o), 1);
       addHistory(w, o.resourceType, amount, o.price);
       w.transactions = (w.transactions || []).slice(-99);
       const fromSender = o.type === 'sell' ? o.owner : pid, toRecv = o.type === 'sell' ? pid : o.owner;
@@ -172,6 +170,50 @@
   }
 
   // ---------- Power Creeps ----------
+  const typeOf = o => o ? (o.kind === 'spawn' ? 'spawn' : o.kind === 'structure' ? o.type : o.kind) : null; // 官方 object.type
+  // 对照 engine/src/processor/intents/power-creeps/usePower.js：tick 末再次校验并生效（失败静默）
+  function processUsePower(E, rec, live, power, target) {
+    const w = E.w, t = w.time, info = PW(power), p = rec.powers[power];
+    if (!w.creeps.includes(live)) return;
+    const rc = ctrlOfRoom(w, roomKey(live.x, live.y)); if (rc) { if (!rc.isPowerEnabled) return; if (rc.owner !== live.owner && rc.safeMode > t) return; }
+    if (!info || !p || !p.level || (p.cooldownTime || 0) > t) return;
+    const ops = Array.isArray(info.ops) ? info.ops[p.level - 1] : (info.ops || 0); live.store = live.store || {}; if ((live.store.ops || 0) < ops) return;
+    if (info.range) { if (!target || ![w.creeps, w.structures, w.spawns, w.controllers, w.sources, w.minerals].some(L => L.includes(target))) return; if (roomKey(target.x, target.y) !== roomKey(live.x, live.y) || dist(target, live) > info.range) return;
+      const ce = (target.effects || []).find(f => f.power === power); if (ce && ce.level > p.level && ce.endTime > t) return; }
+    let apply = false; const T = typeOf(target);
+    switch (power) {
+      case SC.PWR_GENERATE_OPS: { live.store.ops = (live.store.ops || 0) + info.effect[p.level - 1]; const cap = 100 * (rec.level + 1), sum = storeSum(live.store); if (sum > cap) { const d = Math.min(live.store.ops, sum - cap); live.store.ops -= d; E.dropAt(live.x, live.y, 'ops', d); } break; }
+      case SC.PWR_OPERATE_SPAWN: case SC.PWR_DISRUPT_SPAWN: if (T !== 'spawn') return; apply = true; break;
+      case SC.PWR_OPERATE_TOWER: case SC.PWR_DISRUPT_TOWER: if (T !== 'tower') return; apply = true; break;
+      case SC.PWR_OPERATE_STORAGE: if (T !== 'storage') return; apply = true; break;
+      case SC.PWR_OPERATE_LAB: if (T !== 'lab') return; apply = true; break;
+      case SC.PWR_OPERATE_EXTENSION: {
+        if (!target.store || !['storage', 'terminal', 'factory', 'container'].includes(T)) return; if (target.owner && rc && target.owner !== rc.owner) return;
+        if ((target.effects || []).some(f => f.power === SC.PWR_DISRUPT_TERMINAL && f.endTime > t)) return;
+        const exts = w.structures.filter(s => s.type === 'extension' && rc && s.owner === rc.owner && roomKey(s.x, s.y) === roomKey(live.x, live.y) && E.isActive(s));
+        const limit = Math.min(target.store.energy || 0, info.effect[p.level - 1] * exts.reduce((a, s) => a + (storeCap(w, s, 'energy') || 0), 0));
+        exts.sort((a, b) => dist(a, target) - dist(b, target)); let sent = 0;
+        for (const s of exts) { const e = Math.min(limit - sent, (storeCap(w, s, 'energy') || 0) - (s.store.energy || 0)); s.store.energy = (s.store.energy || 0) + e; sent += e; if (sent >= limit) break; }
+        if (sent === 0) return; target.store.energy -= sent; break; }
+      case SC.PWR_OPERATE_OBSERVER: if (T !== 'observer') return; apply = true; break;
+      case SC.PWR_OPERATE_TERMINAL: case SC.PWR_DISRUPT_TERMINAL: if (T !== 'terminal') return; apply = true; break;
+      case SC.PWR_DISRUPT_SOURCE: case SC.PWR_REGEN_SOURCE: if (T !== 'source') return; apply = true; break;
+      case SC.PWR_REGEN_MINERAL: if (T !== 'mineral' || target.amount === 0 || target.regenAt) return; apply = true; break;
+      case SC.PWR_OPERATE_CONTROLLER: if (T !== 'controller') return; apply = true; break;
+      case SC.PWR_OPERATE_POWER: if (T !== 'powerSpawn') return; apply = true; break;
+      case SC.PWR_FORTIFY: if (T !== 'rampart' && T !== 'constructedWall') return; apply = true; break;
+      case SC.PWR_SHIELD: {
+        const site = w.sites.find(s => s.x === live.x && s.y === live.y); if (site) w.sites.splice(w.sites.indexOf(site), 1);
+        if (w.structures.some(s => s.x === live.x && s.y === live.y && s.type !== 'road' && s.type !== 'container') || w.spawns.some(s => s.x === live.x && s.y === live.y) || E.tile(live.x, live.y) === T_WALL) return; // checkConstructionSite(rampart)
+        const r = E.makeStruct('rampart', live.owner, live.x, live.y); r.hits = info.effect[p.level - 1]; r.hitsMax = 0; r.shield = t + info.duration; r.decayAt = null;
+        r.effects = [{ power: SC.PWR_SHIELD, level: p.level, endTime: t + info.duration }]; w.structures.push(r); E._objVer++; E._o = null; break; }
+      case SC.PWR_OPERATE_FACTORY: if (T !== 'factory') return; if (!target.level) target.level = p.level; else if (target.level !== p.level) return; apply = true; break;
+      default: return;
+    }
+    if (apply) { target.effects = (target.effects || []).filter(f => f.power !== power); target.effects.push({ effect: power, power, level: p.level, endTime: t + (Array.isArray(info.duration) ? info.duration[p.level - 1] : info.duration) }); }
+    p.cooldownTime = t + info.cooldown; live.store.ops = (live.store.ops || 0) - ops; if (!live.store.ops) delete live.store.ops;
+    E.elog(live, SC.EVENT_POWER, { power, targetId: target ? target.id : undefined });
+  }
   function pcBody(level) { const n = 10 * (level + 1), carry = 2 * (level + 1); return Array.from({ length: n }, (_, i) => i < carry ? 'carry' : 'move'); }
   function makePowerCreepApi(E, pid, api) {
     const w = E.w; w.powerCreeps = w.powerCreeps || []; const pl = w.players[pid];
@@ -184,40 +226,38 @@
       if (!v) v = { name: rec.name, my: rec.owner === pid, owner: { username: pl.name }, pos: undefined, room: undefined, ticksToLive: undefined, hits: undefined, store: undefined };
       Object.assign(v, { id: live ? live.id : rec.id, name: rec.name, className: rec.className, level: rec.level, powers: Object.fromEntries(Object.entries(rec.powers).map(([k, p]) => [k, { level: p.level, cooldown: Math.max(0, (p.cooldownTime || 0) - w.time) }])),
         hitsMax: 1000 * (rec.level + 1), spawnCooldownTime: rec.spawnCooldownTime && rec.spawnCooldownTime > w.time ? Date.now() + (rec.spawnCooldownTime - w.time) * 1000 : undefined, deleteTime: rec.deleteTime, shard: rec.spawned ? 'shard0' : undefined });
-      if (live) v.ticksToLive = live.ttl;
+      if (live) { v.ticksToLive = live.ttl; v.powerCreepFlush = true;
+        if (!(live._flushIntents && live._flushIntents._pc)) { const f0 = live._flushIntents; live._flushIntents = () => { if (f0) f0(); const pi = rec._pi; rec._pi = null; if (pi) for (const k of ['renew', 'enableRoom', 'usePower']) if (pi[k]) pi[k](); }; live._flushIntents._pc = true; }
+        // 官方 PowerCreep 原型只有这些动作：没有 harvest/attack/build 等
+        for (const k of ['attack', 'rangedAttack', 'rangedMassAttack', 'heal', 'rangedHeal', 'harvest', 'build', 'repair', 'dismantle', 'upgradeController', 'claimController', 'reserveController', 'attackController', 'generateSafeMode', 'signController', 'pull', 'getActiveBodyparts']) delete v[k];
+        delete v.body; delete v.fatigue; delete v.spawning; }
       v.spawn = ps => { if (rec.owner !== pid) return ERR_NOT_OWNER; if (rec.spawned) return ERR_BUSY; const s = ps && ps._raw; if (!s || s.type !== 'powerSpawn') return ERR_INVALID_TARGET; if (s.owner !== pid) return ERR_NOT_OWNER;
         if (rec.spawnCooldownTime > w.time) return ERR_TIRED; if (!E.isActive(s)) return ERR_RCL_NOT_ENOUGH;
         if (w.creeps.some(c => c.x === s.x && c.y === s.y && !c.spawning)) return ERR_BUSY;
         rec.spawned = true; w.creeps.push({ kind: 'creep', id: 'pc' + (w.nextId++), pc: rec.id, owner: pid, name: rec.name, body: pcBody(rec.level), hits: 1000 * (rec.level + 1), x: s.x, y: s.y, px: s.x, py: s.y, store: rec.store || {}, ttl: SC.POWER_CREEP_LIFE_TIME, fatigue: 0, _did: {} }); E._objVer++; E._o = null; return OK; };
-      v.renew = t => { if (rec.owner !== pid) return ERR_NOT_OWNER; if (!live) return ERR_BUSY; const s = t && t._raw; if (!s || (s.type !== 'powerSpawn' && s.type !== 'powerBank')) return ERR_INVALID_TARGET; if (dist(s, live) > 1 || roomKey(s.x, s.y) !== roomKey(live.x, live.y)) return ERR_NOT_IN_RANGE; live.ttl = SC.POWER_CREEP_LIFE_TIME; return OK; };
-      v.enableRoom = c => { if (rec.owner !== pid) return ERR_NOT_OWNER; if (!live) return ERR_BUSY; const x = c && c._raw; if (!x || x.kind !== 'controller') return ERR_INVALID_TARGET; if (dist(x, live) > 1 || roomKey(x.x, x.y) !== roomKey(live.x, live.y)) return ERR_NOT_IN_RANGE; if (x.owner && x.owner !== pid && x.safeMode > w.time) return ERR_INVALID_TARGET; x.isPowerEnabled = true; return OK; };
+      const inRoom = x => x && roomKey(x.x, x.y) === roomKey(live.x, live.y);
+      const queue = (name, fn) => { rec._pi = rec._pi || {}; rec._pi[name] = fn; return OK; }; // 官方：intents.set(this.id, name, ...)，同名后者覆盖
+      v.renew = t => { if (rec.owner !== pid) return ERR_NOT_OWNER; if (!live) return ERR_BUSY; const s = t && t._raw; if (!s || (s.type !== 'powerSpawn' && s.type !== 'powerBank')) return ERR_INVALID_TARGET; if (!inRoom(s) || dist(s, live) > 1) return ERR_NOT_IN_RANGE;
+        if (s.type === 'powerSpawn' && !E.isActive(s)) return ERR_RCL_NOT_ENOUGH;
+        return queue('renew', () => { if (!w.creeps.includes(live)) return; live.ttl = SC.POWER_CREEP_LIFE_TIME; }); };
+      v.enableRoom = c => { if (rec.owner !== pid) return ERR_NOT_OWNER; if (!live) return ERR_BUSY; const x = c && c._raw; if (!x) return ERR_INVALID_TARGET; if (!inRoom(x) || dist(x, live) > 1) return ERR_NOT_IN_RANGE; if (x.kind !== 'controller' || (x.safeMode > w.time && x.owner !== pid)) return ERR_INVALID_TARGET;
+        return queue('enableRoom', () => { x.isPowerEnabled = true; }); };
       v.upgrade = power => { if (rec.owner !== pid) return ERR_NOT_OWNER; const info = PW(power); if (!info || info.className !== rec.className) return ERR_INVALID_ARGS;
         if (gplLevel(pl) - usedLevels() < 1) return ERR_NOT_ENOUGH_RESOURCES; if (rec.level >= SC.POWER_CREEP_MAX_LEVEL) return ERR_FULL;
         const cur = rec.powers[power] ? rec.powers[power].level : 0; if (cur >= 5 || info.level[cur] > rec.level) return ERR_FULL;
         rec.level++; rec.powers[power] = { level: cur + 1, cooldownTime: rec.powers[power] ? rec.powers[power].cooldownTime : 0 }; if (live) { live.body = pcBody(rec.level); live.hits = Math.min(live.hits + 1000, 1000 * (rec.level + 1)); } return OK; };
       v.delete = cancel => { if (rec.owner !== pid) return ERR_NOT_OWNER; if (rec.spawned) return ERR_BUSY; if (cancel) { rec.deleteTime = undefined; return OK; } w.powerCreeps.splice(w.powerCreeps.indexOf(rec), 1); return OK; };
       v.rename = n => { if (rec.owner !== pid) return ERR_NOT_OWNER; if (rec.spawned) return ERR_BUSY; if (!n || w.powerCreeps.some(p => p.owner === pid && p.name === n)) return ERR_NAME_EXISTS; rec.name = n; return OK; };
-      v.usePower = (power, target) => { // 官方顺序：所有者 → 已出生 → 拥有技能 → 冷却 → ops → 房间启用 → 目标 → 距离 → 效果
-        if (rec.owner !== pid) return ERR_NOT_OWNER; if (!live) return ERR_BUSY; const p = rec.powers[power], info = PW(power); if (!p || !info) return ERR_NO_BODYPART;
+      v.usePower = (power, target) => { // 对照 engine/src/game/power-creeps.js：调用时校验 → 登记 intent
+        if (rec.owner !== pid) return ERR_NOT_OWNER; if (!live) return ERR_BUSY;
+        const rc = ctrlOfRoom(w, roomKey(live.x, live.y)); if (rc) { if (!rc.isPowerEnabled) return ERR_INVALID_ARGS; if (rc.owner !== pid && rc.safeMode > w.time) return ERR_INVALID_ARGS; }
+        const p = rec.powers[power], info = PW(power); if (!p || !p.level || !info) return ERR_NO_BODYPART;
         if ((p.cooldownTime || 0) > w.time) return ERR_TIRED;
         const ops = Array.isArray(info.ops) ? info.ops[p.level - 1] : (info.ops || 0); if ((live.store.ops || 0) < ops) return ERR_NOT_ENOUGH_RESOURCES;
-        if (!ctrlRoomEnabled(live.x, live.y)) return ERR_INVALID_ARGS;
         const x = target ? target._raw : null;
-        if (info.range) { if (!x) return ERR_INVALID_TARGET; if (roomKey(x.x, x.y) !== roomKey(live.x, live.y) || dist(x, live) > info.range) return ERR_NOT_IN_RANGE; }
-        if (power === SC.PWR_OPERATE_FACTORY) { if (!x || x.type !== 'factory') return ERR_INVALID_TARGET; if (x.level && x.level !== p.level) return ERR_INVALID_TARGET; }
-        if (power === SC.PWR_OPERATE_POWER && (!x || x.type !== 'powerSpawn')) return ERR_INVALID_TARGET;
-        if (power === SC.PWR_REGEN_SOURCE && (!x || x.kind !== 'source')) return ERR_INVALID_TARGET;
-        if (power === SC.PWR_OPERATE_EXTENSION && (!x || (x.type !== 'storage' && x.type !== 'terminal' && x.type !== 'container' && x.type !== 'factory'))) return ERR_INVALID_TARGET;
-        if (x && info.duration) { const ex = (x.effects || []).find(f => f.power === power && f.endTime > w.time); if (ex && ex.level > p.level) return ERR_FULL; }
-        // 生效
-        if (ops) live.store.ops -= ops;
-        p.cooldownTime = w.time + info.cooldown;
-        if (power === SC.PWR_GENERATE_OPS) { const add = info.effect[p.level - 1], cap = storeCapOf(live); const room = Math.max(0, cap - storeSum(live.store)); live.store.ops = (live.store.ops || 0) + Math.min(add, room); if (add > room) E.dropAt(live.x, live.y, 'ops', add - room); }
-        else if (power === SC.PWR_OPERATE_EXTENSION) { const k = roomKey(live.x, live.y), need = w.structures.concat(w.spawns).filter(s => (s.type === 'extension' || s.kind === 'spawn') && s.owner === pid && roomKey(s.x, s.y) === k);
-          let budget = Math.floor(need.reduce((a, s) => a + storeCapOfS(s), 0) * info.effect[p.level - 1]); for (const s of need) { const free = storeCapOfS(s) - (s.store.energy || 0), a = Math.min(free, budget, x.store.energy || 0); if (a > 0) { s.store.energy = (s.store.energy || 0) + a; x.store.energy -= a; budget -= a; } } }
-        else if (x) { if (power === SC.PWR_OPERATE_FACTORY && !x.level) x.level = p.level; x.effects = (x.effects || []).filter(f => f.power !== power); x.effects.push({ power, level: p.level, endTime: w.time + (info.duration || 1) }); }
-        E.elog(live, SC.EVENT_POWER, { power, targetId: x ? x.id : undefined });
-        return OK; };
+        if (info.range) { if (!x) return ERR_INVALID_TARGET; if (!inRoom(x) || dist(x, live) > info.range) return ERR_NOT_IN_RANGE;
+          const ce = (x.effects || []).find(f => f.power === power); if (ce && ce.level > p.level && ce.endTime > w.time) return ERR_FULL; }
+        return queue('usePower', () => processUsePower(E, rec, live, power, x)); };
       return v;
     }
     const storeCapOf = c => 100 * (((w.powerCreeps.find(p => p.id === c.pc) || {}).level || 0) + 1);

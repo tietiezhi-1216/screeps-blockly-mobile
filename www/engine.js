@@ -70,7 +70,7 @@ function storeCap(w, o, res) { // 官方 Store.getCapacity
   if (t === 'tower') return E(SC.TOWER_CAPACITY);
   if (t === 'link') return E(SC.LINK_CAPACITY);
   if (t === 'container') return SC.CONTAINER_CAPACITY;
-  if (t === 'storage') return SC.STORAGE_CAPACITY;
+  if (t === 'storage') return SC.STORAGE_CAPACITY + (pwrFx(o, SC.PWR_OPERATE_STORAGE, w.time) || 0); // PWR_OPERATE_STORAGE
   if (t === 'terminal') return SC.TERMINAL_CAPACITY;
   if (t === 'factory') return SC.FACTORY_CAPACITY;
   if (t === 'lab') return res === 'energy' ? SC.LAB_ENERGY_CAPACITY : res === undefined ? null : SC.LAB_MINERAL_CAPACITY;
@@ -81,6 +81,8 @@ function storeCap(w, o, res) { // 官方 Store.getCapacity
 const hasStore = o => o.kind === 'creep' || o.kind === 'spawn' || o.kind === 'tombstone' || o.kind === 'ruin' || (o.kind === 'structure' && o.store);
 function freeFor(w, o, res) { const cap = storeCap(w, o, res); if (cap == null) return null; const general = storeCap(w, o, undefined) != null; return cap - (general ? storeSum(o.store) : (o.store[res] || 0)); }
 function partHits(c, i) { return Math.max(0, Math.min(100, c.hits - (c.body.length - 1 - i) * 100)); }
+// 官方 Power 效果：返回目标上生效中的 POWER_INFO[power].effect[level-1]，无则 null（cmp: '>' 用 endTime > t，'>=' 用 endTime >= t，与官方各处理器一致）
+function pwrFx(o, power, t, ge) { const e = o && o.effects && o.effects.find(f => f.power === power && (ge ? f.endTime >= t : f.endTime > t)); const ef = SC.POWER_INFO[power].effect; return e ? (ef ? ef[e.level - 1] : true) : null; }
 function boostPower(c, type, action) { let n = 0; for (let i = 0; i < c.body.length; i++) if (c.body[i] === type && partHits(c, i) > 0) { const b = c.boosts && c.boosts[i], m = b && SC.BOOSTS[type] && SC.BOOSTS[type][b] && SC.BOOSTS[type][b][action]; n += m || 1; } return n; } // 官方 BOOSTS 效果
 function boostExtra(c, type, action, baseUnits) { // 官方：先按未强化单位数选取最强的 baseUnits 个强化加成
   const extras = [];
@@ -342,6 +344,7 @@ class Engine {
     const w = this.w;
     for (const sp of w.spawns) {
       const sc = sp.spawning;
+      if (sc && pwrFx(sp, SC.PWR_DISRUPT_SPAWN, w.time) != null) { sc.spawnTime++; continue; } // PWR_DISRUPT_SPAWN：暂停孵化
       if (sc && w.time >= sc.spawnTime) {
         const cr = w.creeps.find(c => c.spawning && c.owner === sp.owner && c.name === sc.name), dirs = sc.directions && sc.directions.length ? sc.directions : [1, 2, 3, 4, 5, 6, 7, 8];
         let pos = null; for (const d of dirs) { const [dx, dy] = DIRS[d]; if (!this.blocked(sp.x + dx, sp.y + dy)) { pos = { x: sp.x + dx, y: sp.y + dy }; break; } }
@@ -382,8 +385,14 @@ class Engine {
       const ctrl = ctrlOfRoom(w, roomKey(s.x, s.y)); let cap = ctrl && (ctrl.owner || (ctrl.reservation && ctrl.reservation.endTime > w.time)) ? SC.SOURCE_ENERGY_CAPACITY : SC.SOURCE_ENERGY_NEUTRAL_CAPACITY;
       if ((w.rooms[roomKey(s.x, s.y)] || {}).type === 'keeper') cap = SC.SOURCE_ENERGY_KEEPER_CAPACITY;
       if (cap !== s.cap) { s.cap = cap; s.energy = Math.min(s.energy, cap); }
-      if (s.energy < s.cap) { if (!s.regenAt) s.regenAt = w.time + SC.ENERGY_REGEN_TIME; if (w.time >= s.regenAt - 1) { s.energy = s.cap; s.regenAt = null; } }
+      if (s.energy < s.cap) { if (!s.regenAt) s.regenAt = w.time + SC.ENERGY_REGEN_TIME;
+        if (pwrFx(s, SC.PWR_DISRUPT_SOURCE, w.time) != null) s.regenAt++; // PWR_DISRUPT_SOURCE：推迟再生（sources/tick.js）
+        if (w.time >= s.regenAt - 1) { s.energy = s.cap; s.regenAt = null; }
+        const rg = (s.effects || []).find(f => f.power === SC.PWR_REGEN_SOURCE && f.endTime > w.time); // PWR_REGEN_SOURCE：每 period 回复 effect，不超过容量
+        if (rg && (rg.endTime - w.time - 1) % SC.POWER_INFO[SC.PWR_REGEN_SOURCE].period === 0) s.energy = Math.min(s.cap, s.energy + SC.POWER_INFO[SC.PWR_REGEN_SOURCE].effect[rg.level - 1]); }
     }
+    for (const m of w.minerals) { const rg = (m.effects || []).find(f => f.power === SC.PWR_REGEN_MINERAL && f.endTime > w.time); // PWR_REGEN_MINERAL（minerals/tick.js）
+      if (rg && !m.regenAt && m.amount && (rg.endTime - w.time - 1) % SC.POWER_INFO[SC.PWR_REGEN_MINERAL].period === 0) m.amount += SC.POWER_INFO[SC.PWR_REGEN_MINERAL].effect[rg.level - 1]; }
     for (const m of w.minerals) if (m.amount <= 0) { if (!m.regenAt) m.regenAt = w.time + SC.MINERAL_REGEN_TIME; if (w.time >= m.regenAt) { m.amount = SC.MINERAL_DENSITY[m.density]; m.regenAt = null; } }
   }
   tickControllers() {
@@ -403,10 +412,12 @@ class Engine {
   tickStructures() {
     const w = this.w;
     for (const s of w.structures.slice()) {
+      if (s.shield && s.shield <= w.time) { this.removeStruct(s); continue; } // PWR_SHIELD 到期移除（ramparts/tick.js）
       if (s.cooldown > 0) s.cooldown--;
       if (s.decayAt != null && w.time >= s.decayAt - 1) {
         if (s.type === 'road') { const t = this.tile(s.x, s.y); s.hits -= SC.ROAD_DECAY_AMOUNT * (t === T_SWAMP ? SC.CONSTRUCTION_COST_ROAD_SWAMP_RATIO : t === T_WALL ? SC.CONSTRUCTION_COST_ROAD_WALL_RATIO : 1); s.decayAt = w.time + SC.ROAD_DECAY_TIME; }
         else if (s.type === 'container') { s.hits -= SC.CONTAINER_DECAY; s.decayAt = w.time + (rclOf(w, s.x, s.y) > 0 ? SC.CONTAINER_DECAY_TIME_OWNED : SC.CONTAINER_DECAY_TIME); }
+        else if (s.type === 'rampart' && s.shield) { /* PWR_SHIELD 临时 rampart 不衰减 */ }
         else if (s.type === 'rampart') { s.hits -= SC.RAMPART_DECAY_AMOUNT; s.decayAt = w.time + SC.RAMPART_DECAY_TIME; }
         if (s.hits <= 0) { this.ruinOf(s); this.removeStruct(s); }
       }
@@ -444,6 +455,7 @@ class Engine {
   damage(target, amount, attackerOwner) {
     const w = this.w, ctrl = ctrlOfRoom(w, roomKey(target.x, target.y));
     if (ctrl && ctrl.safeMode > w.time && ctrl.owner !== attackerOwner) return; // 安全模式
+    if ((target.type === 'constructedWall' || target.type === 'rampart') && (target.effects || []).some(f => f.power === SC.PWR_FORTIFY && f.endTime > w.time)) return; // PWR_FORTIFY：无敌（_damage.js，核弹除外）
     const ramp = w.structures.find(s => s.type === 'rampart' && s.x === target.x && s.y === target.y);
     if (ramp && ramp !== target) target = ramp;
     if (target.kind === 'creep' && target.boosts && target.boosts.some(Boolean)) { // 官方：强化 TOUGH 按部件从前往后减伤
@@ -674,7 +686,7 @@ function buildApi(E, pid) {
         if (srcs.reduce((a, s) => a + (s.store.energy || 0), 0) < cost) return ERR_NOT_ENOUGH_ENERGY;
         if (opts.dryRun) return OK;
         let left = cost; for (const s of srcs) { const a = Math.min(left, s.store.energy || 0); s.store.energy -= a; left -= a; if (!left) break; }
-        const need = body.length * SC.CREEP_SPAWN_TIME;
+        let need = body.length * SC.CREEP_SPAWN_TIME; const opS = pwrFx(o, SC.PWR_OPERATE_SPAWN, w.time); if (opS != null) need = Math.ceil(need * opS); // PWR_OPERATE_SPAWN
         o.spawning = { name, needTime: need, spawnTime: w.time + need, directions: opts.directions };
         w.creeps.push({ kind: 'creep', id: 'c' + (w.nextId++), owner: pid, name, body: body.slice(), hits: body.length * 100, x: o.x, y: o.y, px: o.x, py: o.y, store: {}, ttl: 0, fatigue: 0, spawning: true });
         if (opts.memory !== undefined) { mem.creeps = mem.creeps || {}; mem.creeps[name] = opts.memory; }
@@ -704,7 +716,8 @@ function buildApi(E, pid) {
           w.nukes.push({ kind: 'nuke', id: 'n' + (w.nextId++), x: p[0] * ROOM + pos.x, y: p[1] * ROOM + pos.y, landTime: w.time + SC.NUKE_LAND_TIME, launchRoomName: roomName(o.x, o.y) }); return OK; }; }
       if (o.type === 'powerSpawn') { v.power = o.store.power || 0; v.powerCapacity = SC.POWER_SPAWN_POWER_CAPACITY; v.energy = o.store.energy || 0; v.energyCapacity = SC.POWER_SPAWN_ENERGY_CAPACITY;
         v.processPower = () => { if (o.owner !== pid) return ERR_NOT_OWNER; if (!E.isActive(o)) return ERR_RCL_NOT_ENOUGH; if ((o.store.power || 0) < 1 || (o.store.energy || 0) < SC.POWER_SPAWN_ENERGY_RATIO) return ERR_NOT_ENOUGH_RESOURCES;
-          if (o._pp === w.time) return OK; o._pp = w.time; o.store.power -= 1; o.store.energy -= SC.POWER_SPAWN_ENERGY_RATIO; const pl = w.players[pid]; pl.power = (pl.power || 0) + 1; return OK; }; }
+          if (o._pp === w.time) return OK; o._pp = w.time; let amt = 1; const opP = pwrFx(o, SC.PWR_OPERATE_POWER, w.time, true); if (opP != null) amt = Math.min(o.store.power, amt + opP); // PWR_OPERATE_POWER
+          if (o.store.power < amt || o.store.energy < amt * SC.POWER_SPAWN_ENERGY_RATIO) return OK; o.store.power -= amt; o.store.energy -= amt * SC.POWER_SPAWN_ENERGY_RATIO; const pl = w.players[pid]; pl.power = (pl.power || 0) + amt; return OK; }; }
       if (o.type === 'factory') { v.level = o.level;
         v.produce = res => { if (o.owner !== pid) return ERR_NOT_OWNER; if (o.cooldown > 0) return ERR_TIRED; const c = SC.COMMODITIES[res]; if (!c) return ERR_INVALID_ARGS;
           if (c.level && c.level !== o.level) return ERR_INVALID_TARGET; if (!E.isActive(o)) return ERR_RCL_NOT_ENOUGH; if (c.level && !(o.effects || []).some(f => f.power === SC.PWR_OPERATE_FACTORY && f.level === c.level && f.endTime >= w.time)) return ERR_BUSY; // 无 Power Creep：PWR_OPERATE_FACTORY 效果不存在
@@ -717,7 +730,7 @@ function buildApi(E, pid) {
           if (!r || r.hits == null || !sameRoom(r, o)) return ERR_INVALID_TARGET; if ((o.store.energy || 0) < SC.TOWER_ENERGY_COST) return ERR_NOT_ENOUGH_ENERGY;
           if (o._acted === w.time) return OK; o._acted = w.time;
           const d = dist(r, o), base = kind === 'attack' ? SC.TOWER_POWER_ATTACK : kind === 'heal' ? SC.TOWER_POWER_HEAL : SC.TOWER_POWER_REPAIR;
-          let amt = base; if (d > SC.TOWER_OPTIMAL_RANGE) amt -= amt * SC.TOWER_FALLOFF * (Math.min(d, SC.TOWER_FALLOFF_RANGE) - SC.TOWER_OPTIMAL_RANGE) / (SC.TOWER_FALLOFF_RANGE - SC.TOWER_OPTIMAL_RANGE); amt = Math.floor(amt);
+          let amt = base; if (d > SC.TOWER_OPTIMAL_RANGE) amt -= amt * SC.TOWER_FALLOFF * (Math.min(d, SC.TOWER_FALLOFF_RANGE) - SC.TOWER_OPTIMAL_RANGE) / (SC.TOWER_FALLOFF_RANGE - SC.TOWER_OPTIMAL_RANGE); for (const pw of [SC.PWR_OPERATE_TOWER, SC.PWR_DISRUPT_TOWER]) { const f = pwrFx(o, pw, w.time); if (f != null) amt *= f; } amt = Math.floor(amt); if (!amt) return OK;
           if (kind === 'heal' && r.kind !== 'creep') return ERR_INVALID_TARGET; if (kind === 'repair' && r.kind === 'creep') return ERR_INVALID_TARGET;
           o.store.energy -= SC.TOWER_ENERGY_COST;
           if (kind === 'attack') E.damage(r, amt, pid); else r.hits = Math.min(kind === 'heal' ? r.body.length * 100 : r.hitsMax, r.hits + amt);
@@ -728,7 +741,7 @@ function buildApi(E, pid) {
       }
       if (o.type === 'observer') v.observeRoom = name => { // 官方：下一 tick 该房间可见；范围 OBSERVER_RANGE，每 tick 一次
         if (o.owner !== pid) return ERR_NOT_OWNER; if (!E.isActive(o)) return ERR_RCL_NOT_ENOUGH; const p = typeof name === 'string' && parseRoomName(name); if (!p || p[0] < 0 || p[1] < 0 || p[0] >= w.S || p[1] >= w.S) return ERR_INVALID_ARGS;
-        const rx = Math.floor(o.x / ROOM), ry = Math.floor(o.y / ROOM); if (Math.max(Math.abs(p[0] - rx), Math.abs(p[1] - ry)) > SC.OBSERVER_RANGE) return ERR_NOT_IN_RANGE;
+        const rx = Math.floor(o.x / ROOM), ry = Math.floor(o.y / ROOM); if (pwrFx(o, SC.PWR_OPERATE_OBSERVER, w.time) == null && Math.max(Math.abs(p[0] - rx), Math.abs(p[1] - ry)) > SC.OBSERVER_RANGE) return ERR_NOT_IN_RANGE; // PWR_OPERATE_OBSERVER：无限距离
         w.observe = w.observe || {}; const L = (w.observe[pid] = (w.observe[pid] || []).filter(x => x.t >= w.time - 1 && !(x.id === o.id && x.t === w.time))); L.push({ id: o.id, k: p[0] + ',' + p[1], t: w.time }); o.observing = name; return OK; };
       if (o.type === 'link') v.transferEnergy = (t, amount) => {
         if (o.owner !== pid) return ERR_NOT_OWNER; if (!E.isActive(o)) return ERR_RCL_NOT_ENOUGH; const r = raw(t);
@@ -742,7 +755,7 @@ function buildApi(E, pid) {
           if (o.owner !== pid) return ERR_NOT_OWNER; if (!E.isActive(o)) return ERR_RCL_NOT_ENOUGH; if (o.cooldown > 0) return ERR_TIRED;
           const l1 = raw(a), l2 = raw(b); if (!l1 || !l2 || l1.type !== 'lab' || l2.type !== 'lab' || l1 === o || l2 === o) return ERR_INVALID_TARGET;
           if (!sameRoom(l1, o) || !sameRoom(l2, o) || dist(l1, o) > 2 || dist(l2, o) > 2) return ERR_NOT_IN_RANGE;
-          const n = SC.LAB_REACTION_AMOUNT, m0 = labMin(o), m1 = labMin(l1), m2 = labMin(l2);
+          const n = SC.LAB_REACTION_AMOUNT + (pwrFx(o, SC.PWR_OPERATE_LAB, w.time) || 0), m0 = labMin(o), m1 = labMin(l1), m2 = labMin(l2);
           if (!rev) {
             if (!m1 || !m2 || l1.store[m1] < n || l2.store[m2] < n) return ERR_NOT_ENOUGH_RESOURCES;
             const p = SC.REACTIONS[m1] && SC.REACTIONS[m1][m2]; if (!p) return ERR_INVALID_ARGS;
@@ -779,10 +792,10 @@ function buildApi(E, pid) {
         if (o.owner !== pid) return ERR_NOT_OWNER; if (!E.isActive(o)) return ERR_RCL_NOT_ENOUGH; if (o.cooldown > 0) return ERR_TIRED;
         const p = parseRoomName(dest); if (!RESOURCES.has(res) || !(amount > 0) || !p) return ERR_INVALID_ARGS;
         const t = w.structures.find(s => s.type === 'terminal' && s !== o && Math.floor(s.x / ROOM) === p[0] && Math.floor(s.y / ROOM) === p[1]); if (!t) return ERR_INVALID_ARGS;
-        const d = Math.max(Math.abs(p[0] - Math.floor(o.x / ROOM)), Math.abs(p[1] - Math.floor(o.y / ROOM))), cost = Math.ceil(amount * (1 - Math.exp(-d / 30)));
+        const d = Math.max(Math.abs(p[0] - Math.floor(o.x / ROOM)), Math.abs(p[1] - Math.floor(o.y / ROOM))), cost0 = Math.ceil(amount * (1 - Math.exp(-d / 30))), opT = pwrFx(o, SC.PWR_OPERATE_TERMINAL, w.time), cost = opT != null ? Math.ceil(cost0 * opT) : cost0; // PWR_OPERATE_TERMINAL
         const need = res === 'energy' ? amount + cost : amount; if ((o.store[res] || 0) < need - (res === 'energy' ? 0 : 0) || (o.store.energy || 0) < (res === 'energy' ? need : cost)) return ERR_NOT_ENOUGH_RESOURCES;
         if (freeFor(w, t, res) < amount) return ERR_FULL;
-        o.store[res] -= amount; o.store.energy -= cost; t.store[res] = (t.store[res] || 0) + amount; o.cooldown = SC.TERMINAL_COOLDOWN;
+        o.store[res] -= amount; o.store.energy -= cost; t.store[res] = (t.store[res] || 0) + amount; o.cooldown = opT != null ? Math.round(SC.TERMINAL_COOLDOWN * opT) : SC.TERMINAL_COOLDOWN;
         w.transactions = (w.transactions || []).slice(-99); w.transactions.push({ transactionId: 't' + (w.nextId++), time: w.time, sender: { username: w.players[pid]?.name }, recipient: { username: w.players[t.owner]?.name }, _s: pid, _r: t.owner, resourceType: res, amount, from: roomName(o.x, o.y), to: dest, description: description == null ? undefined : String(description).slice(0, 100) }); return OK; };
     },
     creep(v, o) {
@@ -845,6 +858,7 @@ function buildApi(E, pid) {
       };
       v.withdraw = (t, res, amount) => {
         const e = pre(); if (e) return e; if (!RESOURCES.has(res)) return ERR_INVALID_ARGS; const x = tgt(t, 1); if (typeof x === 'number') return x;
+        if (x.type === 'terminal' && pwrFx(x, SC.PWR_DISRUPT_TERMINAL, w.time) != null) return ERR_INVALID_TARGET; // PWR_DISRUPT_TERMINAL
         if (!hasStore(x) || x.kind === 'creep' || x.kind === 'spawn' && false) return ERR_INVALID_TARGET;
         if (x.owner && x.owner !== pid && x.kind !== 'tombstone' && x.kind !== 'ruin') return ERR_NOT_OWNER;
         if (x.kind === 'structure' && w.structures.some(s => s.type === 'rampart' && s.x === x.x && s.y === x.y && s.owner !== pid && !s.isPublic)) return ERR_NOT_OWNER;
@@ -887,7 +901,9 @@ function buildApi(E, pid) {
       v.dismantle = t => {
         const e = pre('work'); if (e) return e; const x = raw(t); if (!x || x.kind !== 'structure' && x.kind !== 'spawn') return ERR_INVALID_TARGET; if (!sameRoom(x, o) || dist(x, o) > 1) return ERR_NOT_IN_RANGE;
         const ctrl = ctrlOfRoom(w, roomKey(x.x, x.y)); if (ctrl && ctrl.safeMode > w.time && ctrl.owner !== pid) return ERR_NO_BODYPART;
+        if ((x.effects || []).some(f => f.power === SC.PWR_FORTIFY && f.endTime > w.time)) return ERR_INVALID_TARGET;
         if (o._intentOnly) return OK;
+        if ((x.effects || []).some(f => (f.power === SC.PWR_SHIELD || f.power === SC.PWR_FORTIFY) && f.endTime >= w.time)) return OK; // processor dismantle.js
         const a = Math.min(boostPower(o, 'work', 'dismantle') * SC.DISMANTLE_POWER, x.hits), back = Math.floor(a * SC.DISMANTLE_COST);
         if (back) { o.store.energy = (o.store.energy || 0) + back; const over = used() - cap; if (over > 0) { o.store.energy -= over; E.dropAt(o.x, o.y, 'energy', over); } }
         E.elog(o, SC.EVENT_ATTACK, { targetId: x.id, damage: a, attackType: SC.EVENT_ATTACK_TYPE_DISMANTLE }); E.damage(x, a, pid); return OK;
@@ -898,7 +914,7 @@ function buildApi(E, pid) {
         x._upTick = x._upTick === w.time ? w.time : (x._upCnt = 0, w.time);
         // 官方：能量与 RCL8 上限按未强化量；GCL/progress 按强化后
         let base = Math.min(activeParts(o, 'work') * SC.UPGRADE_CONTROLLER_POWER, o.store.energy);
-        if (x.level === 8) { base = Math.min(base, SC.CONTROLLER_MAX_UPGRADE_PER_TICK - x._upCnt); if (base <= 0) return OK; }
+        if (x.level === 8) { const lim = SC.CONTROLLER_MAX_UPGRADE_PER_TICK + (pwrFx(x, SC.PWR_OPERATE_CONTROLLER, w.time, true) || 0); base = Math.min(base, lim - x._upCnt); if (base <= 0) return OK; } // PWR_OPERATE_CONTROLLER
         if (o._intentOnly) return OK;
         const eff = Math.floor(base + boostExtra(o, 'work', 'upgradeController', base));
         x._upCnt += base; o.store.energy -= base; x._upgraded = 1; E.elog(o, SC.EVENT_UPGRADE_CONTROLLER, { amount: eff, energySpent: base }); w.players[pid].gcl = (w.players[pid].gcl || 0) + eff;
@@ -934,11 +950,12 @@ function buildApi(E, pid) {
       v.signController = (t, text) => { const e = pre(); if (e) return e; const x = tgt(t, 1, ['controller']); if (typeof x === 'number') return x; if (o._intentOnly) return OK; x.sign = text ? { username: w.players[pid].name, text: String(text).slice(0, 100), time: w.time, datetime: Date.now() } : null; return OK; };
       v.generateSafeMode = t => { const e = pre(); if (e) return e; const x = tgt(t, 1, ['controller']); if (typeof x === 'number') return x; if ((o.store.G || 0) < SC.SAFE_MODE_COST) return ERR_NOT_ENOUGH_RESOURCES; if (o._intentOnly) return OK; o.store.G -= SC.SAFE_MODE_COST; x.safeModeAvailable++; return OK; };
       const hostileOk = x => x.kind === 'creep' ? x.owner !== pid || true : true;
-      v.attack = t => { const e = pre('attack'); if (e) return e; const x = tgt(t, 1, ['creep', 'structure', 'spawn']); if (typeof x === 'number') return x; if (!hostileOk(x) || x.hits == null) return ERR_INVALID_TARGET;
+      const fortified = x => (x.effects || []).some(f => (f.power === SC.PWR_FORTIFY) && f.endTime > w.time); // 官方 game/creeps.js：attack/rangedAttack/dismantle 对 FORTIFY 目标 ERR_INVALID_TARGET
+      v.attack = t => { const e = pre('attack'); if (e) return e; const x = tgt(t, 1, ['creep', 'structure', 'spawn']); if (typeof x === 'number') return x; if (!hostileOk(x) || x.hits == null || fortified(x)) return ERR_INVALID_TARGET;
         if (o._intentOnly) return OK;
         { const dm = boostPower(o, 'attack', 'attack') * SC.ATTACK_POWER; E.elog(o, SC.EVENT_ATTACK, { targetId: x.id, damage: dm, attackType: SC.EVENT_ATTACK_TYPE_MELEE }); E.damage(x, dm, pid); }
         if (x.kind === 'creep' && activeParts(x, 'attack')) { const hb = boostPower(x, 'attack', 'attack') * SC.ATTACK_POWER; E.elog(x, SC.EVENT_ATTACK, { targetId: o.id, damage: hb, attackType: SC.EVENT_ATTACK_TYPE_HIT_BACK }); E.damage(o, hb, x.owner); } ev.push({ t: 'attack', fx: o.x, fy: o.y, x: x.x, y: x.y }); return OK; };
-      v.rangedAttack = t => { const e = pre('ranged_attack'); if (e) return e; const x = tgt(t, 3, ['creep', 'structure', 'spawn']); if (typeof x === 'number') return x; if (x.hits == null) return ERR_INVALID_TARGET;
+      v.rangedAttack = t => { const e = pre('ranged_attack'); if (e) return e; const x = tgt(t, 3, ['creep', 'structure', 'spawn']); if (typeof x === 'number') return x; if (x.hits == null || fortified(x)) return ERR_INVALID_TARGET;
         if (o._intentOnly) return OK;
         { const dm = boostPower(o, 'ranged_attack', 'rangedAttack') * SC.RANGED_ATTACK_POWER; E.elog(o, SC.EVENT_ATTACK, { targetId: x.id, damage: dm, attackType: SC.EVENT_ATTACK_TYPE_RANGED }); E.damage(x, dm, pid); } ev.push({ t: 'attack', fx: o.x, fy: o.y, x: x.x, y: x.y }); return OK; };
       v.rangedMassAttack = () => { const e = pre('ranged_attack'); if (e) return e; if (o._intentOnly) return OK; const n = boostPower(o, 'ranged_attack', 'rangedMassAttack') * SC.RANGED_ATTACK_POWER;

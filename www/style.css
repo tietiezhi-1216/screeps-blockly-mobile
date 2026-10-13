@@ -1,6 +1,6 @@
 /* 设计变量：固定 px，不跟随系统字体缩放 */
 :root{--fs-xs:11px;--fs-s:13px;--fs-m:15px;--fs-l:18px;--fs-xl:34px;--sp-1:4px;--sp-2:8px;--sp-3:12px;--sp-4:16px;--r-s:6px;--r-m:10px;--r-l:14px;
---bg:#0a0a0a;--panel:#1b1e25;--btn:#2a2f3a;--btn-on:#2e7d4f;--primary:#3b82f6;--danger:#8b2b2b;--text:#e8e8e8;--muted:#8a8f99;--accent:#ffe56d;
+--bg:#0a0a0a;--panel:#1b1e25;--btn:#2a2f3a;--btn-on:#5973ff;--primary:#3b82f6;--danger:#8b2b2b;--text:#e8e8e8;--muted:#8a8f99;--accent:#ffe56d;
 --top:0px;--bot:0px} /* 沉浸式全屏：不再为状态栏/导航栏留白 */
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html{-webkit-text-size-adjust:100%;text-size-adjust:100%}

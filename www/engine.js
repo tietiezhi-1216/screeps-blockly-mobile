@@ -29,6 +29,7 @@ function ensureRoom(w, rx, ry) {
   if (g.mineral) { const m = g.mineral; w.minerals.push({ kind: 'mineral', id: 'm' + (w.nextId++), x: ox + m.x, y: oy + m.y, type: m.type, density: m.density, amount: m.amount, regenAt: null }); }
   applyBorders(w, rx, ry); w.roomsVer++; return rm;
 }
+function defaultBadge(pid) { const h = hash32(String(pid).split('').reduce((a, c) => a * 31 + c.charCodeAt(0) | 0, 7), 1, 2); return { type: 1 + h % 24, color1: (h >>> 5) % 80, color2: (h >>> 12) % 80, color3: (h >>> 19) % 80, param: 0, flip: false }; }
 function ensureNear(w, rx, ry, r = 1) { for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) ensureRoom(w, rx + dx, ry + dy); }
 function ensureSize(w, S) {
   if (S <= w.S) return false; w.S = S;
@@ -96,10 +97,11 @@ class Engine {
   blocked(x, y, ignore) { if (this.solid(x, y, ignore && ignore.owner)) return true; const c = this._occ().get(y * this.W + x); return !!c && c !== ignore; }
 
   // manual=true：像官方一样由玩家在世界地图上自己选房间和 Spawn 位置（needsSpawn）；否则自动选（测试/机器人）
-  addPlayer(pid, name, manual = false) {
-    const w = this.w; if (w.players[pid]) { w.players[pid].name = name || w.players[pid].name; return w.players[pid]; }
+  // badge：玩家的官方式徽章（{type,color1..3,param,flip}）；没有时按 pid 生成一个固定的默认徽章
+  addPlayer(pid, name, manual = false, badge = null) {
+    const w = this.w; if (w.players[pid]) { w.players[pid].name = name || w.players[pid].name; if (badge) w.players[pid].badge = badge; return w.players[pid]; }
     const n = Object.keys(w.players).length;
-    const p = w.players[pid] = { name: name || pid, color: PLAYER_COLORS[n % PLAYER_COLORS.length], code: '', gcl: 0, needsSpawn: true };
+    const p = w.players[pid] = { name: name || pid, color: PLAYER_COLORS[n % PLAYER_COLORS.length], code: '', gcl: 0, needsSpawn: true, badge: badge || defaultBadge(pid) };
     w.memory[pid] = { creeps: {}, spawns: {}, rooms: {}, flags: {} }; maybeExpand(w);
     if (!manual) this.placeSpawn(pid); this.log(pid, p.name, '加入世界'); return p;
   }
@@ -368,7 +370,7 @@ class Engine {
 // 快照：渲染/联机用的扁平只读视图（渲染层也可直接传入原始 world）
 function worldSnapshot(w, events) {
     const en = s => (s.store && s.store.energy) || 0;
-    return { time: w.time, S: w.S, roomsVer: w.roomsVer, players: Object.fromEntries(Object.entries(w.players).map(([k, p]) => [k, { name: p.name, color: p.color, needsSpawn: !!p.needsSpawn, gcl: p.gcl || 0 }])), owned: ownedMap(w),
+    return { time: w.time, S: w.S, roomsVer: w.roomsVer, players: Object.fromEntries(Object.entries(w.players).map(([k, p]) => [k, { name: p.name, color: p.color, needsSpawn: !!p.needsSpawn, badge: p.badge || defaultBadge(k), gcl: p.gcl || 0 }])), owned: ownedMap(w),
       sources: w.sources.map(s => ({ id: s.id, x: s.x, y: s.y, energy: s.energy, cap: s.cap })),
       minerals: w.minerals.map(m => ({ id: m.id, x: m.x, y: m.y, type: m.type, amount: m.amount })),
       controllers: w.controllers.map(c => ({ id: c.id, x: c.x, y: c.y, owner: c.owner, level: c.level, progress: c.progress, progressTotal: SC.CONTROLLER_LEVELS[c.level] || 0, ticksToDowngrade: c.downgradeTime ? c.downgradeTime - w.time : 0 })),

@@ -10,11 +10,12 @@ let showFps = localStorage.getItem('sbm_fps') === '1';
 const LOGS = []; let cnFilter = 'all';
 const log = (s, cls) => { s = String(s); LOGS.push({ s, cls: cls || (/错误|error|失败/i.test(s) ? 'err' : ''), t: engine ? engine.w.time : client?.view?.time }); if (LOGS.length > 500) LOGS.splice(0, LOGS.length - 500); if (typeof renderConsole === 'function') renderConsole(); };
 
+function myBadge() { try { const b = JSON.parse(localStorage.getItem('sbm_profile') || '{}').badge; return b && typeof b.type === 'number' ? b : null; } catch (e) { return null; } }
 function loadEngine() {
   let w = null; try { w = JSON.parse(localStorage.getItem(SAVE_W)); } catch (e) {}
   if (!w || w.v !== 3) w = newWorld();
   engine = new Engine(w); engine.onLog = (pid, s) => { if (pid === myPid) log(s); };
-  engine.addPlayer(myPid, nick, true); engine.setCode(myPid, code);
+  engine.addPlayer(myPid, nick, true, myBadge()); engine.setCode(myPid, code);
   renderer.reset(); renderer.setView(engine.w, 500 / speed);
   const sp = engine.w.spawns.find(s => s.owner === myPid); if (sp) renderer.fitRoom(Math.floor(sp.x / ROOM), Math.floor(sp.y / ROOM)); else renderer.fitRoom(5, 5);
 }
@@ -146,21 +147,29 @@ function loop(t) {
   const dt = t - lastT; lastT = t;
   if (mode !== 'client' && running && engine) {
     acc += dt; const step = 500 / speed; let n = 0;
-    while (acc >= step && n < 4) { const t0 = performance.now(); engine.tick(); tickMs = tickMs * .9 + (performance.now() - t0) * .1; renderer.setView(engine.w, step); hostS && hostS.afterTick(step); acc -= step; n++; if (engine.w.time % 50 === 0) save(); }
-    if (n === 4) acc = 0;
+    while (acc >= step && n < 8) { const t0 = performance.now(); engine.tick(); tickMs = tickMs * .9 + (performance.now() - t0) * .1; renderer.setView(engine.w, step); hostS && hostS.afterTick(step); acc -= step; n++; if (engine.w.time % 50 === 0) save(); }
+    if (acc > step * 8) acc = 0; // 设备太慢时丢弃积压，避免卡顿
   }
   if (t - hudT > 250) { hudT = t; stats(); } requestAnimationFrame(loop);
 }
 function setLabel(btn, ic, text) { const b = $(btn); b.querySelector('.ic').innerHTML = icon(ic); b.querySelector('.lb').textContent = text; }
 function setRunUI() { setLabel('btnRun', running && mode !== 'client' ? 'player-pause' : 'player-play', mode === 'client' ? '房主控制' : running ? '暂停' : '运行'); $('btnRun').classList.toggle('on', running && mode !== 'client'); $('btnRun').disabled = mode === 'client'; $('btnSpeed').disabled = mode === 'client'; }
 $('btnRun').onclick = () => { running = !running; setRunUI(); if (!running) save(); };
-$('btnSpeed').onclick = () => { speed = speed >= 8 ? 1 : speed * 2; setLabel('btnSpeed', 'player-track-next', speed + 'x'); };
+// 运行速度：立即作用于主循环（每 tick 间隔 = 500ms / 速度），并保存到设置，下次进入游戏沿用
+function setSpeed(v, persist = true) {
+  speed = [1, 2, 4, 8].includes(+v) ? +v : 1; acc = 0; setLabel('btnSpeed', 'player-track-next', speed + 'x'); $('btnRun').dataset.speed = speed + 'x';
+  if (persist) try { const s = JSON.parse(localStorage.getItem('sbm_settings') || '{}'); s.speed = speed; localStorage.setItem('sbm_settings', JSON.stringify(s)); } catch (e) {}
+}
+window.setSpeed = setSpeed;
+// 左侧工具栏收起/展开
+(function barToggle() { const t = document.createElement('button'); t.id = 'barTog'; const set = m => { document.body.classList.toggle('barMin', m); t.textContent = m ? '›' : '‹'; localStorage.setItem('sbm_barMin', m ? '1' : ''); }; t.onclick = () => set(!document.body.classList.contains('barMin')); document.body.appendChild(t); set(!!localStorage.getItem('sbm_barMin')); })();
+$('btnSpeed').onclick = () => setSpeed(speed >= 8 ? 1 : speed * 2);
 // 底栏精简：速度并入「运行」长按弹出菜单
 (function runSpeedPopup() {
   const pop = document.createElement('div'); pop.id = 'speedPop'; pop.className = 'hidden';
   pop.innerHTML = [1, 2, 4, 8].map(v => `<button data-v="${v}">${v}x</button>`).join(''); document.body.appendChild(pop);
   const sync = () => pop.querySelectorAll('button').forEach(b => b.classList.toggle('on', +b.dataset.v === speed));
-  pop.onclick = e => { const b = e.target.closest('button'); if (!b) return; speed = +b.dataset.v; setLabel('btnSpeed', 'player-track-next', speed + 'x'); $('btnRun').dataset.speed = speed + 'x'; pop.classList.add('hidden'); };
+  pop.onclick = e => { const b = e.target.closest('button'); if (!b) return; setSpeed(b.dataset.v); pop.classList.add('hidden'); };
   const r = $('btnRun'); let t = null, fired = false;
   r.addEventListener('pointerdown', () => { fired = false; t = setTimeout(() => { fired = true; sync(); pop.classList.remove('hidden'); }, 450); });
   ['pointerup', 'pointercancel', 'pointerleave'].forEach(k => r.addEventListener(k, () => clearTimeout(t)));
@@ -221,7 +230,7 @@ $('ip').value = localStorage.getItem('sbm_lastip') || '';
 async function join(addr) {
   if (mode !== 'client') save(); await stopNet(); running = false;
   mode = 'client'; engine = null; renderer.reset();
-  client = new ClientSession('ws://' + addr, myPid, nick); client.code = code;
+  client = new ClientSession('ws://' + addr, myPid, nick); client.code = code; client.badge = myBadge();
   client.onTick = v => renderer.setView(v, v.dt || 500); client.onLog = log;
   client.onStatus = s => { netStatus(`客户端 ${addr} · ${s}`); log('[联机] ' + s); };
   setRunUI(); netStatus('连接中 ' + addr); $('net').classList.add('hidden');
@@ -267,7 +276,7 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) save(
 requestAnimationFrame(loop);
 setTimeout(() => checkUpdate(false), 2000);
 const qj = new URLSearchParams(location.search).get('join'); if (qj) join(qj);
-if (new URLSearchParams(location.search).get('run')) { hideStart(); running = true; speed = 4; setRunUI(); }
+if (new URLSearchParams(location.search).get('run')) { hideStart(); running = true; setSpeed(4, false); setRunUI(); }
 if (qj) hideStart();
 
 // ===== 手动建造（同官方客户端）：选建筑 → 点格子预览 → 放置；点自己的工地可移除 =====

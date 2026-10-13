@@ -12,7 +12,7 @@ class HostSession {
     const c = this.clients.get(id); if (!c) return;
     if (m.t === 'join') {
       const pid = String(m.pid || ('p' + id)).slice(0, 40); if (pid === this.hostPid) return this.t.kick && this.t.kick(id);
-      c.pid = pid; this.e.addPlayer(pid, String(m.name || '玩家').slice(0, 16), true); if (m.code != null) this.e.setCode(pid, String(m.code));
+      c.pid = pid; this.e.addPlayer(pid, String(m.name || '玩家').slice(0, 16), true, m.badge && typeof m.badge === 'object' ? { type: +m.badge.type | 0, color1: +m.badge.color1 | 0, color2: +m.badge.color2 | 0, color3: +m.badge.color3 | 0, param: +m.badge.param | 0, flip: !!m.badge.flip } : null); if (m.code != null) this.e.setCode(pid, String(m.code));
       this.t.send(id, JSON.stringify({ t: 'welcome', pid })); this.t.send(id, JSON.stringify(Object.assign({ t: 'rooms' }, this.e.roomsData())));
       this.t.send(id, JSON.stringify(Object.assign({ t: 'tick', dt: this.dt || 500 }, this.e.snapshot())));
       this.onPeers && this.onPeers();
@@ -35,7 +35,7 @@ class ClientSession {
   constructor(url, pid, name, WS = WebSocket) {
     this.pid = pid; this.view = null; this.onTick = null; this.onLog = null; this.onStatus = null; this.code = '';
     const ws = this.ws = new WS(url);
-    ws.onopen = () => { ws.send(JSON.stringify({ t: 'join', pid, name, code: this.code })); this.onStatus && this.onStatus('已连接'); };
+    ws.onopen = () => { ws.send(JSON.stringify({ t: 'join', pid, name, code: this.code, badge: this.badge })); this.onStatus && this.onStatus('已连接'); };
     ws.onclose = () => this.onStatus && this.onStatus('连接断开');
     ws.onerror = () => this.onStatus && this.onStatus('连接失败');
     ws.onmessage = ev => { const m = JSON.parse(typeof ev.data === 'string' ? ev.data : ev.data.toString()); this.handle(m); };

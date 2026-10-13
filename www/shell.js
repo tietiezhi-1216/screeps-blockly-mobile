@@ -14,12 +14,13 @@
 
   // ---- 页面框架 ----
   const pages = {}; let stack = [];
-  const head = (title, back = true) => `<header class="shHead">${back ? `<button class="shBack" data-act="back" data-icon="arrow-left"></button>` : ''}<span class="shTitle">${title}</span></header>`;
+  const head = (title, back = true) => `<header class="shHead">${back ? `<button class="shBack" data-act="back" data-icon="arrow-left"></button>` : ''}<span class="shTitle">${title}</span>${backToGame()}</header>`;
   function show(name, push = true) {
     if (push && stack[stack.length - 1] !== name) stack.push(name);
     S.classList.remove('hidden'); S.innerHTML = pages[name](); S.dataset.page = name; applyIcons(S); S.scrollTop = 0;
   }
-  const back = () => { stack.pop(); stack.length ? show(stack[stack.length - 1], false) : show('home'); };
+  const back = () => { stack.pop(); if (stack.length) show(stack[stack.length - 1], false); else if (startGame.done) startGame(); else show('home'); };
+  const backToGame = () => (startGame.done ? `<button class="shToGame" data-act="play" data-icon="player-play"><span class="lb">返回游戏</span></button>` : '');
   const hide = () => { S.classList.add('hidden'); stack = []; };
   S.addEventListener('click', e => { const b = e.target.closest('[data-act]'); if (!b) return; const a = b.dataset.act; if (a === 'back') back(); else if (a.startsWith('go:')) show(a.slice(3)); else if (acts[a]) acts[a](b); });
   const row = (act, ic, label, val = '', cls = '') => `<button class="shRow ${cls}" data-act="${act}" data-icon="${ic}"><span class="lb">${label}</span><span class="v">${val}</span>${act.startsWith('go:') ? `<span class="ic chev">${icon('chevron-right')}</span>` : ''}</button>`;
@@ -31,7 +32,7 @@
     <button class="pcard" data-act="go:profile">${badge(p.badge, 44)}<div class="pc"><div class="pn">${esc(nick)}</div><div class="ps">RCL ${Stats.get().rclMax} · ${fmt(Stats.get().ticks)} tick</div></div><span class="ic chev">${icon('chevron-right')}</span></button>
     <div class="grid hq">${[['总 tick', Stats.get().ticks], ['creep', Stats.get().creeps], ['能量', Stats.get().energy]].map(([k, v]) => `<div class="cell"><div class="k">${k}</div><div class="n">${fmt(v)}</div></div>`).join('')}</div>
     <div class="menu">
-      <button id="sPlay" class="primary big" data-act="play" data-icon="player-play"><span class="lb">开始游戏</span></button>
+      <button id="sPlay" class="primary big" data-act="play" data-icon="player-play"><span class="lb">${startGame.done ? '返回游戏' : '开始游戏'}</span></button>
       <button id="sNet" class="big" data-act="net" data-icon="broadcast"><span class="lb">局域网联机</span></button>
       <button class="big" data-act="go:profile" data-icon="user"><span class="lb">个人中心</span></button>
       <button id="sSet" class="big" data-act="go:settings" data-icon="settings"><span class="lb">设置</span></button>
@@ -130,7 +131,7 @@
 
   const saveList = (k, L) => LS.setItem(k, JSON.stringify(L));
   const countBlocks = j => { let n = 0; const walk = o => { if (o && typeof o === 'object') { if (o.type && o.id) n++; Object.values(o).forEach(walk); } }; walk(j); return n; };
-  function startGame() { hide(); const s = st(); if (!startGame.done) { startGame.done = 1; speed = s.speed || 1; setLabel('btnSpeed', 'player-track-next', speed + 'x'); $('btnRun').dataset.speed = speed + 'x'; } if (!LS.getItem('sbm_intro')) $('intro').classList.remove('hidden'); }
+  function startGame() { hide(); const s = st(); startGame.done = 1; setSpeed(s.speed || 1, false); if (!LS.getItem('sbm_intro')) $('intro').classList.remove('hidden'); }
 
   const acts = {
     play: startGame,
@@ -139,7 +140,7 @@
     btype(b) { draft.type = +b.dataset.t; const y = S.scrollTop; show('badge', false); S.scrollTop = y; },
     bflip() { draft.flip = !draft.flip; const y = S.scrollTop; show('badge', false); S.scrollTop = y; },
     bcol(b) { draft[b.dataset.k] = +b.dataset.c; const y = S.scrollTop; show('badge', false); S.scrollTop = y; },
-    bsave() { const p = prof(); p.badge = draft; draft = null; saveList('sbm_profile', p); toast('徽章已保存'); back(); },
+    bsave() { const p = prof(); p.badge = draft; draft = null; saveList('sbm_profile', p); if (engine?.w.players[myPid]) { engine.w.players[myPid].badge = p.badge; _snap = null; } toast('徽章已保存'); back(); },
     ptab(b) { ptab = b.dataset.t; show('profile', false); },
     worldMap() { hide(); window.openWorldMap && window.openWorldMap(false); },
     respawn() { if (!confirm('重新出生？你的所有 creep、建筑和房间都会被清除，然后在世界地图上重新选择出生点。')) return; window.doRespawn && window.doRespawn(); hide(); },
@@ -156,9 +157,9 @@
     snImport() { importText('导入片段', j => { const w = j.ws || j; if (!w.blocks) throw new Error('不是积木程序'); const L = J('sbm_snips', []); L.unshift({ name: j.name || '导入的片段', ts: Date.now(), blocks: countBlocks(w), ws: w }); saveList('sbm_snips', L); toast('已导入'); show('snippets', false); }); },
     sound() { const s = st(); s.sound = !s.sound; saveList('sbm_settings', s); toast('当前版本暂无音效'); show('settings', false); },
     fps() { $('mFps').click(); show('settings', false); },
-    defSpeed() { const s = st(); s.speed = s.speed >= 8 ? 1 : s.speed * 2; saveList('sbm_settings', s); show('settings', false); },
+    defSpeed() { setSpeed(speed >= 8 ? 1 : speed * 2); show('settings', false); },
     edDark() { window.setEdDark(!window.edDark()); show('settings', false); },
-    speedPick() { speed = speed >= 8 ? 1 : speed * 2; setLabel('btnSpeed', 'player-track-next', speed + 'x'); $('btnRun').dataset.speed = speed + 'x'; show('settings', false); },
+    speedPick() { setSpeed(speed >= 8 ? 1 : speed * 2); show('settings', false); },
     intro() { hide(); $('intro').classList.remove('hidden'); },
     resetCode() { $('mResetCode').click(); },
     update() { checkUpdate(true); },
@@ -170,6 +171,8 @@
 
   // 接管入口：底栏「设置」→ 应用外壳；游戏内菜单保留但不再默认打开
   $('btnMenu').onclick = () => show('home');
+  // Android 返回键：菜单内逐级返回，最后回到游戏
+  try { window.Capacitor?.Plugins?.App?.addListener('backButton', () => { if (!S.classList.contains('hidden')) back(); }); } catch (e) {}
   setLabel('btnMenu', 'menu-2', '菜单');
   window.Shell = { show, hide, badge };
   if (new URLSearchParams(location.search).get('page')) { stack = ['home']; show(new URLSearchParams(location.search).get('page')); }

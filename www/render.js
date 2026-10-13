@@ -23,7 +23,7 @@ class Renderer {
   reset() { if (this.roomSp) { for (const e of this.roomSp.values()) { e.sp.destroy(); e.tx.destroy(); } this.roomSp.clear(); } this.rooms = []; for (const s of this.sprites.values()) s.destroy({ children: true }); this.sprites.clear(); this.view = null; this.roomsVer = -1; this.selected = null; this.beamG.clear(); this.roadG.clear(); this._roadSig = ''; }
   pause(p) { p ? this.app.ticker.stop() : this.app.ticker.start(); }
   // 房间视图：整房间适配屏幕宽度并居中（官方客户端默认一屏一个房间）
-  fitRoom(rx, ry) { this.scale = Math.min(innerWidth, innerHeight - 140) / (ROOM * TS); this.cx = (rx * ROOM + 25) * TS; this.cy = (ry * ROOM + 25) * TS; }
+  fitRoom(rx, ry) { const lb = innerWidth > innerHeight ? 56 : 0; this.scale = (innerWidth > innerHeight ? Math.min(innerWidth - lb, innerHeight - 34) : Math.min(innerWidth, innerHeight - 140)) / (ROOM * TS); this.cx = (rx * ROOM + 25) * TS; this.cy = (ry * ROOM + 25) * TS; }
   curRoom() { return [Math.floor(this.cx / TS / ROOM), Math.floor(this.cy / TS / ROOM)]; }
   // 图层开关：grid 网格 / names 房间名 / owner 领地着色
   setOverlay(k, on) {
@@ -67,19 +67,26 @@ class Renderer {
     }
     return [this.tex('unk', 1, 1, g => C(g, .4, '#000', '#888', .07)), 1];
   }
-  creepTex(body, mine, color) { // 官方 creep：黑色圆体；MOVE 弧在下方，WORK/ATTACK/... 弧在上方，TOUGH 为外圈；CARRY 体现在中间能量
-    const key = 'creep' + body.join(',') + mine + color;
+  // 官方 creep：深色圆体；每种身体部件一段弧，弧长 = 数量/50 × 360°；MOVE 在后方（朝向的反面），其余部件在前方居中依次排列；TOUGH 为外圈。
+  // 贴图朝上（前方 = 上），渲染时整体旋转到移动方向。中心是主人徽章，携带的能量为徽章外的一圈黄色。
+  creepTex(body, mine, color) {
+    const key = 'creep2' + body.join(',') + mine + color;
     return this.tex(key, 1, 1, g => {
-      const n = body.length || 1, cnt = t => body.filter(b => b === t).length, C = Renderer.circle;
-      if (cnt('tough')) C(g, .42, null, 'rgba(255,255,255,' + (0.25 + 0.5 * cnt('tough') / n) + ')', .05);
-      C(g, .38, '#202020', mine ? null : hex(color), .04);
-      const arc = (center, span, col) => { g.beginPath(); g.arc(0, 0, .32, center - span / 2, center + span / 2); g.strokeStyle = hex(col); g.lineWidth = .08; g.stroke(); };
-      const mv = cnt('move'); if (mv) arc(Math.PI / 2, Math.PI * 2 * Math.min(.5, mv / n), PART_COL.move);
-      const top = ['work', 'attack', 'ranged_attack', 'heal', 'claim'].filter(t => cnt(t));
-      const total = top.reduce((a, t) => a + cnt(t), 0); let start = -Math.PI / 2 - Math.PI * Math.min(.5, total / n);
-      for (const t of top) { const span = Math.PI * 2 * Math.min(.5, total / n) * cnt(t) / total; arc(start + span / 2, span, PART_COL[t]); start += span; }
-      C(g, .24, '#111');
+      const cnt = t => body.filter(b => b === t).length, C = Renderer.circle, PER = Math.PI * 2 / 50;
+      if (cnt('tough')) C(g, .42, null, 'rgba(255,255,255,' + Math.min(.85, .3 + cnt('tough') / 25) + ')', .05);
+      C(g, .37, '#1d1d1d', mine ? '#000' : hex(color), .035);
+      const arc = (center, span, col) => { if (span <= 0) return; g.beginPath(); g.arc(0, 0, .3, center - span / 2, center + span / 2); g.strokeStyle = hex(col); g.lineWidth = .1; g.lineCap = 'butt'; g.stroke(); };
+      arc(Math.PI / 2, cnt('move') * PER, PART_COL.move);
+      const front = ['work', 'attack', 'ranged_attack', 'heal', 'claim'].filter(t => cnt(t)), total = front.reduce((a, t) => a + cnt(t), 0) * PER;
+      let st = -Math.PI / 2 - total / 2; for (const t of front) { const sp = cnt(t) * PER; arc(st + sp / 2, sp, PART_COL[t]); st += sp; }
+      C(g, .245, '#111');
     });
+  }
+  // 玩家徽章贴图（官方 ScreepsBadge SVG → 图片），按徽章参数缓存
+  badgeTex(b) {
+    if (!b || typeof ScreepsBadge === 'undefined') return null; const key = 'badge' + JSON.stringify(b); let t = this.texCache.get(key); if (t) return t;
+    const svg = ScreepsBadge.svg(b, 64), img = new Image(); img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg.includes('xmlns') ? svg : svg.replace('<svg', '<svg xmlns="http://www.w3.org/2000/svg"'));
+    t = PIXI.Texture.from(img); this.texCache.set(key, t); return t;
   }
   disc() { return this.tex('disc', 1, 1, g => Renderer.circle(g, .5, '#fff')); }
   // ---------- 地形（官方：平原 #2b2b2b；墙 #111 实心块，相邻墙格融合、外凸角圆滑、内凹角补圆角；沼泽 #292b18 带细描边） ----------
@@ -198,14 +205,17 @@ class Renderer {
       const s = ent(so.id, () => this.sprite(this.tex('src', 1, 1, g => Renderer.rrect(g, -.3, -.3, .6, .6, .13, '#ffe56d', '#5a4f1c', .04)), 1, 1, this.objL, so.x, so.y));
       s.alpha = .35 + .65 * (so.energy / (so.cap || 1));
     }
-    for (const sp of v.spawns) {
-      const m = mine(sp), c = ent(sp.id + (m ? '' : 'h'), () => { const c = new PIXI.Container(); const [t, w] = this.structTex('spawn', m); c.addChild(this.sprite(t, w, w)); c.e = this.sprite(this.disc(), 1, 1); c.e.tint = ENERGY; const pr = new PIXI.Graphics(); c.addChild(c.e, pr); c.pr = pr; c.x = (sp.x + .5) * TS; c.y = (sp.y + .5) * TS; this.objL.addChild(c); return c; });
+    for (const sp of v.spawns) { // 官方：中心是主人徽章，外面一圈能量
+      const m = mine(sp), c = ent(sp.id + (m ? '' : 'h'), () => { const c = new PIXI.Container(); const [t, w] = this.structTex('spawn', m); c.addChild(this.sprite(t, w, w)); c.e = this.sprite(this.disc(), 1, 1); c.e.tint = ENERGY; const pr = new PIXI.Graphics(); c.addChild(c.e, pr); const bt = this.badgeTex(v.players[sp.owner]?.badge); if (bt) c.addChild(this.sprite(bt, .36, .36)); c.pr = pr; c.x = (sp.x + .5) * TS; c.y = (sp.y + .5) * TS; this.objL.addChild(c); return c; });
       fillDisc(c, (sp.energy || 0) / (sp.cap || 300), .33);
       const sk = sp.spawning ? sp.spawning.left : -1; if (c._sk !== sk) { c._sk = sk; c.pr.clear(); if (sp.spawning) c.pr.lineStyle(TS * .1, 0xffffff, .8).arc(0, 0, TS * .45, -Math.PI / 2, -Math.PI / 2 + (1 - sp.spawning.left / sp.spawning.total) * Math.PI * 2); }
     }
     for (const cr of v.creeps) {
-      const m = cr.owner === me, c = ent(cr.id, () => { const c = new PIXI.Container(); c.addChild(this.sprite(this.creepTex(cr.body, m, col(cr.owner)), 1, 1)); c.e = this.sprite(this.disc(), 1, 1); c.e.tint = ENERGY; c.addChild(c.e); this.creepL.addChild(c); return c; });
-      c.data = cr; const cap = cr.body.filter(b => b === 'carry').length * 50; fillDisc(c, cap ? (cr.energy || 0) / cap : 0, .2);
+      const m = cr.owner === me, c = ent(cr.id, () => { const c = new PIXI.Container(); c.bd = this.sprite(this.creepTex(cr.body, m, col(cr.owner)), 1, 1); c.addChild(c.bd);
+        c.e = this.sprite(this.disc(), 1, 1); c.e.tint = ENERGY; c.addChild(c.e); const bt = this.badgeTex(v.players[cr.owner]?.badge); if (bt) { c.bg = this.sprite(bt, .25, .25); c.addChild(c.bg); } this.creepL.addChild(c); return c; });
+      c.data = cr; const cap = cr.body.filter(b => b === 'carry').length * 50, ef = Math.max(0, Math.min(1, cap ? (cr.energy || 0) / cap : 0));
+      if (c._f !== ef) { c._f = ef; c.e.visible = ef > 0; c.e.width = c.e.height = TS * 2 * (.125 + .095 * ef); } // 能量：徽章外一圈，越满越宽
+      if (cr.px != null && (cr.px !== cr.x || cr.py !== cr.y)) c.tgt = Math.atan2(cr.y - cr.py, cr.x - cr.px) + Math.PI / 2; // 面向移动方向（前方 = 贴图上方）
       if ((cr.say || '') !== (c._say || '')) { c._say = cr.say; if (c.say) { c.say.destroy(); c.say = null; } if (cr.say) { c.say = new PIXI.Text(cr.say, { fontSize: 11, fill: 0x111111 }); const bg = new PIXI.Graphics(); bg.beginFill(0xffffff, .9).drawRoundedRect(-c.say.width / 2 - 3, -c.say.height - 3, c.say.width + 6, c.say.height + 2, 3).endFill(); c.say.anchor.set(.5, 1); c.say.y = -2; const w = new PIXI.Container(); w.addChild(bg, c.say); w.y = -TS * .5; c.addChild(w); c.say = w; } }
     }
     for (const [id, s] of this.sprites) if (!seen.has(id)) { s.destroy({ children: true }); this.sprites.delete(id); }
@@ -238,7 +248,9 @@ class Renderer {
     // 放大到完整细节时，视野里尚未生成的房间按需生成（每帧最多 1 个）
     if (lod === 'full' && this.onNeedRoom && this.view) { const S = this.view.S; outer: for (let ry = Math.max(0, Math.floor(vy0 / RS)); ry <= Math.min(S - 1, Math.floor(vy1 / RS)); ry++) for (let rx = Math.max(0, Math.floor(vx0 / RS)); rx <= Math.min(S - 1, Math.floor(vx1 / RS)); rx++) if (!this.roomSp?.has(rx + ',' + ry)) { this.onNeedRoom(rx, ry); break outer; } }
     const a = Math.min(1, (now - this.tickAt) / this.dt);
-    for (const c of this.creepL.children) { const d = c.data; if (!d) continue; const px = d.px ?? d.x, py = d.py ?? d.y; c.x = (px + (d.x - px) * a + .5) * TS; c.y = (py + (d.y - py) * a + .5) * TS; }
+    const fdt = Math.min(100, now - (this._lastF || now)); this._lastF = now;
+    for (const c of this.creepL.children) { const d = c.data; if (!d) continue; const px = d.px ?? d.x, py = d.py ?? d.y; c.x = (px + (d.x - px) * a + .5) * TS; c.y = (py + (d.y - py) * a + .5) * TS;
+      if (c.tgt != null && c.bd) { let dr = c.tgt - c.bd.rotation; dr = Math.atan2(Math.sin(dr), Math.cos(dr)); c.bd.rotation += Math.abs(dr) < .01 ? dr : dr * Math.min(1, fdt / 90); } } // 平滑转向
     this.beamG.alpha = 1 - a;
     const o = this.selected; if (o && o.kind === 'creep') { const c = this.sprites.get(o.id); this.selG.clear(); if (c) this.selG.lineStyle(1.5, 0xffffff, .9).drawCircle(c.x, c.y, TS * .6); }
   }
@@ -256,7 +268,7 @@ class Renderer {
     el.addEventListener('wheel', e => { this.zoom(e.deltaY < 0 ? 1.1 : 0.9); e.preventDefault(); }, { passive: false });
   }
   zoom(f) { this.scale = Math.min(4, Math.max(0.015, this.scale * f)); }
-  fitWorld(S) { const RS = ROOM * TS; this.scale = Math.min(innerWidth / (S * RS), (innerHeight - 70) / (S * RS)) * .96; this.cx = this.cy = S * RS / 2; }
+  fitWorld(S) { const RS = ROOM * TS, L = innerWidth > innerHeight; this.scale = Math.min((innerWidth - (L ? 56 : 0)) / (S * RS), (innerHeight - (L ? 34 : 70)) / (S * RS)) * .96; this.cx = this.cy = S * RS / 2; }
   // 低精度房间：每格 1 像素（墙 #111 / 平原 #2b2b2b / 沼泽 #292b18），缩小时使用并缓存
   miniTex(e) {
     if (e.miniT) return e.miniT; const c = document.createElement('canvas'); c.width = c.height = ROOM; const g = c.getContext('2d'), img = g.createImageData(ROOM, ROOM), d = img.data;

@@ -3,7 +3,7 @@ const fs = require('fs'), vm = require('vm'), path = require('path');
 const W = p => fs.readFileSync(path.join(__dirname, '../www', p), 'utf8');
 vm.runInThisContext(W('screeps-const.js') + W('worldgen.js') + W('engine.js') + W('engine-ext.js'));
 const assert = (c, m) => { if (!c) { console.error('FAIL', m); process.exit(1); } console.log('ok -', m); };
-const run = (e, code) => { const f = compileUser(code); let r; const api = e.buildApi('p1'); f(Object.assign({}, api, { log: (...a) => { r = a[0]; } })); for (const c of e.w.creeps) if (c.owner === 'p1' && c._flushIntents) c._flushIntents(); e.applyHits(); /* 模拟 tick 末伤害/治疗结算 */ if (!run.noMarket) for (const it of ((e.w.market || {}).intents || []).splice(0)) it(); return r; }; // 模拟 tick 末结算
+const run = (e, code) => { const f = compileUser(code); let r; const api = e.buildApi('p1'); f(Object.assign({}, api, { log: (...a) => { r = a[0]; } })); e.flushIntents('p1'); e.applyHits(); /* 模拟 tick 末伤害/治疗结算 */ if (!run.noMarket) for (const it of ((e.w.market || {}).intents || []).splice(0)) it(); return r; }; // 模拟 tick 末结算
 const e = new Engine(newWorld(42)); e.addPlayer('p1', 'T'); e.w.zones = {};
 const ctrl = e.w.controllers.find(c => c.owner === 'p1'); ctrl.level = 8; ctrl.safeMode = 0; const sp = e.w.spawns[0], rn = roomName(sp.x, sp.y);
 const fresh = () => { e._objVer++; e._o = null; };

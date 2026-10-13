@@ -3,7 +3,7 @@ const fs = require('fs'), vm = require('vm'), path = require('path');
 const W = p => fs.readFileSync(path.join(__dirname, '../www', p), 'utf8');
 vm.runInThisContext(W('screeps-const.js') + W('worldgen.js') + W('engine.js'));
 const assert = (c, m) => { if (!c) { console.error('FAIL', m); process.exit(1); } console.log('ok -', m); };
-const run = (e, code) => { const f = compileUser(code); let r; const api = e.buildApi('p1'); f(Object.assign({}, api, { log: (...a) => { r = a[0]; } })); for (const c of e.w.creeps) if (c.owner === 'p1' && c._flushIntents) c._flushIntents(); e.applyHits(); /* 模拟 tick 末伤害/治疗结算 */ return r; };
+const run = (e, code) => { const f = compileUser(code); let r; const api = e.buildApi('p1'); f(Object.assign({}, api, { log: (...a) => { r = a[0]; } })); e.flushIntents('p1'); e.applyHits(); /* 模拟 tick 末伤害/治疗结算 */ return r; };
 const e = new Engine(newWorld(42)); e.addPlayer('p1', 'T'); const sp = e.w.spawns[0]; const ctrl = e.w.controllers.find(c => c.owner === 'p1'); ctrl.safeMode = 0;
 const c = e.makeStruct('container', 'p1', sp.x + 2, sp.y + 2); c.store = { energy: 300 }; e.w.structures.push(c); e._objVer++;
 e.damage(c, 1e9, 'zz'); const ru = (e.w.ruins || [])[0];

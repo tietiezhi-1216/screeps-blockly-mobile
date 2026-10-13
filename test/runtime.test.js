@@ -4,7 +4,7 @@ const W = p => fs.readFileSync(path.join(__dirname, '../www', p), 'utf8');
 vm.runInThisContext(W('screeps-const.js') + W('worldgen.js') + W('engine.js') + W('engine-ext.js'));
 const assert = (c, m) => { if (!c) { console.error('FAIL', m); process.exit(1); } console.log('ok -', m); };
 const call = (e, code, pid = 'p1') => { const f = compileUser(code); let r; const api = e.buildApi(pid); f(Object.assign({}, api, { log: (...a) => { r = a[0]; } })); return r; };
-const flush = (e, pid = 'p1') => { for (const c of e.w.creeps) if (c.owner === pid && c._flushIntents) c._flushIntents(); e.applyHits(); /* 模拟 tick 末伤害/治疗结算 */ for (const it of ((e.w.market || {}).intents || []).splice(0)) it(); };
+const flush = (e, pid = 'p1') => { e.flushIntents(pid); e.applyHits(); /* 模拟 tick 末伤害/治疗结算 */ for (const it of ((e.w.market || {}).intents || []).splice(0)) it(); };
 const e = new Engine(newWorld(42)); e.addPlayer('p1', 'T'); e.addPlayer('p2', 'U'); e.w.zones = {}; const w = e.w;
 const sp = w.spawns.find(s => s.owner === 'p1'), rn = roomName(sp.x, sp.y);
 const free = (x0, y0) => { for (let r = 1; r < 6; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) { const x = x0 + dx, y = y0 + dy; if (roomKey(x, y) === roomKey(x0, y0) && !e.solid(x, y) && !w.creeps.some(c => c.x === x && c.y === y)) return [x, y]; } };

@@ -6,7 +6,7 @@ const assert = (c, m) => { if (!c) { console.error('FAIL', m); process.exit(1); 
 const e = new Engine(newWorld(42)); e.addPlayer('p1', 'T'); e.w.zones = {}; const w = e.w; w.players.p2 = { name: 'F' }; w.memory.p2 = {};
 const ctrl = w.controllers.find(c => c.owner === 'p1'); ctrl.safeMode = 0;
 const call = code => { const f = compileUser(code); let r; f(Object.assign({}, e.buildApi('p1'), { log: (...a) => { r = a[0]; } })); return r; };
-const end = () => { for (const c of w.creeps) if (c.owner === 'p1' && c._flushIntents) c._flushIntents(); e.applyHits(); };
+const end = () => { e.flushIntents('p1'); e.applyHits(); };
 const sp = w.spawns[0]; const spots = []; for (let dx = 3; dx < 20 && spots.length < 6; dx++) { const x = sp.x + dx, y = sp.y + 3; if (!e.solid(x, y) && roomKey(x, y) === roomKey(sp.x, sp.y)) spots.push([x, y]); }
 const C = (id, owner, body, i, extra = {}) => { const c = Object.assign({ kind: 'creep', id, owner, name: id, body, hits: body.length * 100, x: spots[i][0], y: spots[i][1], px: 0, py: 0, store: {}, ttl: 1000, fatigue: 0 }, extra); w.creeps.push(c); e._o = null; return c; };
 if (spots.length < 3 || spots[1][0] - spots[0][0] !== 1 || spots[2][0] - spots[1][0] !== 1) throw new Error('测试地形不连续');

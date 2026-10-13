@@ -3,7 +3,7 @@ const fs = require('fs'), vm = require('vm'), path = require('path');
 const W = p => fs.readFileSync(path.join(__dirname, '../www', p), 'utf8');
 vm.runInThisContext(W('screeps-const.js') + W('worldgen.js') + W('engine.js'));
 const assert = (c, m) => { if (!c) { console.error('FAIL', m); process.exit(1); } console.log('ok -', m); };
-const run = (e, code) => { const f = compileUser(code); let r; f(Object.assign({}, e.buildApi('p1'), { log: (...a) => { r = a[0]; } })); for (const c of e.w.creeps) if (c.owner === 'p1' && c._flushIntents) c._flushIntents(); e.applyHits(); /* 模拟 tick 末伤害/治疗结算 */ return r; };
+const run = (e, code) => { const f = compileUser(code); let r; f(Object.assign({}, e.buildApi('p1'), { log: (...a) => { r = a[0]; } })); e.flushIntents('p1'); e.applyHits(); /* 模拟 tick 末伤害/治疗结算 */ return r; };
 const e = new Engine(newWorld(7)); e.addPlayer('p1', 'T');
 const ctrl = e.w.controllers.find(c => c.owner === 'p1');
 assert(ctrl.safeMode > e.w.time && ctrl.safeMode - e.w.time === SC.SAFE_MODE_DURATION, '首个房间自动开启安全模式 20000 tick');

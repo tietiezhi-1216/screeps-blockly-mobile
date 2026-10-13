@@ -5,7 +5,7 @@ vm.runInThisContext(W('screeps-const.js') + W('worldgen.js') + W('engine.js') + 
 const assert = (c, m) => { if (!c) { console.error('FAIL', m); process.exit(1); } console.log('ok -', m); };
 // tick 内跑代码（不结算）：只调用 API，返回 console.log 值
 const call = (e, code, pid = 'p1') => { const f = compileUser(code); let r; const api = e.buildApi(pid); f(Object.assign({}, api, { log: (...a) => { r = a[0]; } })); return r; };
-const flush = (e, pid = 'p1') => { for (const c of e.w.creeps) if (c.owner === pid && c._flushIntents) c._flushIntents(); e.applyHits(); /* 模拟 tick 末伤害/治疗结算 */ for (const it of ((e.w.market || {}).intents || []).splice(0)) it(); };
+const flush = (e, pid = 'p1') => { e.flushIntents(pid); e.applyHits(); /* 模拟 tick 末伤害/治疗结算 */ for (const it of ((e.w.market || {}).intents || []).splice(0)) it(); };
 const run = (e, code, pid) => { const r = call(e, code, pid); flush(e, pid); return r; };
 const mkE = () => { const e = new Engine(newWorld(42)); e.addPlayer('p1', 'T'); e.w.zones = {}; const ctrl = e.w.controllers.find(c => c.owner === 'p1'); ctrl.level = 8; ctrl.safeMode = 0; return e; };
 let e = mkE(); const sp = e.w.spawns[0], rn = roomName(sp.x, sp.y);

@@ -4,7 +4,7 @@ const W = p => fs.readFileSync(path.join(__dirname, '../www', p), 'utf8');
 vm.runInThisContext(W('screeps-const.js') + W('worldgen.js') + W('engine.js') + W('engine-ext.js'));
 const assert = (c, m) => { if (!c) { console.error('FAIL', m); process.exit(1); } console.log('ok -', m); };
 const call = (e, code) => { const f = compileUser(code); let r; const api = e.buildApi('p1'); f(Object.assign({}, api, { log: (...a) => { r = a[0]; } })); return r; };
-const flush = e => { for (const c of e.w.creeps) if (c.owner === 'p1' && c._flushIntents) c._flushIntents(); e.applyHits(); /* 模拟 tick 末伤害/治疗结算 */ };
+const flush = e => { e.flushIntents('p1'); e.applyHits(); /* 模拟 tick 末伤害/治疗结算 */ };
 const run = (e, code) => { const r = call(e, code); flush(e); return r; };
 const e = new Engine(newWorld(42)); e.addPlayer('p1', 'T'); e.w.zones = {};
 const w = e.w, ctrl = w.controllers.find(c => c.owner === 'p1'); ctrl.level = 8; ctrl.safeMode = 0; const sp = w.spawns[0], rn = roomName(sp.x, sp.y);

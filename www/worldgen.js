@@ -75,10 +75,25 @@ function roomStatus(S, owned, rx, ry, pid) {
   for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const p = owned[(rx + dx) + ',' + (ry + dy)]; if (p && p !== pid) return 'close'; }
   return 'free';
 }
+// 官方 backend-local cli/map.js _genTerrain：从资源点沿可走格 BFS，步数 3~5 的墙格（非资源、非边缘）里随机选一个作为 Keeper Lair
+function lairSpot(isWall, isTaken, x, y, r) {
+  const spots = [], list = [[x, y]], visited = { [x + ',' + y]: 0 };
+  do { const [cx, cy] = list.pop();
+    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) { const nx = cx + dx, ny = cy + dy, k = nx + ',' + ny;
+      if ((!dx && !dy) || visited[k] !== undefined || nx < 0 || ny < 0 || nx > 49 || ny > 49) continue;
+      const d = visited[cx + ',' + cy] + 1; visited[k] = d;
+      if (d >= 3 && d <= 5 && isWall(nx, ny) && !isTaken(nx, ny) && nx > 0 && nx < 49 && ny > 0 && ny < 49) spots.push([nx, ny]);
+      if (!isWall(nx, ny) && d < 5) list.push([nx, ny]); } }
+  while (list.length > 0);
+  if (!spots.length) return null;
+  for (let i = spots.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [spots[i], spots[j]] = [spots[j], spots[i]]; } // _.shuffle
+  return { x: spots[0][0], y: spots[0][1] };
+}
 function genRoom(seed, rx, ry, exits) {
   const r = rngFrom(hash32(seed, rx, ry, 5)), type = roomType(rx, ry);
   let wallType = Math.floor(r() * 27) + 1; const swampType = Math.floor(r() * 14); let nSources = r() > 0.5 ? 1 : 2;
   if (type === 'highway') { wallType = 28; nSources = 0; } else if (type === 'center' || type === 'keeper') nSources = 3;
+  let lairs0 = [];
   const gen = () => {
     let cells, tries = 0;
     do {
@@ -93,12 +108,13 @@ function genRoom(seed, rx, ry, exits) {
       for (let i = 0; i < WALL_TYPES[wallType][1]; i++) cells = smooth(cells, WALL_TYPES[wallType][2], 'wall');
     } while (!checkFlood(cells));
     if (swampType) for (let i = 0; i < SWAMP_TYPES[swampType][1]; i++) cells = smooth(cells, SWAMP_TYPES[swampType][2], 'swamp');
-    const sources = [];
+    const sources = []; lairs0 = [];
     for (let i = 0; i < nSources; i++) { // 官方：能量源必须在墙格上，且旁边有可走格
       let x, y, n = 0;
       do { if (++n > 1000) return null; x = Math.floor(r() * 44) + 3; y = Math.floor(r() * 44) + 3; }
       while (!cells[y * 50 + x].wall || !passNearby(cells, x, y) || cells[y * 50 + x].source);
       cells[y * 50 + x].source = true; sources.push({ x, y });
+      if (type === 'keeper') { const l = lairSpot((a, b) => cells[b * 50 + a].wall, (a, b) => cells[b * 50 + a].source || cells[b * 50 + a].lair, x, y, r); if (!l) return null; cells[l.y * 50 + l.x].lair = true; lairs0.push({ x: l.x, y: l.y, tx: x, ty: y }); }
     }
     if (type !== 'normal') return { cells, sources, controller: null };
     let cx, cy, n = 0; // Controller：同样在墙格上，旁边有可走格
@@ -119,14 +135,9 @@ function genRoom(seed, rx, ry, exits) {
   while (n < 20000 && (tiles[my * 50 + mx] !== T_WALL || !passNearby(g.cells, mx, my) || objs.some(o => Math.abs(o.x - mx) < 5 && Math.abs(o.y - my) < 5)));
   const rd = r(), dp = SC.MINERAL_DENSITY_PROBABILITY; let density = 4; for (const d in dp) if (rd <= dp[d]) { density = +d; break; }
   const mineral = n < 20000 ? { x: mx, y: my, type: MINERAL_TYPES[Math.floor(r() * MINERAL_TYPES.length)], density, amount: SC.MINERAL_DENSITY[density] } : null;
-  // 官方 Source Keeper 房间：每个能量源/矿物旁都有一个 Keeper Lair（2~4 格内的空地）
-  const lairs = [];
-  if (type === 'keeper') for (const o of g.sources.concat(mineral ? [mineral] : [])) {
-    let best = null; for (let d = 2; d <= 5 && !best; d++) for (let dy = -d; dy <= d && !best; dy++) for (let dx = -d; dx <= d && !best; dx++) {
-      const x = o.x + dx, y = o.y + dy; if (x < 2 || y < 2 || x > 47 || y > 47 || tiles[y * 50 + x] === T_WALL || lairs.some(l => l.x === x && l.y === y)) continue; best = { x, y, tx: o.x, ty: o.y };
-    }
-    if (best) lairs.push(best);
-  }
+  // 官方 Source Keeper 房间：能量源的 lair 在生成地形时放置（同官方 map.js）；官方 MMO 的 SK 房间矿物旁也有 lair，用同一算法放置
+  const lairs = lairs0.slice();
+  if (type === 'keeper' && mineral) { const l = lairSpot((a, b) => tiles[b * 50 + a] === T_WALL, (a, b) => lairs.some(q => q.x === a && q.y === b) || g.sources.some(q => q.x === a && q.y === b) || (a === mineral.x && b === mineral.y), mineral.x, mineral.y, r); if (l) lairs.push({ x: l.x, y: l.y, tx: mineral.x, ty: mineral.y }); }
   return { tiles, sources: g.sources, controller: g.controller, mineral, type, lairs };
 }
 function roomExits(seed, rx, ry) {

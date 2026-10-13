@@ -43,7 +43,7 @@ function ensureRoom(w, rx, ry) {
 }
 const NOVICE_TICKS = 100000, RESPAWN_TICKS = 50000; // 官方以天计，这里按 tick 缩短
 const KEEPER = '__keeper'; // 官方 Source Keeper（NPC 玩家）
-const KEEPER_BODY = [].concat(Array(17).fill('tough'), Array(13).fill('move'), Array(10).fill('attack'), Array(10).fill('ranged_attack'));
+const KEEPER_BODY = [].concat(Array(17).fill('tough'), Array(13).fill('move'), ...Array(10).fill(['attack', 'ranged_attack'])); // 官方 keeper-lairs/tick.js 顺序：ATTACK/RANGED_ATTACK 交替
 function defaultBadge(pid) { const h = hash32(String(pid).split('').reduce((a, c) => a * 31 + c.charCodeAt(0) | 0, 7), 1, 2); return { type: 1 + h % 24, color1: (h >>> 5) % 80, color2: (h >>> 12) % 80, color3: (h >>> 19) % 80, param: 0, flip: false }; }
 function ensureNear(w, rx, ry, r = 1) { for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) ensureRoom(w, rx + dx, ry + dy); }
 function ensureSize(w, S) {
@@ -280,6 +280,7 @@ class Engine {
       // 官方 Memory：tick 结束时 JSON 序列化；不可序列化的内容（函数/循环引用）不会保存
       try { const str = JSON.stringify(w.memory[pid]); if (str.length > 2 * 1024 * 1024) this.log(pid, 'Memory 超过 2MB 限制，未保存'); else { w.memory[pid] = JSON.parse(str); (this._memOk = this._memOk || {})[pid] = str; } } catch (e) { this.log(pid, 'Memory 序列化失败:', String(e && e.message || e)); const ok = this._memOk && this._memOk[pid]; if (ok) w.memory[pid] = JSON.parse(ok); }
     }
+    this.keeperAI(); // 官方：NPC pretick 与玩家 intent 同一 tick 结算
     this.resolveMoves();
     for (const c of w.creeps) {
       if (c.spawning) continue;
@@ -289,7 +290,7 @@ class Engine {
       const za = this.zoneOf(Math.floor(c.x / ROOM), Math.floor(c.y / ROOM)), zb = this.zoneOf(Math.floor(nx / ROOM), Math.floor(ny / ROOM)), zoneOk = (za && za.id) === (zb && zb.id);
       if ((nx !== c.x || ny !== c.y) && zoneOk && c._arrived !== w.time && !this.blocked(nx, ny, c)) { const o = this._occ(); o.delete(c.y * this.W + c.x); c.x = nx; c.y = ny; c.px = nx; c.py = ny; o.set(c.y * this.W + c.x, c); c._path = null; }
       c.fatigue = Math.max(0, c.fatigue - boostPower(c, 'move', 'fatigue') * 2);
-      c.ttl--;
+      if (!c.noAge) c.ttl--; // Keeper 不衰老（官方无 ageTime）
     }
     for (const c of w.creeps.slice()) if (!c.spawning && (c.ttl <= 0 || c.hits <= 0)) this.killCreep(c, SC.CREEP_CORPSE_RATE);
     this.tickKeepers(); this.tickZones(); this.tickSpawns(); this.tickSources(); this.tickControllers(); this.tickStructures(); this.tickGround();
@@ -357,23 +358,41 @@ class Engine {
       if (this.roomEnergy(k, sp.owner).avail < SC.SPAWN_ENERGY_CAPACITY && sp.store.energy < SC.SPAWN_ENERGY_CAPACITY) sp.store.energy++;
     }
   }
-  // 官方 Keeper Lair：Keeper 死后 300 tick 重生；Keeper 守在能量源/矿物旁，攻击 3 格内的敌对 creep
+  // 官方 keeper-lairs/tick.js：无 Keeper 或 Keeper 受伤（hits<5000）→ 计时 ENERGY_REGEN_TIME；到点移除旧 Keeper 并在 lair 上生成新的
   tickKeepers() {
     const w = this.w;
     for (const l of w.structures) {
       if (l.type !== 'keeperLair') continue;
-      const k = w.creeps.find(c => c.lair === l.id);
-      if (!k) {
-        if (l.spawnAt == null) l.spawnAt = w.time + SC.ENERGY_REGEN_TIME;
-        if (w.time >= l.spawnAt && !this.blocked(l.x, l.y)) { l.spawnAt = null; w.creeps.push({ kind: 'creep', id: 'c' + (w.nextId++), owner: KEEPER, name: 'Keeper' + l.id, body: KEEPER_BODY.slice(), hits: 5000, x: l.x, y: l.y, px: l.x, py: l.y, store: {}, ttl: SC.CREEP_LIFE_TIME, fatigue: 0, lair: l.id }); this._o = null; this._objVer++; }
-        continue;
+      const name = 'Keeper' + l.id, find = () => w.creeps.find(c => c.owner === KEEPER && c.name === name);
+      if (!l.spawnAt) { const k = find(); if (!k || k.hits < 5000) l.spawnAt = w.time + SC.ENERGY_REGEN_TIME; }
+      if (l.spawnAt && w.time >= l.spawnAt - 1) {
+        const old = find(); if (old) { w.creeps.splice(w.creeps.indexOf(old), 1); }
+        w.creeps.push({ kind: 'creep', id: 'c' + (w.nextId++), owner: KEEPER, name, body: KEEPER_BODY.slice(), hits: 5000, x: l.x, y: l.y, px: l.x, py: l.y, store: { energy: 0 }, ttl: Infinity, noAge: true, fatigue: 0, lair: l.id });
+        l.spawnAt = null; this._o = null; this._objVer++;
       }
-      l.spawnAt = null;
-      const foes = w.creeps.filter(c => c.owner !== KEEPER && !c.spawning && Math.max(Math.abs(c.x - k.x), Math.abs(c.y - k.y)) <= 3);
-      const adj = foes.find(c => Math.max(Math.abs(c.x - k.x), Math.abs(c.y - k.y)) <= 1);
-      if (adj) this.damage(adj, boostPower(k, 'attack', 'attack') * SC.ATTACK_POWER, KEEPER);
-      else if (foes.length) this.damage(foes[0], boostPower(k, 'ranged_attack', 'rangedAttack') * SC.RANGED_ATTACK_POWER, KEEPER);
-      if (Math.max(Math.abs(l.tx - k.x), Math.abs(l.ty - k.y)) > 1) { const nx = k.x + Math.sign(l.tx - k.x), ny = k.y + Math.sign(l.ty - k.y); if (!this.blocked(nx, ny, k)) { const o = this._occ(); o.delete(k.y * this.W + k.x); k.x = nx; k.y = ny; o.set(ny * this.W + nx, k); } }
+    }
+  }
+  // 官方 creeps/keepers/pretick.js：记住 5 格内的资源点并 moveTo(range 1)；近战打 1 格内 hits 最少的；3 格内按 [10,10,4,1] 估算群伤 >13 用 rangedMassAttack，否则 rangedAttack hits 最少的
+  keeperAI() {
+    const w = this.w; const npc = o => o === KEEPER || o === (typeof INVADER !== 'undefined' ? INVADER : '__invader');
+    for (const k of w.creeps.slice()) {
+      if (k.owner !== KEEPER || k.spawning || k.hits <= 0) continue; const rk = roomKey(k.x, k.y);
+      const res = w.sources.concat(w.minerals).filter(o => roomKey(o.x, o.y) === rk);
+      const foes = w.creeps.filter(c => !c.spawning && !npc(c.owner) && roomKey(c.x, c.y) === rk), melee = foes.filter(c => dist(c, k) <= 1), ranged = foes.filter(c => dist(c, k) <= 3);
+      let src = k.memSource && res.find(o => o.id === k.memSource);
+      if (!src) { src = res.find(o => dist(k, o) <= 5); if (src) k.memSource = src.id; }
+      if (src && dist(src, k) > 1 && !k.fatigue) { if (!k._path || !k._path.length || k._pathTo !== src.id) { k._path = this.findPath(k, src, 1, k, { reusePath: 50 }); k._pathTo = src.id; }
+        const nx = k._path && k._path.shift(); if (nx) k._move = { x: nx.x, y: nx.y }; else k._path = null; }
+      const minHits = L => L.reduce((a, c) => (!a || c.hits < a.hits ? c : a), null);
+      const mt = minHits(melee);
+      if (mt) { const dm = boostPower(k, 'attack', 'attack') * SC.ATTACK_POWER; this.elog(k, SC.EVENT_ATTACK, { targetId: mt.id, damage: dm, attackType: SC.EVENT_ATTACK_TYPE_MELEE }); this.damage(mt, dm, KEEPER);
+        if (activeParts(mt, 'attack')) { const hb = boostPower(mt, 'attack', 'attack') * SC.ATTACK_POWER; this.elog(mt, SC.EVENT_ATTACK, { targetId: k.id, damage: hb, attackType: SC.EVENT_ATTACK_TYPE_HIT_BACK }); this.damage(k, hb, mt.owner); }
+        this.events.push({ t: 'attack', fx: k.x, fy: k.y, x: mt.x, y: mt.y }); }
+      if (ranged.length) {
+        const byR = [10, 10, 4, 1], mass = ranged.reduce((a, c) => a + byR[dist(k, c)], 0), n = boostPower(k, 'ranged_attack', 'rangedAttack') * SC.RANGED_ATTACK_POWER;
+        if (mass > 13) { for (const c of ranged) { const dm = Math.round(n * ({ 0: 1, 1: 1, 2: 0.4, 3: 0.1 })[dist(c, k)]); this.elog(k, SC.EVENT_ATTACK, { targetId: c.id, damage: dm, attackType: SC.EVENT_ATTACK_TYPE_RANGED_MASS }); this.damage(c, dm, KEEPER); } }
+        else { const rt = minHits(ranged); this.elog(k, SC.EVENT_ATTACK, { targetId: rt.id, damage: n, attackType: SC.EVENT_ATTACK_TYPE_RANGED }); this.damage(rt, n, KEEPER); this.events.push({ t: 'attack', fx: k.x, fy: k.y, x: rt.x, y: rt.y }); }
+      }
     }
   }
   // 新手区/重生区（官方 novice/respawn zone）：到期解除；区内外不能穿越
@@ -801,7 +820,7 @@ function buildApi(E, pid) {
     creep(v, o) {
       const mine = o.owner === pid, cap = boostPower(o, 'carry', 'capacity') * SC.CARRY_CAPACITY;
       Object.assign(v, { name: o.name, my: mine, owner: owner(o), body: o.body.map((t, i) => ({ type: t, hits: partHits(o, i), boost: o.boosts && o.boosts[i] || undefined })), fatigue: o.fatigue, hits: o.hits, hitsMax: o.body.length * 100,
-        spawning: !!o.spawning, ticksToLive: o.spawning ? undefined : o.ttl, saying: o.say && w.time - o.sayT <= 1 && (mine || o.sayPublic) ? o.say : undefined, store: makeStore(o), carryCapacity: cap });
+        spawning: !!o.spawning, ticksToLive: o.spawning || o.noAge ? undefined : o.ttl, saying: o.say && w.time - o.sayT <= 1 && (mine || o.sayPublic) ? o.say : undefined, store: makeStore(o), carryCapacity: cap });
       v.carry = v.store;
       Object.defineProperty(v, 'memory', { get: () => { if (!mine) return undefined; mem.creeps = mem.creeps || {}; return (mem.creeps[o.name] = mem.creeps[o.name] || {}); }, set: x => { if (mine) { mem.creeps = mem.creeps || {}; mem.creeps[o.name] = x; } } });
       v.getActiveBodyparts = t => activeParts(o, t);

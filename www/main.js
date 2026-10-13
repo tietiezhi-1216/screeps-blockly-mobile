@@ -5,7 +5,7 @@ let mode = 'solo', engine = null, hostS = null, client = null, transport = null;
 let running = false, speed = 1, ws = null, code = '';
 applyIcons();
 const renderer = new Renderer($('stage')); renderer.myPid = myPid;
-let showFps = localStorage.getItem('sbm_fps') === '1';
+let showFps = false;
 // 控制台：保留最近 500 条，可按文本 / 类型过滤（同官方 Console）
 const LOGS = []; let cnFilter = 'all';
 const log = (s, cls) => { s = String(s); LOGS.push({ s, cls: cls || (/错误|error|失败/i.test(s) ? 'err' : ''), t: engine ? engine.w.time : client?.view?.time }); if (LOGS.length > 500) LOGS.splice(0, LOGS.length - 500); if (typeof renderConsole === 'function') renderConsole(); };
@@ -158,9 +158,8 @@ function stats() {
   if (!v) H = chip('plug-connected', mode === 'client' ? '等待房主…' : '');
   else {
     const re = roomEnergy(v), n = v.creeps.filter(c => c.owner === myPid).length, np = Object.keys(v.players).length;
-    H = chip(mode === 'solo' ? 'device-gamepad-2' : mode === 'host' ? 'home' : 'wifi', mode === 'client' ? '客户端' : running ? '运行' : '暂停') + chip('refresh', `<b>${v.time}</b>`) + chip('bolt', `<b>${re ? re[0] + '/' + re[1] : '-'}</b>`) + chip('bug', `<b>${n}</b>`) + chipX('users', `${np}`) + chipX('map', `${v.S}×${v.S}`);
+    H = chip(mode === 'solo' ? 'device-gamepad-2' : mode === 'host' ? 'home' : 'wifi', mode === 'client' ? '客户端' : running ? '运行' : '暂停') + chip('refresh', `<b>${v.time}</b>`) + chip('bolt', `<b>${re ? re[0] + '/' + re[1] : '-'}</b>`) + chip('bug', `<b>${n}</b>`);
   }
-  if (showFps) H += chip('gauge', `${renderer.fps.toFixed(0)} fps · ${tickMs.toFixed(1)}ms`);
   const need = !!(v && v.players[myPid]?.needsSpawn); $('rbSpawn').classList.toggle('hidden', !need || build.type === 'spawn1');
   if (need && !wm.auto && $('start').classList.contains('hidden') && $('wmap').classList.contains('hidden') && !build.on) openWorldMap(true);
   updateRoomNav(v);
@@ -213,9 +212,6 @@ $('mReset').onclick = () => { if (mode === 'client') return alert('客户端不�
 $('mResetCode').onclick = () => { if (confirm('恢复默认积木程序？当前程序会存入历史版本，可在编辑器里恢复。')) { histPush('恢复默认前', true); ws.clear(); Blockly.serialization.workspaces.load(DEFAULT_WS, ws); regen(true); } };
 $('mIntro').onclick = () => { $('menu').classList.add('hidden'); $('intro').classList.remove('hidden'); };
 $('introOk').onclick = () => { $('intro').classList.add('hidden'); localStorage.setItem('sbm_intro', '1'); };
-$('mUpdate').onclick = () => checkUpdate(true);
-function fpsUI() { setLabel('mFps', 'gauge', '显示 FPS：' + (showFps ? '开' : '关')); }
-$('mFps').onclick = () => { showFps = !showFps; localStorage.setItem('sbm_fps', showFps ? '1' : '0'); fpsUI(); stats._h = ''; }; fpsUI();
 // 开始界面
 $('startVer').textContent = 'v' + (window.APP_VERSION || 'dev');
 const hideStart = () => $('start').classList.add('hidden');
@@ -299,7 +295,8 @@ renderer.onTick = () => renderInspect();
 (function boot() { const host = $('editor'); host.classList.remove('hidden'); host.style.visibility = 'hidden'; initBlockly(); host.classList.add('hidden'); host.style.visibility = ''; loadEngine(); setRunUI(); })();
 document.addEventListener('visibilitychange', () => { if (document.hidden) save(); });
 requestAnimationFrame(loop);
-setTimeout(() => checkUpdate(false), 2000); setInterval(() => checkUpdate(false), 6 * 3600 * 1000);
+// 自动检查更新：启动 20 秒后检查一次，之后游戏运行期间每 30 分钟检查；发现新版本直接弹窗
+setTimeout(() => checkUpdate(false), 20000); setInterval(() => checkUpdate(false), 30 * 60 * 1000);
 const qj = new URLSearchParams(location.search).get('join'); if (qj) join(qj);
 if (new URLSearchParams(location.search).get('run')) { hideStart(); running = true; setSpeed(4, false); setRunUI(); }
 if (qj) hideStart();
@@ -443,9 +440,10 @@ function gotoRoom(rx, ry) { needRoom(rx, ry); renderer.fitRoom(rx, ry); updateRo
 const _asked = new Set();
 function needRoom(rx, ry) { const k = rx + ',' + ry; if (mode === 'client') { if (!_asked.has(k)) { _asked.add(k); client.gen(rx, ry); } } else if (engine && !engine.w.rooms[k]) { ensureRoom(engine.w, rx, ry); _snap = null; renderer.setView(engine.w, 1); } }
 renderer.onNeedRoom = needRoom;
-renderer.onLod = () => updateRoomNav(view());
-$('rbMap').onclick = () => { const v = view(); if (v) renderer.fitWorld(v.S); };
-$('rbHome').onclick = () => { const v = view(), sp = v && v.spawns.find(s => s.owner === myPid); if (sp) gotoRoom(Math.floor(sp.x / ROOM), Math.floor(sp.y / ROOM)); else toastMsg('还没有房间'); };
+renderer.onLod = () => { updateRoomNav(view()); const m = renderer.lod === 'mini'; setLabel('btnView', m ? 'home' : 'map', m ? '我的房间' : '全图'); };
+// 右侧工具栏「全图 / 我的房间」切换（替代原右上角两个按钮）
+$('btnView').onclick = () => { const v = view(); if (!v) return; if (renderer.lod === 'mini') goHome(); else renderer.fitWorld(v.S); };
+function goHome() { const v = view(), sp = v && v.spawns.find(s => s.owner === myPid); if (sp) gotoRoom(Math.floor(sp.x / ROOM), Math.floor(sp.y / ROOM)); else toastMsg('还没有房间'); };
 $('rbSpawn').onclick = () => { wm.auto = false; openWorldMap(true); };
 
 // 世界地图：双指缩放 / 拖动；点房间选择，「前往」进入
@@ -510,15 +508,16 @@ function memHTML(o, depth = 0) {
 }
 function layersHTML() {
   const ov = renderer.ov || {}, row = (k, t) => `<label>${t}<input type="checkbox" data-ov="${k}" ${ov[k] ? 'checked' : ''}></label>`;
-  return `<div class="lyr">${row('grid', '房间网格')}${row('names', '房间名称')}${row('owner', '领地着色（按玩家颜色）')}${row('fps', '显示 FPS / tick 耗时')}</div>`;
+  return `<div class="lyr">${row('grid', '房间网格')}${row('names', '房间名称')}${row('owner', '领地着色（我的绿 / 他人红）')}</div>`;
 }
 function renderPanel(force) {
   if ($('panel').classList.contains('hidden')) return;
   if (panelTab === 'room') $('pnBody').innerHTML = roomInfoHTML();
   else if (panelTab === 'memory' && force) $('pnBody').innerHTML = mode === 'client' ? '<p>内存在房主上，客户端暂不可查看。</p>' : `<div class="mem">${memHTML(engine.w.memory[myPid] || {})}</div>`;
   else if (panelTab === 'layers' && force) { $('pnBody').innerHTML = layersHTML(); $('pnBody').querySelectorAll('[data-ov]').forEach(i => i.onchange = () => {
-    if (i.dataset.ov === 'fps') { $('mFps').click(); return; } renderer.setOverlay(i.dataset.ov, i.checked); localStorage.setItem('sbm_ov', JSON.stringify(renderer.ov)); }); $('pnBody').querySelector('[data-ov="fps"]').checked = showFps; }
+    renderer.setOverlay(i.dataset.ov, i.checked); localStorage.setItem('sbm_ov', JSON.stringify(renderer.ov)); }); }
   else if (panelTab === 'console') renderConsole();
+  else if (panelTab === 'global') $('pnBody').innerHTML = globalHTML();
 }
 renderer.onTick = () => { renderInspect(); if (panelTab === 'room') renderPanel(false); };
 function renderConsole() {
@@ -540,3 +539,11 @@ function runCmd() {
 }
 $('cnRun').onclick = runCmd; $('cnCmd').addEventListener('keydown', e => { if (e.key === 'Enter') runCmd(); });
 (() => { let ov = {}; try { ov = JSON.parse(localStorage.getItem('sbm_ov')) || {}; } catch (e) {} ov = Object.assign({ names: true }, ov); for (const k in ov) renderer.setOverlay(k, ov[k]); })();
+
+// 全局信息：原 HUD 上的性能 / 世界数据集中到这里
+function globalHTML() {
+  const v = view(), me = v && v.players[myPid];
+  const R = (k, x) => `<div class="gi"><span>${k}</span><b>${x}</b></div>`;
+  return `<div class="glob">${R('模式', mode === 'solo' ? '单机' : mode === 'host' ? '房主' : '客户端')}${R('状态', running ? '运行中' : '已暂停')}${R('运行速度', speed + 'x（每 tick ' + Math.round(500 / speed) + ' ms）')}${R('当前 tick', v ? v.time : '-')}${R('每 tick 计算耗时', tickMs.toFixed(1) + ' ms')}${R('渲染帧率', renderer.fps.toFixed(0) + ' FPS')}${R('世界大小', v ? v.S + '×' + v.S + ' 房间' : '-')}${R('玩家数', v ? Object.keys(v.players).length : '-')}${R('GCL 点数', me ? Math.floor(me.gcl || 0) : '-')}${me && me.bucket != null ? R('CPU bucket', Math.floor(me.bucket)) : ''}${R('版本', 'V' + (window.APP_VERSION || 'dev'))}</div>`;
+}
+setInterval(() => { if (!$('panel').classList.contains('hidden') && panelTab === 'global') $('pnBody').innerHTML = globalHTML(); }, 1000);

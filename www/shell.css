@@ -137,3 +137,20 @@ body.barMin{--lbar:0px}
 }
 @media (orientation:portrait){#barTog{display:none}}
 .shToGame{margin-left:auto;display:inline-flex;align-items:center;gap:4px;height:32px;padding:0 12px;border:0;border-radius:3px;background:#5973ff;color:#fff;font-size:13px}
+/* v1.8.0 横屏：工具栏移到右侧（避开左侧挖孔），所有展开面板统一从右侧、紧贴工具栏左边展开；HUD 只留运行状态 / tick / 能量 / creep */
+@media (orientation:landscape){
+  #bar{left:auto!important;right:0!important;width:calc(var(--lbar) + var(--sar))!important;padding:4px calc(3px + var(--sar)) 4px 3px!important;border-right:0!important;border-left:1px solid var(--sw-line)}
+  body.barMin #bar{transform:translateX(100%)}
+  #barTog{left:auto!important;right:calc(var(--lbar) + var(--sar));border-radius:4px 0 0 4px;transition:right .18s}
+  body.barMin #barTog{right:var(--sar)}
+  #hud{left:var(--sal)!important;border-bottom-right-radius:4px}
+  #roomBar{top:auto!important;bottom:0!important;left:var(--sal)!important;right:auto!important;border-radius:0 4px 0 0}
+  #panel,#inspect,#buildPick{left:auto!important;right:calc(var(--lbar) + var(--sar))!important;top:0!important;bottom:0!important;width:min(380px,44vw)!important;max-height:none!important;height:auto!important;border:0!important;border-left:1px solid var(--sw-line)!important;border-radius:0!important;overflow:auto;transition:right .18s}
+  #inspect{background:#181818f2!important;padding:8px 12px!important}
+  #panel{z-index:9}
+  #speedPop{left:auto!important;right:calc(var(--lbar) + var(--sar) + 8px)!important}
+  #log{left:var(--sal)!important;right:calc(var(--lbar) + var(--sar))!important}
+  #buildBar{left:calc(50% - (var(--lbar) + var(--sar)) / 2)!important}
+  #wmap .wmLegend{left:calc(8px + var(--sal))!important}
+}
+.glob{display:grid;grid-template-columns:1fr;gap:0;font-size:13px}.glob .gi{display:flex;justify-content:space-between;padding:7px 2px;border-bottom:1px solid #2a2a2a;white-space:nowrap}.glob .gi span{color:#999}.glob .gi b{color:#eee;font-weight:600}

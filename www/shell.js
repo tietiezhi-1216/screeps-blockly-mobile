@@ -37,7 +37,7 @@
       <button class="big" data-act="go:profile" data-icon="user"><span class="lb">个人中心</span></button>
       <button id="sSet" class="big" data-act="go:settings" data-icon="settings"><span class="lb">设置</span></button>
       <button class="big" data-act="go:about" data-icon="info-circle"><span class="lb">关于</span></button>
-    </div><div id="startVer" class="foot">版本 ${esc(window.APP_VERSION || 'dev')} · MIT 开源</div></div>`;
+    </div><div id="startVer" class="foot">版本 ${esc(window.APP_VERSION || 'dev')}</div></div>`;
   };
 
   // 个人中心：对照官方网页客户端账户页（徽章 + 名字 + GCL 进度条；概览 / 房间 / 统计 三个标签）
@@ -100,15 +100,13 @@
   pages.settings = () => {
     const s = st();
     return head('设置') + `<div class="shBody">${sec('通用')}${row('none', 'language', '语言', '简体中文', 'static')}${row('sound', 'volume-off', '音效', s.sound ? '开' : '关')}
-      ${sec('游戏')}${row('fps', 'gauge', '显示 FPS', showFps ? '开' : '关')}${row('defSpeed', 'player-track-next', '默认运行速度', s.speed + 'x')}${row('edDark', 'moon', '代码编辑器夜间模式', window.edDark && window.edDark() ? '开' : '关')}${row('speedPick', 'player-track-next', '当前运行速度', speed + 'x')}${row('net', 'broadcast', '局域网联机')}${row('intro', 'help', '新手提示')}${row('resetCode', 'arrow-back-up', '恢复默认积木')}
-      ${sec('更新')}${row('update', 'download', window.UPDATE_REL ? '发现新版本 ' + esc(window.UPDATE_REL.tag_name) : '检查更新', window.UPDATE_REL ? '点此更新' : '当前 V' + esc(window.APP_VERSION || 'dev'))}
+      ${sec('游戏')}${row('defSpeed', 'player-track-next', '默认运行速度', s.speed + 'x')}${row('edDark', 'moon', '代码编辑器夜间模式', window.edDark && window.edDark() ? '开' : '关')}${row('speedPick', 'player-track-next', '当前运行速度', speed + 'x')}${row('net', 'broadcast', '局域网联机')}${row('intro', 'help', '新手提示')}${row('resetCode', 'arrow-back-up', '恢复默认积木')}
       ${sec('数据')}${row('saveNow', 'device-floppy', '立即保存世界')}${row('respawn', 'refresh', '重新出生', '', 'danger')}${row('resetWorld', 'refresh', '重置世界', '', 'danger')}${row('clearAll', 'trash', '清除全部数据', '', 'danger')}</div>`;
   };
 
-  pages.about = () => head('关于') + `<div class="shBody"><div class="aboutTop"><img src="art/logo.png" alt=""><div class="bt">Screeps <b>World</b></div><div class="bs">版本 ${esc(window.APP_VERSION || 'dev')}</div></div>
-    <p class="note">受 Screeps（screeps.com）启发的非官方开源同人作品：用 Blockly 积木编写 creep 的 JavaScript AI，在开放世界中采集、建造、扩张。</p>
-    ${sec('开源')}${row('open:https://github.com/tietiezhi-1216/screeps-blockly-mobile', 'brand-github', '源代码仓库', 'GitHub')}${row('open:https://github.com/tietiezhi-1216/screeps-blockly-mobile/releases', 'download', '版本发布')}${row('open:https://docs.screeps.com/', 'license', 'Screeps 官方文档')}
-    ${sec('许可证')}${[['本项目', 'MIT'], ['Blockly', 'Apache-2.0'], ['PixiJS', 'MIT'], ['Capacitor', 'MIT'], ['Tabler Icons', 'MIT']].map(([a, b]) => row('none', 'license', a, b, 'static')).join('')}
+  pages.about = () => head('关于') + `<div class="shBody"><div class="aboutTop"><img src="art/logo.png" alt=""><div class="bt">Screeps <b>World</b></div></div>
+    ${row('none', 'info-circle', '版本', 'V' + esc(window.APP_VERSION || 'dev'), 'static')}
+    <p class="note">用积木编写 creep 的 AI，在开放世界中采集、建造、扩张。新版本会在游戏运行时自动检测并提示更新。</p>
     <p class="note">Screeps 是 Screeps 官方的商标，本作与其无关联。</p></div>`;
 
   // ---- 弹窗：输入 / 文本导入导出 ----
@@ -156,13 +154,11 @@
     snDel(b) { const L = J('sbm_snips', []); if (!confirm(`删除「${L[b.dataset.i].name}」？`)) return; L.splice(b.dataset.i, 1); saveList('sbm_snips', L); show('snippets', false); },
     snImport() { importText('导入片段', j => { const w = j.ws || j; if (!w.blocks) throw new Error('不是积木程序'); const L = J('sbm_snips', []); L.unshift({ name: j.name || '导入的片段', ts: Date.now(), blocks: countBlocks(w), ws: w }); saveList('sbm_snips', L); toast('已导入'); show('snippets', false); }); },
     sound() { const s = st(); s.sound = !s.sound; saveList('sbm_settings', s); toast('当前版本暂无音效'); show('settings', false); },
-    fps() { $('mFps').click(); show('settings', false); },
     defSpeed() { setSpeed(speed >= 8 ? 1 : speed * 2); show('settings', false); },
     edDark() { window.setEdDark(!window.edDark()); show('settings', false); },
     speedPick() { setSpeed(speed >= 8 ? 1 : speed * 2); show('settings', false); },
     intro() { hide(); $('intro').classList.remove('hidden'); },
     resetCode() { $('mResetCode').click(); },
-    update() { checkUpdate(true); },
     saveNow() { save(); toast('已保存'); },
     resetWorld() { $('mReset').click(); },
     clearAll() { if (!confirm('清除全部数据？包括世界、积木、存档、片段、统计和个人资料，无法恢复。')) return; const keep = LS.getItem('sbm_pid'); LS.clear(); if (keep) LS.setItem('sbm_pid', keep); location.reload(); },

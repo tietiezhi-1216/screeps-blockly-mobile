@@ -5,8 +5,8 @@
 <body>
 <div id="stage"></div>
 <div id="hud"></div>
-<div id="roomBar"><button id="rbMap" data-icon="map"><span class="lb">全图</span></button><button id="rbHome" data-icon="home"><span class="lb">我的房间</span></button><span id="rbName"></span><button id="rbSpawn" class="primary hidden" data-icon="flag"><span class="lb">选择出生点</span></button></div>
-<div id="panel" class="hidden"><div class="pnHead"><div class="pnTabs"><button data-pt="room">房间</button><button data-pt="console">控制台</button><button data-pt="memory">内存</button><button data-pt="layers">图层</button></div><button id="pnClose" data-icon="x" class="iconbtn"></button></div>
+<div id="roomBar"><span id="rbName"></span><button id="rbSpawn" class="primary hidden" data-icon="flag"><span class="lb">选择出生点</span></button></div>
+<div id="panel" class="hidden"><div class="pnHead"><div class="pnTabs"><button data-pt="room">房间</button><button data-pt="console">控制台</button><button data-pt="memory">内存</button><button data-pt="layers">图层</button><button data-pt="global">全局</button></div><button id="pnClose" data-icon="x" class="iconbtn"></button></div>
 <div id="pnBody"></div>
 <div id="pnConsole" class="hidden"><div class="cnFilter"><input id="cnFind" placeholder="过滤日志…"><button data-cf="all" class="on">全部</button><button data-cf="err">错误</button><button data-cf="me">我的</button></div><div id="cnOut"></div><div class="cnIn"><input id="cnCmd" placeholder="输入 JS，例如 Game.time 或 Object.keys(Game.creeps)" autocapitalize="off" autocomplete="off" spellcheck="false"><button id="cnRun" class="primary">执行</button></div></div></div>
 <nav id="bar">
@@ -14,6 +14,7 @@
   <button id="btnCode" data-icon="puzzle"><span class="lb">代码</span></button>
   <button id="btnBuild" data-icon="hammer"><span class="lb">建造</span></button>
   <button id="btnSpeed" data-icon="player-track-next" class="hidden"><span class="lb">1x</span></button>
+  <button id="btnView" data-icon="map"><span class="lb">全图</span></button>
   <button id="btnLog" data-icon="terminal-2"><span class="lb">面板</span></button>
   <button id="btnNet" data-icon="broadcast" class="hidden"><span class="lb">联机</span></button>
   <button id="btnMenu" data-icon="settings"><span class="lb">设置</span></button>
@@ -54,9 +55,7 @@
 <div id="menu" class="hidden panel">
   <div class="pTitle">设置</div>
   <button id="mSave" data-icon="device-floppy"><span class="lb">立即保存</span></button>
-  <button id="mFps" data-icon="gauge"><span class="lb">显示 FPS：关</span></button>
   <button id="mIntro" data-icon="help"><span class="lb">新手提示</span></button>
-  <button id="mUpdate" data-icon="download"><span class="lb">检查更新</span></button>
   <button id="mResetCode" data-icon="arrow-back-up"><span class="lb">恢复默认积木</span></button>
   <button id="mReset" data-icon="trash" class="danger"><span class="lb">重置世界</span></button>
   <div id="ver" class="muted"></div>

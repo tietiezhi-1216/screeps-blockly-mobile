@@ -22,7 +22,9 @@ async function run(scenario) {
   pg.on('request', r => r.url().includes('api.github.com') ? r.respond({ status: 200, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify({ tag_name: 'v9.9.9', body: '测试版本', assets: [{ name: 'x.apk', size: 3500000, digest: 'sha256:ab', browser_download_url: 'https://github.com/x/releases/download/v9.9.9/x.apk' }] }) }) : r.continue());
   pg.on('pageerror', e => console.log('PAGEERROR', e.message));
   await pg.goto('http://localhost:8765/index.html'); await new Promise(r => setTimeout(r, 3000));
-  const visible = await pg.$eval('#upd', e => !e.classList.contains('hidden'));
+  const silent = await pg.evaluate(() => !document.getElementById('upd') && !!document.querySelector('#sSet .updDot,#btnMenu .updDot')); // 自动检查：只显示蓝点，不弹窗
+  await pg.evaluate(() => checkUpdate(true)); await new Promise(r => setTimeout(r, 800));
+  const visible = silent && await pg.$eval('#upd', e => !e.classList.contains('hidden'));
   await pg.click('#updGo'); await new Promise(r => setTimeout(r, 200)); await pg.screenshot({ path: `/tmp/upd-${scenario}-1.png` });
   if (scenario === 'fail') { await new Promise(r => setTimeout(r, 300)); const msg = await pg.$eval('#updMsg', e => e.textContent), link = await pg.$eval('#updLink', e => !e.classList.contains('hidden')); console.log(scenario, 'after fail:', msg, 'fallback link shown:', link); await pg.screenshot({ path: '/tmp/upd-fail-2.png' }); await pg.click('#updGo'); }
   await new Promise(r => setTimeout(r, 1500));

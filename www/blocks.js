@@ -15,46 +15,53 @@ const COL = {};
 function def(type, json, gen, cat, sub, preset) {
   if (API.some(a => a.type === type)) type += '_' + String((preset && preset.O) || sub).replace(/\W/g, '_'); // 同名方法不同对象（如 source/mineral）
   json.type = type; json.colour = COL[cat]; json.tooltip = json.tooltip || ''; json.helpUrl = 'https://docs.screeps.com/api/'; Blockly.defineBlocksWithJsonArray([json]); JS.forBlock[type] = gen; API.push({ type, cat, sub, preset }); }
+// ---- 显示文字：积木上只显示中文自然语言（不出现点号、括号、代码名）；tooltip 保留官方 API 写法 ----
+const WORDS = [[/\(([^)]*)\)/g, ' · $1'], [/（([^）]*)）/g, ' · $1'], [/CostMatrix/g, '代价表'], [/RoomVisual/g, '房间视觉'], [/\bJSON\b/g, ''], [/\bshard\b/g, '分片'], [/\bpixel\b/g, '像素点'],
+  [/\bid\b/g, '编号'], [/\bpower\b/g, 'Power'], [/PathFinder/g, '寻路器'], [/\braw\b/g, '原始数据'], [/\bFIND_类型\b|FIND_类型/g, '查找什么'], [/LOOK_类型/g, '看什么'], [/\bGame\./g, ''], [/\bMemory\b/g, '记忆'], [/\s+/g, ' ']];
+const zhText = t => WORDS.reduce((a, [r, w]) => a.replace(r, w), String(t || '')).trim();
+const ARGZH = { x: '横坐标', y: '纵坐标', '公开': '公开', '开启': '开启', 'creep': 'creep', '上': '上边', '左': '左边', '下': '下边', '右': '右边' };
+const argLabel = n => zhText(ARGZH[n] || n);
+const RECVZH = { creep: 'creep', room: '房间' };
 function m(cat, sub, rn, meth, args, zh, action) {
   const type = `api_${cat}_${meth}_${args.length}`.replace(/\W/g, '_');
-  const a0 = [{ type: 'input_value', name: 'O' }]; let msg = `${zh} %1.${meth}(`;
-  args.forEach((n, i) => { msg += `${i ? ',' : ''} ${n} %${i + 2}`; a0.push({ type: 'input_value', name: 'A' + i }); });
-  msg += ' )';
+  const a0 = [{ type: 'input_value', name: 'O' }]; let msg = action ? `让 %1 ${zhText(zh)}` : `%1 的 ${zhText(zh)}`;
+  args.forEach((n, i) => { msg += ` ${argLabel(n)} %${i + 2}`; a0.push({ type: 'input_value', name: 'A' + i }); });
   def(type, { message0: msg, args0: a0, output: null, inputsInline: true, tooltip: `${rn}.${meth}(${args.join(', ')})` },
     b => [`${recv(b)}.${meth}(${args.map((_, i) => val(b, 'A' + i)).join(', ')})`, OF], cat, sub,
-    { O: rn, action });
+    { O: rn, action, args });
 }
+const PROPZH = { x: '横坐标', y: '纵坐标', roomName: '所在房间名', id: '编号', creep: '死去的 creep' };
 function p(cat, sub, rn, prop, zh) {
   const type = `api_${cat}_p_${prop}`.replace(/\W/g, '_');
-  def(type, { message0: `%1.${prop} ${zh}`, args0: [{ type: 'input_value', name: 'O' }], output: null, inputsInline: true, tooltip: `${rn}.${prop}` },
+  def(type, { message0: `%1 的 ${zhText(PROPZH[prop] || zh || prop)}`, args0: [{ type: 'input_value', name: 'O' }], output: null, inputsInline: true, tooltip: `${rn}.${prop}` },
     b => [`${recv(b)}.${prop}`, OM], cat, sub, { O: rn });
 }
 function g(cat, sub, expr, args, zh, call, action) {
   const type = `api_${cat}_g_${expr}_${args ? args.length : 'p'}`.replace(/\W/g, '_');
-  let msg = `${zh} ${expr}`; const a0 = [];
-  if (call) { msg += '('; args.forEach((n, i) => { msg += `${i ? ',' : ''} ${n} %${i + 1}`; a0.push({ type: 'input_value', name: 'A' + i }); }); msg += ' )'; }
+  let msg = zhText(zh); const a0 = [];
+  if (call) args.forEach((n, i) => { msg += ` ${argLabel(n)} %${i + 1}`; a0.push({ type: 'input_value', name: 'A' + i }); });
   def(type, { message0: msg, args0: a0, output: null, inputsInline: true, tooltip: expr },
-    b => [call ? `${expr}(${args.map((_, i) => val(b, 'A' + i)).join(', ')})` : expr, call ? OF : OM], cat, sub, { action });
+    b => [call ? `${expr}(${args.map((_, i) => val(b, 'A' + i)).join(', ')})` : expr, call ? OF : OM], cat, sub, { action, args });
 }
 function k(cat, sub, prefix, list, zh) { // 常量下拉
   const type = `api_const_${prefix.replace(/_$/, '')}`.toLowerCase();
-  def(type, { message0: `${zh} %1`, args0: [{ type: 'field_dropdown', name: 'K', options: list.map(x => [x, x]) }], output: null },
+  def(type, { message0: `${zh} %1`, args0: [{ type: 'field_dropdown', name: 'K', options: list.map(x => [constZh(x), x]) }], output: null, tooltip: '官方常量' },
     b => [b.getFieldValue('K'), OA], cat, sub);
 }
 function idx(cat, sub, expr, zh) { // Game.creeps[名字]
   const type = `api_${cat}_idx_${expr}`.replace(/\W/g, '_');
-  def(type, { message0: `${zh} ${expr}[ %1 ]`, args0: [{ type: 'input_value', name: 'A0' }], output: null, inputsInline: true },
+  def(type, { message0: `名字为 %1 的 ${zh.replace(/^按名取 ?/, '')}`, tooltip: `${expr}[名字]`, args0: [{ type: 'input_value', name: 'A0' }], output: null, inputsInline: true },
     b => [`${expr}[${val(b, 'A0', "''")}]`, OM], cat, sub, { A0: 'Spawn1' });
 }
 
 // ---- 分类与颜色 ----
 const CATS = [
-  { id: 'game', name: 'Game', colour: '#4a6fa5' }, { id: 'creep', name: 'Creep', colour: '#3d85c6' },
-  { id: 'spawn', name: 'Spawn', colour: '#2e8b57' }, { id: 'room', name: 'Room', colour: '#7a6a2e' },
-  { id: 'pos', name: 'RoomPosition', colour: '#8a5a2e' }, { id: 'ctrl', name: 'Controller', colour: '#7b4fa0' },
-  { id: 'struct', name: 'Structure', colour: '#a04848' }, { id: 'obj', name: 'Source/资源', colour: '#9a8a1e' },
-  { id: 'mem', name: 'Memory', colour: '#5a7a7a' }, { id: 'map', name: 'Map/Market/CPU', colour: '#556b8e' },
-  { id: 'const', name: '常量', colour: '#666' }, { id: 'js', name: 'JS 对象', colour: '#5f6f7f' },
+  { id: 'game', name: '游戏', colour: '#4a6fa5' }, { id: 'creep', name: 'Creep', colour: '#3d85c6' },
+  { id: 'spawn', name: 'Spawn', colour: '#2e8b57' }, { id: 'room', name: '房间', colour: '#7a6a2e' },
+  { id: 'pos', name: '位置', colour: '#8a5a2e' }, { id: 'ctrl', name: '控制器', colour: '#7b4fa0' },
+  { id: 'struct', name: '建筑', colour: '#a04848' }, { id: 'obj', name: '能量源与资源', colour: '#9a8a1e' },
+  { id: 'mem', name: '记忆', colour: '#5a7a7a' }, { id: 'map', name: '地图与市场', colour: '#556b8e' },
+  { id: 'const', name: '常量', colour: '#666' }, { id: 'js', name: '数据', colour: '#5f6f7f' },
   { id: 'logic', name: '逻辑', colour: '#5b80a5', std: ['controls_if', 'logic_compare', 'logic_operation', 'logic_negate', 'logic_boolean', 'logic_null', 'logic_ternary'] },
   { id: 'loop', name: '循环', colour: '#5ba55b', std: ['controls_repeat_ext', 'controls_whileUntil', 'controls_for', 'controls_forEach', 'controls_flow_statements'] },
   { id: 'math', name: '数学', colour: '#5b67a5', std: ['math_number', 'math_arithmetic', 'math_single', 'math_round', 'math_on_list', 'math_modulo', 'math_constrain', 'math_random_int', 'math_random_float', 'math_number_property', 'math_constant'] },
@@ -104,20 +111,20 @@ m('creep', 'Store', 'creep.store', 'getFreeCapacity', [], '剩余容量(全部)'
 
 // ===== StructureSpawn =====
 const SP = "Game.spawns['Spawn1']";
-m('spawn', '方法', SP, 'spawnCreep', ['身体', '名字'], '孵化', true); m('spawn', '方法', SP, 'spawnCreep', ['身体', '名字', '选项'], '孵化(选项)', true);
+m('spawn', '方法', SP, 'spawnCreep', ['身体', '名字'], '孵化', true); m('spawn', '方法', SP, 'spawnCreep', ['身体', '名字', '选项'], '带选项孵化', true);
 m('spawn', '方法', SP, 'recycleCreep', ['creep'], '回收', true); m('spawn', '方法', SP, 'renewCreep', ['creep'], '续命', true);
 ['name:名字', 'spawning:正在孵化', 'store:存储', 'memory:记忆', 'hits:血量', 'my:是我的', 'room:房间', 'pos:位置']
   .forEach(s => { const [n, z] = s.split(':'); p('spawn', '属性', SP, n, z); });
 p('spawn', 'Spawning', `${SP}.spawning`, 'needTime', '总需时间'); p('spawn', 'Spawning', `${SP}.spawning`, 'remainingTime', '剩余时间');
 m('spawn', 'Spawning', `${SP}.spawning`, 'cancel', [], '取消孵化', true); m('spawn', 'Spawning', `${SP}.spawning`, 'setDirections', ['方向列表'], '出生方向', true);
 // 身体部件列表
-Blockly.defineBlocksWithJsonArray([{ type: 'api_body', message0: '身体 [ %1 ]', args0: [{ type: 'field_input', name: 'B', text: 'WORK,CARRY,MOVE' }], output: 'Array', colour: COL.spawn, tooltip: '身体部件数组，如 [WORK, CARRY, MOVE]' }]);
+Blockly.defineBlocksWithJsonArray([{ type: 'api_body', message0: '身体部件 %1', args0: [{ type: 'field_body', name: 'B', value: 'work,carry,move' }], output: 'Array', colour: COL.spawn, tooltip: '身体部件数组，如 [WORK, CARRY, MOVE]；点一下用表单选择' }]);
 JS.forBlock.api_body = b => [`[${b.getFieldValue('B').split(',').map(s => s.trim().toUpperCase()).filter(s => /^[A-Z_]+$/.test(s)).join(', ')}]`, OA];
 API.push({ type: 'api_body', cat: 'spawn', sub: '方法' });
 
 // ===== Room =====
 const RM = 'room';
-m('room', '查找', RM, 'find', ['FIND_类型'], '查找'); m('room', '查找', RM, 'find', ['FIND_类型', '选项'], '查找(过滤)');
+m('room', '查找', RM, 'find', ['FIND_类型'], '查找'); m('room', '查找', RM, 'find', ['FIND_类型', '选项'], '按条件查找');
 m('room', '查找', RM, 'lookAt', ['x', 'y'], '查看'); m('room', '查找', RM, 'lookForAt', ['LOOK_类型', 'x', 'y'], '查看类型');
 m('room', '查找', RM, 'findPath', ['起点', '终点'], '寻路'); m('room', '查找', RM, 'findExitTo', ['房间'], '出口方向');
 m('room', '方法', RM, 'createConstructionSite', ['x', 'y', '建筑类型'], '放置工地', true);
@@ -129,10 +136,10 @@ m('room', '地形', 'room.getTerrain()', 'get', ['x', 'y'], '地形值');
 
 // ===== RoomPosition =====
 const PS = 'creep.pos';
-def('api_pos_new', { message0: 'new RoomPosition( x %1, y %2, 房间名 %3 )', args0: [{ type: 'input_value', name: 'X' }, { type: 'input_value', name: 'Y' }, { type: 'input_value', name: 'R' }], output: null, inputsInline: true },
+def('api_pos_new', { message0: '位置 横坐标 %1 纵坐标 %2 房间 %3', tooltip: 'new RoomPosition(x, y, roomName)', args0: [{ type: 'input_value', name: 'X' }, { type: 'input_value', name: 'Y' }, { type: 'input_value', name: 'R' }], output: null, inputsInline: true },
   b => [`new RoomPosition(${val(b, 'X', 0)}, ${val(b, 'Y', 0)}, ${val(b, 'R', "''")})`, JS.ORDER_NEW], 'pos', '构造');
 ['x', 'y', 'roomName'].forEach(n => p('pos', '属性', PS, n, ''));
-m('pos', '查找', PS, 'findClosestByPath', ['FIND_类型'], '路径最近'); m('pos', '查找', PS, 'findClosestByPath', ['FIND_类型', '选项'], '路径最近(过滤)');
+m('pos', '查找', PS, 'findClosestByPath', ['FIND_类型'], '路径最近'); m('pos', '查找', PS, 'findClosestByPath', ['FIND_类型', '选项'], '按条件路径最近');
 m('pos', '查找', PS, 'findClosestByRange', ['FIND_类型'], '直线最近'); m('pos', '查找', PS, 'findInRange', ['FIND_类型', '范围'], '范围内');
 m('pos', '查找', PS, 'findPathTo', ['目标'], '寻路到'); m('pos', '查找', PS, 'look', [], '查看'); m('pos', '查找', PS, 'lookFor', ['LOOK_类型'], '查看类型');
 m('pos', '距离', PS, 'getRangeTo', ['目标'], '距离'); m('pos', '距离', PS, 'getDirectionTo', ['目标'], '方向');
@@ -169,11 +176,11 @@ m('obj', 'ConstructionSite', 'site', 'remove', [], '移除工地', true);
 m('obj', 'Flag', 'flag', 'remove', [], '移除旗帜', true); m('obj', 'Flag', 'flag', 'setPosition', ['位置'], '移动旗帜', true);
 
 // ===== Memory =====
-def('api_mem_get', { message0: 'Memory[ %1 ] 读全局记忆', args0: [{ type: 'input_value', name: 'K' }], output: null, inputsInline: true }, b => [`Memory[${val(b, 'K', "''")}]`, OM], 'mem', '全局', { K: 'key' });
-def('api_mem_set', { message0: 'Memory[ %1 ] = %2 写全局记忆', args0: [{ type: 'input_value', name: 'K' }, { type: 'input_value', name: 'V' }], previousStatement: null, nextStatement: null, inputsInline: true }, b => `Memory[${val(b, 'K', "''")}] = ${val(b, 'V', 'null')};\n`, 'mem', '全局', { K: 'key' });
-def('api_objmem_get', { message0: '%1.memory[ %2 ] 读对象记忆', args0: [{ type: 'input_value', name: 'O' }, { type: 'input_value', name: 'K' }], output: null, inputsInline: true }, b => [`${recv(b)}.memory[${val(b, 'K', "''")}]`, OM], 'mem', '对象', { O: 'creep', K: 'working' });
-def('api_objmem_set', { message0: '%1.memory[ %2 ] = %3 写对象记忆', args0: [{ type: 'input_value', name: 'O' }, { type: 'input_value', name: 'K' }, { type: 'input_value', name: 'V' }], previousStatement: null, nextStatement: null, inputsInline: true }, b => `${recv(b)}.memory[${val(b, 'K', "''")}] = ${val(b, 'V', 'null')};\n`, 'mem', '对象', { O: 'creep', K: 'working' });
-def('api_mem_del', { message0: 'delete Memory.creeps[ %1 ] 清理记忆', args0: [{ type: 'input_value', name: 'K' }], previousStatement: null, nextStatement: null, inputsInline: true }, b => `delete Memory.creeps[${val(b, 'K', "''")}];\n`, 'mem', '全局');
+def('api_mem_get', { message0: '全局记忆里 %1 的值', tooltip: 'Memory[key]', args0: [{ type: 'input_value', name: 'K' }], output: null, inputsInline: true }, b => [`Memory[${val(b, 'K', "''")}]`, OM], 'mem', '全局', { K: 'key' });
+def('api_mem_set', { message0: '把全局记忆 %1 设为 %2', tooltip: 'Memory[key] = value', args0: [{ type: 'input_value', name: 'K' }, { type: 'input_value', name: 'V' }], previousStatement: null, nextStatement: null, inputsInline: true }, b => `Memory[${val(b, 'K', "''")}] = ${val(b, 'V', 'null')};\n`, 'mem', '全局', { K: 'key' });
+def('api_objmem_get', { message0: '%1 记忆里 %2 的值', tooltip: 'obj.memory[key]', args0: [{ type: 'input_value', name: 'O' }, { type: 'input_value', name: 'K' }], output: null, inputsInline: true }, b => [`${recv(b)}.memory[${val(b, 'K', "''")}]`, OM], 'mem', '对象', { O: 'creep', K: 'working' });
+def('api_objmem_set', { message0: '把 %1 记忆里的 %2 设为 %3', tooltip: 'obj.memory[key] = value', args0: [{ type: 'input_value', name: 'O' }, { type: 'input_value', name: 'K' }, { type: 'input_value', name: 'V' }], previousStatement: null, nextStatement: null, inputsInline: true }, b => `${recv(b)}.memory[${val(b, 'K', "''")}] = ${val(b, 'V', 'null')};\n`, 'mem', '对象', { O: 'creep', K: 'working' });
+def('api_mem_del', { message0: '删除名为 %1 的 creep 的记忆', tooltip: 'delete Memory.creeps[name]', args0: [{ type: 'input_value', name: 'K' }], previousStatement: null, nextStatement: null, inputsInline: true }, b => `delete Memory.creeps[${val(b, 'K', "''")}];\n`, 'mem', '全局');
 g('mem', '全局', 'Memory', null, '全局记忆对象'); g('mem', '全局', 'Memory.creeps', null, 'creep 记忆');
 
 // ===== Game.map / market / cpu / PathFinder =====
@@ -244,6 +251,38 @@ p('struct', '其他', 'portal', 'destination', '传送目的地');
 m('spawn', '方法', 'spawn', 'canCreateCreep', ['身体', '名字'], '能否孵化（已废弃）'); m('spawn', '方法', 'spawn', 'createCreep', ['身体', '名字', '内存'], '孵化（已废弃）', true);
 p('spawn', 'Spawning', 'spawn.spawning', 'directions', '出生方向');
 
+// ---- 常量中文名（下拉里显示中文，值仍是官方常量）----
+const CZH = {
+  FIND_EXIT_TOP: '上方出口', FIND_EXIT_RIGHT: '右方出口', FIND_EXIT_BOTTOM: '下方出口', FIND_EXIT_LEFT: '左方出口', FIND_EXIT: '所有出口',
+  FIND_CREEPS: '所有 creep', FIND_MY_CREEPS: '我的 creep', FIND_HOSTILE_CREEPS: '敌方 creep', FIND_SOURCES_ACTIVE: '有能量的能量源', FIND_SOURCES: '所有能量源',
+  FIND_DROPPED_RESOURCES: '掉落的资源', FIND_STRUCTURES: '所有建筑', FIND_MY_STRUCTURES: '我的建筑', FIND_HOSTILE_STRUCTURES: '敌方建筑', FIND_FLAGS: '旗帜',
+  FIND_CONSTRUCTION_SITES: '所有工地', FIND_MY_SPAWNS: '我的 Spawn', FIND_HOSTILE_SPAWNS: '敌方 Spawn', FIND_MY_CONSTRUCTION_SITES: '我的工地', FIND_HOSTILE_CONSTRUCTION_SITES: '敌方工地',
+  FIND_MINERALS: '矿物', FIND_NUKES: '飞来的核弹', FIND_TOMBSTONES: '墓碑', FIND_POWER_CREEPS: '所有 Power Creep', FIND_MY_POWER_CREEPS: '我的 Power Creep', FIND_HOSTILE_POWER_CREEPS: '敌方 Power Creep',
+  FIND_DEPOSITS: '沉积物', FIND_RUINS: '废墟',
+  LOOK_CREEPS: 'creep', LOOK_ENERGY: '能量', LOOK_RESOURCES: '资源', LOOK_SOURCES: '能量源', LOOK_MINERALS: '矿物', LOOK_DEPOSITS: '沉积物', LOOK_STRUCTURES: '建筑', LOOK_FLAGS: '旗帜',
+  LOOK_CONSTRUCTION_SITES: '工地', LOOK_NUKES: '核弹', LOOK_TERRAIN: '地形', LOOK_TOMBSTONES: '墓碑', LOOK_POWER_CREEPS: 'Power Creep', LOOK_RUINS: '废墟',
+  STRUCTURE_SPAWN: 'Spawn', STRUCTURE_EXTENSION: '扩展', STRUCTURE_ROAD: '道路', STRUCTURE_WALL: '墙', STRUCTURE_RAMPART: '城墙', STRUCTURE_KEEPER_LAIR: '守卫巢穴', STRUCTURE_PORTAL: '传送门',
+  STRUCTURE_CONTROLLER: '控制器', STRUCTURE_LINK: '链路', STRUCTURE_STORAGE: '仓库', STRUCTURE_TOWER: '防御塔', STRUCTURE_OBSERVER: '观察者', STRUCTURE_POWER_BANK: 'Power 银行',
+  STRUCTURE_POWER_SPAWN: 'Power Spawn', STRUCTURE_EXTRACTOR: '采矿机', STRUCTURE_LAB: '实验室', STRUCTURE_TERMINAL: '终端', STRUCTURE_CONTAINER: '容器', STRUCTURE_NUKER: '核弹发射井',
+  STRUCTURE_FACTORY: '工厂', STRUCTURE_INVADER_CORE: '入侵者核心',
+  OK: '成功', ERR_NOT_OWNER: '不是你的', ERR_NO_PATH: '没有路', ERR_NAME_EXISTS: '名字已存在', ERR_BUSY: '正忙', ERR_NOT_FOUND: '没找到', ERR_NOT_ENOUGH_ENERGY: '能量不够',
+  ERR_NOT_ENOUGH_RESOURCES: '资源不够', ERR_INVALID_TARGET: '目标无效', ERR_FULL: '已满', ERR_NOT_IN_RANGE: '距离太远', ERR_INVALID_ARGS: '参数无效', ERR_TIRED: '疲劳中',
+  ERR_NO_BODYPART: '缺少身体部件', ERR_NOT_ENOUGH_EXTENSIONS: '扩展不够', ERR_RCL_NOT_ENOUGH: '控制器等级不够', ERR_GCL_NOT_ENOUGH: 'GCL 不够', ERR_ACCESS_DENIED: '无权访问',
+  WORK: '工作', CARRY: '携带', MOVE: '移动', ATTACK: '近战攻击', RANGED_ATTACK: '远程攻击', HEAL: '治疗', CLAIM: '占领', TOUGH: '坚韧',
+  TOP: '上', TOP_RIGHT: '右上', RIGHT: '右', BOTTOM_RIGHT: '右下', BOTTOM: '下', BOTTOM_LEFT: '左下', LEFT: '左', TOP_LEFT: '左上',
+  TERRAIN_MASK_WALL: '墙', TERRAIN_MASK_SWAMP: '沼泽',
+  RESOURCE_ENERGY: '能量', RESOURCE_POWER: 'Power', RESOURCE_OPS: '操作点 ops', RESOURCE_HYDROGEN: '氢 H', RESOURCE_OXYGEN: '氧 O', RESOURCE_UTRIUM: '钛 U', RESOURCE_LEMERGIUM: '铑 L',
+  RESOURCE_KEANIUM: '钾 K', RESOURCE_ZYNTHIUM: '锌 Z', RESOURCE_CATALYST: '催化剂 X', RESOURCE_GHODIUM: '萃取物 G', RESOURCE_SILICON: '硅', RESOURCE_METAL: '金属', RESOURCE_BIOMASS: '生物质',
+  RESOURCE_MIST: '雾', RESOURCE_UTRIUM_BAR: '钛条', RESOURCE_LEMERGIUM_BAR: '铑条', RESOURCE_ZYNTHIUM_BAR: '锌条', RESOURCE_KEANIUM_BAR: '钾条', RESOURCE_GHODIUM_MELT: '萃取物熔块',
+  RESOURCE_OXIDANT: '氧化剂', RESOURCE_REDUCTANT: '还原剂', RESOURCE_PURIFIER: '净化剂', RESOURCE_BATTERY: '电池', RESOURCE_COMPOSITE: '复合材料', RESOURCE_CRYSTAL: '晶体', RESOURCE_LIQUID: '液体',
+  RESOURCE_WIRE: '导线', RESOURCE_SWITCH: '开关', RESOURCE_TRANSISTOR: '晶体管', RESOURCE_MICROCHIP: '微芯片', RESOURCE_CIRCUIT: '电路', RESOURCE_DEVICE: '设备',
+  RESOURCE_CELL: '细胞', RESOURCE_PHLEGM: '黏液', RESOURCE_TISSUE: '组织', RESOURCE_MUSCLE: '肌肉', RESOURCE_ORGANOID: '类器官', RESOURCE_ORGANISM: '有机体',
+  RESOURCE_ALLOY: '合金', RESOURCE_TUBE: '管材', RESOURCE_FIXTURES: '配件', RESOURCE_FRAME: '框架', RESOURCE_HYDRAULICS: '液压件', RESOURCE_MACHINE: '机器',
+  RESOURCE_CONDENSATE: '冷凝物', RESOURCE_CONCENTRATE: '浓缩物', RESOURCE_EXTRACT: '萃取液', RESOURCE_SPIRIT: '灵质', RESOURCE_EMANATION: '辐射物', RESOURCE_ESSENCE: '精华',
+};
+// 化合物：显示化学式（如 UH、XGHO2），就是游戏里的写法
+function constZh(x) { if (CZH[x]) return CZH[x]; if (x.startsWith('RESOURCE_') && typeof SC !== 'undefined' && typeof SC[x] === 'string') return '化合物 ' + SC[x]; return x.replace(/^[A-Z]+_/, '').toLowerCase(); }
+
 // ===== 常量 =====
 const K = (pre) => Object.keys(SC).filter(x => x.startsWith(pre) && typeof SC[x] !== 'object').sort();
 k('const', 'FIND', 'FIND_', K('FIND_'), '查找类型'); k('const', 'RESOURCE', 'RESOURCE_', K('RESOURCE_'), '资源');
@@ -254,39 +293,149 @@ k('const', '部件/方向', 'DIR_', ['TOP', 'TOP_RIGHT', 'RIGHT', 'BOTTOM_RIGHT'
 k('const', '部件/方向', 'TERRAIN_', ['TERRAIN_MASK_WALL', 'TERRAIN_MASK_SWAMP'], '地形');
 
 // ===== JS 对象工具（标准 JS，用来遍历 Game.creeps 这类对象）=====
-def('api_js_values', { message0: 'Object.values( %1 )', args0: [{ type: 'input_value', name: 'O' }], output: 'Array', inputsInline: true }, b => [`Object.values(${val(b, 'O', '{}')})`, OF], 'js', '对象');
-def('api_js_keys', { message0: 'Object.keys( %1 )', args0: [{ type: 'input_value', name: 'O' }], output: 'Array', inputsInline: true }, b => [`Object.keys(${val(b, 'O', '{}')})`, OF], 'js', '对象');
-def('api_js_forin', { message0: 'for ( const %1 in %2 ) %3 %4', args0: [{ type: 'field_variable', name: 'VAR', variable: 'creepName' }, { type: 'input_value', name: 'O' }, { type: 'input_dummy' }, { type: 'input_statement', name: 'DO' }], previousStatement: null, nextStatement: null, inputsInline: true },
+def('api_js_values', { message0: '%1 里的全部对象', tooltip: 'Object.values(obj)', args0: [{ type: 'input_value', name: 'O' }], output: 'Array', inputsInline: true }, b => [`Object.values(${val(b, 'O', '{}')})`, OF], 'js', '对象');
+def('api_js_keys', { message0: '%1 里的全部名字', tooltip: 'Object.keys(obj)', args0: [{ type: 'input_value', name: 'O' }], output: 'Array', inputsInline: true }, b => [`Object.keys(${val(b, 'O', '{}')})`, OF], 'js', '对象');
+def('api_js_forin', { message0: '对 %2 里的每个名字 %1 %3 %4', tooltip: 'for (const name in obj)', args0: [{ type: 'field_variable', name: 'VAR', variable: 'creepName' }, { type: 'input_value', name: 'O' }, { type: 'input_dummy' }, { type: 'input_statement', name: 'DO' }], previousStatement: null, nextStatement: null, inputsInline: true },
   b => `for (${JS.getVariableName(b.getFieldValue('VAR'))} in ${val(b, 'O', '{}')}) {\n${JS.statementToCode(b, 'DO')}}\n`, 'js', '对象');
-def('api_js_get', { message0: '%1 [ %2 ]', args0: [{ type: 'input_value', name: 'O' }, { type: 'input_value', name: 'K' }], output: null, inputsInline: true }, b => [`${recv(b)}[${val(b, 'K', "''")}]`, OM], 'js', '对象');
-def('api_js_set', { message0: '%1 [ %2 ] = %3', args0: [{ type: 'input_value', name: 'O' }, { type: 'input_value', name: 'K' }, { type: 'input_value', name: 'V' }], previousStatement: null, nextStatement: null, inputsInline: true }, b => `${recv(b)}[${val(b, 'K', "''")}] = ${val(b, 'V', 'null')};\n`, 'js', '对象');
-def('api_js_obj', { message0: '{ } 空对象', output: null }, () => ['{}', OA], 'js', '对象');
-def('api_js_del', { message0: 'delete %1 [ %2 ]', args0: [{ type: 'input_value', name: 'O' }, { type: 'input_value', name: 'K' }], previousStatement: null, nextStatement: null, inputsInline: true }, b => `delete ${recv(b)}[${val(b, 'K', "''")}];\n`, 'js', '对象');
-def('api_js_has', { message0: '%1 in %2', args0: [{ type: 'input_value', name: 'K' }, { type: 'input_value', name: 'O' }], output: 'Boolean', inputsInline: true }, b => [`(${val(b, 'K', "''")} in ${JS.valueToCode(b, 'O', JS.ORDER_IN) || '{}'})`, OA], 'js', '对象');
-def('api_js_prop', { message0: '%1 . %2', args0: [{ type: 'input_value', name: 'O' }, { type: 'field_input', name: 'P', text: 'length' }], output: null, inputsInline: true }, b => [`${recv(b)}.${b.getFieldValue('P').replace(/[^\w$]/g, '')}`, OM], 'js', '对象');
-def('api_js_filter', { message0: '{ filter: { structureType: %1 } }', args0: [{ type: 'input_value', name: 'T' }], output: null, inputsInline: true }, b => [`{ filter: { structureType: ${val(b, 'T', 'STRUCTURE_SPAWN')} } }`, OA], 'js', '选项');
-def('api_js_log', { message0: 'console.log( %1 )', args0: [{ type: 'input_value', name: 'T' }], previousStatement: null, nextStatement: null, inputsInline: true }, b => `console.log(${val(b, 'T', "''")});\n`, 'js', '对象');
+def('api_js_get', { message0: '%1 里名为 %2 的项', tooltip: 'obj[key]', args0: [{ type: 'input_value', name: 'O' }, { type: 'input_value', name: 'K' }], output: null, inputsInline: true }, b => [`${recv(b)}[${val(b, 'K', "''")}]`, OM], 'js', '对象');
+def('api_js_set', { message0: '把 %1 里的 %2 设为 %3', tooltip: 'obj[key] = value', args0: [{ type: 'input_value', name: 'O' }, { type: 'input_value', name: 'K' }, { type: 'input_value', name: 'V' }], previousStatement: null, nextStatement: null, inputsInline: true }, b => `${recv(b)}[${val(b, 'K', "''")}] = ${val(b, 'V', 'null')};\n`, 'js', '对象');
+def('api_js_obj', { message0: '空的数据表', tooltip: '{}', output: null }, () => ['{}', OA], 'js', '对象');
+def('api_js_del', { message0: '从 %1 删除 %2', tooltip: 'delete obj[key]', args0: [{ type: 'input_value', name: 'O' }, { type: 'input_value', name: 'K' }], previousStatement: null, nextStatement: null, inputsInline: true }, b => `delete ${recv(b)}[${val(b, 'K', "''")}];\n`, 'js', '对象');
+def('api_js_has', { message0: '%2 里有名为 %1 的项', tooltip: 'key in obj', args0: [{ type: 'input_value', name: 'K' }, { type: 'input_value', name: 'O' }], output: 'Boolean', inputsInline: true }, b => [`(${val(b, 'K', "''")} in ${JS.valueToCode(b, 'O', JS.ORDER_IN) || '{}'})`, OA], 'js', '对象');
+def('api_js_prop', { message0: '%1 的属性 %2', tooltip: 'obj.prop', args0: [{ type: 'input_value', name: 'O' }, { type: 'field_input', name: 'P', text: 'length' }], output: null, inputsInline: true }, b => [`${recv(b)}.${b.getFieldValue('P').replace(/[^\w$]/g, '')}`, OM], 'js', '对象');
+def('api_js_filter', { message0: '条件：建筑类型是 %1', tooltip: '{ filter: { structureType } }', args0: [{ type: 'input_value', name: 'T' }], output: null, inputsInline: true }, b => [`{ filter: { structureType: ${val(b, 'T', 'STRUCTURE_SPAWN')} } }`, OA], 'js', '选项');
+def('api_js_log', { message0: '在控制台显示 %1', tooltip: 'console.log(x)', args0: [{ type: 'input_value', name: 'T' }], previousStatement: null, nextStatement: null, inputsInline: true }, b => `console.log(${val(b, 'T', "''")});\n`, 'js', '对象');
+
+// ---- 实时对象选择积木（下拉列出当前游戏里真实存在的对象；生成官方写法）----
+const qs = s => JSON.stringify(String(s));
+function liveView() { try { return typeof view === 'function' ? view() : null; } catch (e) { return null; } }
+const meId = () => (typeof myPid !== 'undefined' ? myPid : null);
+const where = o => { try { return `${roomName(o.x, o.y)} · ${((o.x % 50) + 50) % 50},${((o.y % 50) + 50) % 50}`; } catch (e) { return ''; } };
+function keepCur(out, f) { const cur = f && f.getValue ? f.getValue() : null; if (cur != null && cur !== '' && !out.some(o => o[1] === cur)) out.push([cur, cur]); if (!out.length) out.push(['（暂无）', '']); return out; }
+// 实时下拉：选项来自当前游戏；存档里的名字即使现在不存在也照样保留（旧存档/其他世界不丢值）
+class FieldLive extends Blockly.FieldDropdown { doClassValidation_(v) { return v == null ? null : String(v); } }
+if (Blockly.fieldRegistry) Blockly.fieldRegistry.register('field_live', FieldLive);
+function liveNames(kind) { return function () {
+  const v = liveView(), me = meId(), out = kind === 'creep' ? [['当前 creep', '@cur']] : kind === 'room' ? [['当前 creep 所在房间', '@cur']] : [];
+  if (v) {
+    if (kind === 'spawn') for (const s of v.spawns || []) if (s.owner === me) out.push([s.name, s.name]);
+    if (kind === 'creep') for (const c of v.creeps || []) if (c.owner === me) out.push([c.name, c.name]);
+    if (kind === 'flag') for (const f of v.flags || []) if (f.owner === me) out.push([f.name, f.name]);
+    if (kind === 'room') { const seen = new Set(); for (const o of [...(v.spawns || []), ...(v.controllers || []), ...(v.creeps || [])]) if (o.owner === me) { try { const n = roomName(o.x, o.y); if (!seen.has(n)) { seen.add(n); out.push([n, n]); } } catch (e) {} } }
+  }
+  return keepCur(out, this);
+}; }
+def('api_pick_spawn', { message0: 'Spawn %1', args0: [{ type: 'field_live', name: 'N', options: liveNames('spawn') }], output: null, tooltip: "Game.spawns['名字']" },
+  b => [`Game.spawns[${qs(b.getFieldValue('N'))}]`, OM], 'spawn', '选择');
+def('api_pick_creep', { message0: 'creep %1', args0: [{ type: 'field_live', name: 'N', options: liveNames('creep') }], output: null, tooltip: "creep / Game.creeps['名字']" },
+  b => b.getFieldValue('N') === '@cur' ? ['creep', OA] : [`Game.creeps[${qs(b.getFieldValue('N'))}]`, OM], 'creep', '选择');
+def('api_pick_room', { message0: '房间 %1', args0: [{ type: 'field_live', name: 'N', options: liveNames('room') }], output: null, tooltip: "creep.room / Game.rooms['名字']" },
+  b => b.getFieldValue('N') === '@cur' ? ['creep.room', OM] : [`Game.rooms[${qs(b.getFieldValue('N'))}]`, OM], 'room', '选择');
+def('api_pick_flag', { message0: '旗帜 %1', args0: [{ type: 'field_live', name: 'N', options: liveNames('flag') }], output: null, tooltip: "Game.flags['名字']" },
+  b => [`Game.flags[${qs(b.getFieldValue('N'))}]`, OM], 'obj', '选择');
+// 任意对象：先选种类，再从当前游戏里的实物中选（按编号取，Game.getObjectById）
+const KINDS = [['防御塔', 'tower'], ['扩展', 'extension'], ['链路', 'link'], ['仓库', 'storage'], ['终端', 'terminal'], ['容器', 'container'], ['实验室', 'lab'], ['工厂', 'factory'],
+  ['观察者', 'observer'], ['Power Spawn', 'powerSpawn'], ['核弹发射井', 'nuker'], ['采矿机', 'extractor'], ['城墙', 'rampart'], ['墙', 'constructedWall'], ['道路', 'road'], ['Spawn', 'spawn'],
+  ['控制器', 'controller'], ['能量源', 'source'], ['矿物', 'mineral'], ['工地', 'site'], ['掉落资源', 'resource'], ['墓碑', 'tombstone'], ['核弹', 'nuke'], ['creep', 'creep'],
+  ['守卫巢穴', 'keeperLair'], ['传送门', 'portal'], ['入侵者核心', 'invaderCore'], ['Power 银行', 'powerBank']];
+const kindZh = k => (KINDS.find(x => x[1] === k) || [k])[0];
+function myRoomSet(v, me) { const r = new Set(); for (const o of [...(v.spawns || []), ...(v.controllers || []), ...(v.creeps || [])]) if (o.owner === me) { try { r.add(roomName(o.x, o.y)); } catch (e) {} } return r; }
+function liveObjs() {
+  const v0 = liveView(), me = meId(), R = v0 ? myRoomSet(v0, me) : null, inMine = L => (L || []).filter(o => { try { return R.has(roomName(o.x, o.y)); } catch (e) { return true; } });
+  const v = v0 && Object.assign({}, v0, { sources: inMine(v0.sources), minerals: inMine(v0.minerals), resources: inMine(v0.resources), tombstones: inMine(v0.tombstones), nukes: inMine(v0.nukes) }), kind = this.getSourceBlock() ? this.getSourceBlock().getFieldValue('KIND') : 'tower', out = [];
+  if (v) {
+    const add = (o, label) => out.push([`${label || kindZh(kind)} ${where(o)}`, String(o.id)]);
+    if (kind === 'source') (v.sources || []).forEach(o => add(o));
+    else if (kind === 'mineral') (v.minerals || []).forEach(o => add(o, '矿物 ' + o.type));
+    else if (kind === 'controller') (v.controllers || []).filter(o => o.owner === me).forEach(o => add(o, '控制器 ' + o.level + ' 级'));
+    else if (kind === 'site') (v.sites || []).filter(o => o.owner === me).forEach(o => add(o, '工地'));
+    else if (kind === 'resource') (v.resources || []).forEach(o => add(o, '掉落 ' + o.amount));
+    else if (kind === 'tombstone') (v.tombstones || []).forEach(o => add(o, '墓碑 ' + (o.creepName || '')));
+    else if (kind === 'nuke') (v.nukes || []).forEach(o => add(o));
+    else if (kind === 'creep') (v.creeps || []).filter(o => o.owner === me).forEach(o => add(o, o.name));
+    else if (kind === 'spawn') (v.spawns || []).filter(o => o.owner === me).forEach(o => add(o, o.name));
+    else (v.structures || []).filter(o => o.type === kind && (!o.owner || o.owner === me || ['keeperLair', 'portal', 'invaderCore', 'powerBank'].includes(kind))).forEach(o => add(o));
+  }
+  return keepCur(out, this);
+}
+def('api_pick_obj', { message0: '%1 %2', args0: [{ type: 'field_dropdown', name: 'KIND', options: KINDS }, { type: 'field_live', name: 'ID', options: liveObjs }], output: null, tooltip: 'Game.getObjectById(id)，列表是当前游戏里的实物' },
+  b => b.getFieldValue('ID') ? [`Game.getObjectById(${qs(b.getFieldValue('ID'))})`, OF] : ['null', OA], 'obj', '选择');
+if (Blockly.Blocks.api_pick_obj) { const init0 = Blockly.Blocks.api_pick_obj.init; Blockly.Blocks.api_pick_obj.init = function () { init0.call(this);
+  this.getField('KIND').setValidator(v => { const idf = this.getField('ID'); if (idf && v !== this.getFieldValue('KIND')) { idf.setValue(''); setTimeout(() => { if (this.isDeadOrDying && this.isDeadOrDying()) return; if (idf.getValue() !== '') return; const o = idf.getOptions(false); if (o[0] && o[0][1]) idf.setValue(o[0][1]); }, 0); } return v; }); }; }
+// ---- 选项表单（官方 options 对象）----
+const ROLE_OPTS = [['不设角色', ''], ['采集者', 'harvester'], ['升级者', 'upgrader'], ['建造者', 'builder'], ['修理工', 'repairer'], ['搬运工', 'hauler'], ['守卫', 'defender'], ['治疗者', 'healer'], ['占领者', 'claimer']];
+def('api_opt_spawn', { message0: '孵化选项 %1 角色 %2 %3 只检查能否孵化 %4', args0: [{ type: 'input_dummy' }, { type: 'field_dropdown', name: 'ROLE', options: ROLE_OPTS }, { type: 'input_dummy' }, { type: 'field_checkbox', name: 'DRY', checked: false }], output: null, tooltip: '{ memory: { role }, dryRun }' },
+  b => { const r = b.getFieldValue('ROLE'), o = []; if (r) o.push(`memory: { role: ${qs(r)} }`); if (b.getFieldValue('DRY') === 'TRUE') o.push('dryRun: true'); return [`{ ${o.join(', ')} }`, OA]; }, 'spawn', '选项');
+def('api_opt_move', { message0: '移动选项 %1 路径保留 %2 tick %3 无视其他 creep %4 %5 画出路线 %6', args0: [{ type: 'input_dummy' }, { type: 'field_number', name: 'R', value: 5, min: 0, precision: 1 }, { type: 'input_dummy' }, { type: 'field_checkbox', name: 'IC', checked: false }, { type: 'input_dummy' }, { type: 'field_checkbox', name: 'VIS', checked: true }], output: null, tooltip: '{ reusePath, ignoreCreeps, visualizePathStyle }' },
+  b => { const o = [`reusePath: ${Number(b.getFieldValue('R')) || 0}`]; if (b.getFieldValue('IC') === 'TRUE') o.push('ignoreCreeps: true'); if (b.getFieldValue('VIS') === 'TRUE') o.push("visualizePathStyle: { stroke: '#ffffff' }"); return [`{ ${o.join(', ')} }`, OA]; }, 'creep', '选项');
+const FILT = [['血量没满', 'o => o.hits < o.hitsMax'], ['还能装能量', 'o => o.store && o.store.getFreeCapacity(RESOURCE_ENERGY) > 0'], ['装有能量', 'o => o.store && o.store[RESOURCE_ENERGY] > 0'], ['是我的', 'o => o.my']];
+def('api_opt_filter', { message0: '条件：%1', args0: [{ type: 'field_dropdown', name: 'F', options: FILT }], output: null, tooltip: '{ filter: 函数 }' },
+  b => { const f = FILT.find(x => x[1] === b.getFieldValue('F')); return [`{ filter: ${f ? f[1] : FILT[0][1]} }`, OA]; }, 'pos', '选项');
 
 // ---- 生成 flyout 内容：每个分类按子类加标签；动作类方法默认包在「执行」里 ----
 const VAR = (n) => ({ block: { type: 'variables_get', fields: { VAR: { name: n } } } });
 const TXT = (t) => ({ shadow: { type: 'text', fields: { TEXT: t } } });
+const PK = (t, f) => ({ block: Object.assign({ type: t }, f ? { fields: f } : {}) });
+const PKI = (t, inputs) => ({ block: { type: t, inputs } });
+const OBJKIND = { structure: 'spawn', tower: 'tower', link: 'link', lab: 'lab', terminal: 'terminal', container: 'container', observer: 'observer', factory: 'factory', powerSpawn: 'powerSpawn',
+  'powerBank / powerSpawn': 'powerSpawn', nuker: 'nuker', rampart: 'rampart', source: 'source', mineral: 'mineral', site: 'site', resource: 'resource', tombstone: 'tombstone', nuke: 'nuke',
+  ruin: 'tower', deposit: 'source', roomObject: 'source', controller: 'controller', invaderCore: 'invaderCore', keeperLair: 'keeperLair', portal: 'portal' };
+// 接收者 → 中文可选积木（不再出现代码表达式）
 function recvInput(rn) {
   if (!rn) return undefined;
+  const creep = () => PK('api_pick_creep', { N: '@cur' }), spawn = () => PK('api_pick_spawn', { N: 'Spawn1' }), room = () => PK('api_pick_room', { N: '@cur' });
+  if (rn === 'creep') return creep();
+  if (rn === 'room') return room();
+  if (rn === 'spawn' || rn === "Game.spawns['Spawn1']") return spawn();
+  if (rn === 'flag') return PK('api_pick_flag', { N: 'Flag1' });
+  if (rn === 'creep.store') return PKI('api_creep_p_store', { O: creep() });
+  if (rn === 'creep.pos') return PKI('api_creep_p_pos', { O: creep() });
+  if (rn === 'creep.room.controller') return PKI('api_room_p_controller', { O: room() });
+  if (rn === "Game.spawns['Spawn1'].spawning" || rn === 'spawn.spawning') return PKI('api_spawn_p_spawning', { O: spawn() });
+  if (rn === 'room.getTerrain()' || rn === 'terrain') return PKI('api_room_getTerrain_0', { O: room() });
+  if (rn === 'PathFinder.CostMatrix') return PK('api_map_g_new_PathFinder_CostMatrix_0');
+  if (OBJKIND[rn]) return PK('api_pick_obj', { KIND: OBJKIND[rn] });
   if (/^[a-z]\w*$/i.test(rn)) return VAR(rn);
   return { block: { type: 'api_js_prop_raw', fields: { E: rn } } };
 }
+// 参数默认值：按参数含义放好中文下拉/表单
+function argInput(n) {
+  const C = (t) => ({ shadow: { type: t } });
+  if (/FIND_/.test(n)) return { block: { type: 'api_const_find', fields: { K: 'FIND_SOURCES' } } };
+  if (/LOOK_|^类型$/.test(n)) return { block: { type: 'api_const_look' } };
+  if (n === '资源类型' || n === '资源') return { block: { type: 'api_const_resource', fields: { K: 'RESOURCE_ENERGY' } } };
+  if (n === '建筑类型') return { block: { type: 'api_const_structure', fields: { K: 'STRUCTURE_EXTENSION' } } };
+  if (n === '部件类型') return { block: { type: 'api_const_body', fields: { K: 'WORK' } } };
+  if (n === '方向') return { block: { type: 'api_const_dir' } };
+  if (n === '身体') return { block: { type: 'api_body' } };
+  if (n === 'x' || n === 'y' || n === '数量' || n === '范围' || n === '上' || n === '左' || n === '下' || n === '右') return { shadow: { type: 'math_number', fields: { NUM: n === '数量' ? 50 : n === '范围' ? 3 : 25 } } };
+  if (n === '公开' || n === '开启' || n === '数组形式' || n === '是否启用') return C('logic_boolean');
+  if (n === '名字' || n === '消息' || n === '文本' || n === '新名字' || n === '方法名') return { shadow: { type: 'text', fields: { TEXT: n === '方法名' ? 'move' : '' } } };
+  if (n === '房间名' || n === '房间' || n === '目标房间' || n === '起点房间' || n === '终点房间' || n === '房间1' || n === '房间2') return { shadow: { type: 'text', fields: { TEXT: 'W1N1' } } };
+  if (n === 'creep') return { block: { type: 'api_pick_creep' } };
+  if (n === '控制器') return PKI('api_room_p_controller', { O: { block: { type: 'api_pick_room' } } });
+  if (n === '选项') return { block: { type: 'api_opt_filter' } };
+  return undefined;
+}
+const SUBZH = { 'Game.map': '地图', 'Game.market': '市场', 'Game.cpu': 'CPU', 'Game.map.visual': '地图视觉', PathFinder: '寻路', RawMemory: '原始记忆', InterShardMemory: '跨分片记忆',
+  Store: '存储', Spawning: '孵化进度', Tower: '防御塔', Link: '链路', Container: '容器', Terminal: '终端', Lab: '实验室', Source: '能量源', Mineral: '矿物', ConstructionSite: '工地',
+  Resource: '掉落资源', Tombstone: '墓碑', Flag: '旗帜', Nuke: '核弹', Ruin: '废墟', Deposit: '沉积物', FIND: '查找什么', RESOURCE: '资源', STRUCTURE: '建筑类型', LOOK: '看什么', '部件/方向': '部件与方向' };
 // 接收者是复杂表达式（如 Game.spawns['Spawn1']）时用的原样表达式积木
-def('api_js_prop_raw', { message0: '%1', args0: [{ type: 'field_input', name: 'E', text: 'Game' }], output: null }, b => [b.getFieldValue('E').replace(/[;\n]/g, ''), OM], 'js', '对象');
+def('api_js_prop_raw', { message0: '对象 %1', tooltip: '直接写的对象表达式（旧存档兼容）', args0: [{ type: 'field_input', name: 'E', text: 'Game' }], output: null }, b => [b.getFieldValue('E').replace(/[;\n]/g, ''), OM], 'js', '对象');
 function flyoutFor(c) {
   if (c.items) return c.items;
   if (c.custom) return c.custom;
   if (c.std) return c.std.map(t => ({ kind: 'block', type: t }));
   const out = []; let sub = null;
-  for (const a of API.filter(x => x.cat === c.id)) {
-    if (a.sub !== sub) { sub = a.sub; out.push({ kind: 'label', text: sub }); }
+  const list = API.filter(x => x.cat === c.id && x.type !== 'api_js_prop_raw'), first = list.filter(x => x.sub === '选择' || x.sub === '选项');
+  for (const a of [...first, ...list.filter(x => !first.includes(x))]) {
+    if (a.sub !== sub) { sub = a.sub; out.push({ kind: 'label', text: SUBZH[sub] || sub }); }
     const inputs = {}; const pr = a.preset || {};
     if (pr.O) inputs.O = recvInput(pr.O);
     if (pr.K) inputs.K = TXT(pr.K); if (pr.A0) inputs.A0 = TXT(pr.A0);
+    (pr.args || []).forEach((n, i) => { if (!inputs['A' + i]) { const d = argInput(n); if (d) inputs['A' + i] = d; } });
+    if (a.type === 'api_spawn_spawnCreep_3') inputs.A2 = { block: { type: 'api_opt_spawn', fields: { ROLE: 'harvester' } } };
+    if (a.type === 'api_creep_moveTo_1') { /* 目标 */ inputs.A0 = { block: { type: 'api_pick_obj', fields: { KIND: 'source' } } }; }
     const blk = { kind: 'block', type: a.type, inputs };
     out.push(pr.action ? { kind: 'block', type: 'api_do', inputs: { E: { block: { type: a.type, inputs } } } } : blk);
   }

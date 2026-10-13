@@ -127,7 +127,7 @@ class Engine {
   placeSpawnAt(pid, x, y) {
     const err = this.checkSpawnAt(pid, x, y); if (err) return err;
     const w = this.w, rx = Math.floor(x / ROOM), ry = Math.floor(y / ROOM), k = rx + ',' + ry, ctrl = ctrlOfRoom(w, k);
-    w.rooms[k].owner = pid; Object.assign(ctrl, { owner: pid, level: 1, progress: 0, downgradeTime: w.time + SC.CONTROLLER_DOWNGRADE[1] + 1, safeModeAvailable: 1, reservation: null });
+    w.rooms[k].owner = pid; Object.assign(ctrl, { owner: pid, level: 1, progress: 0, downgradeTime: w.time + SC.CONTROLLER_DOWNGRADE[1] + 1, safeModeAvailable: 1, safeMode: w.time + SC.SAFE_MODE_DURATION, safeModeCooldown: null, reservation: null });
     for (const s of w.sources) if (roomKey(s.x, s.y) === k) { s.cap = s.energy = SC.SOURCE_ENERGY_CAPACITY; s.regenAt = null; }
     w.spawns.push(this.makeSpawn(pid, 'Spawn1', x, y, SC.SPAWN_ENERGY_START)); w.players[pid].needsSpawn = false;
     ensureNear(w, rx, ry); this._objVer++; w.roomsVer++; maybeExpand(w); this.log(pid, '在', w.rooms[k].name, '放下 Spawn1'); return null;

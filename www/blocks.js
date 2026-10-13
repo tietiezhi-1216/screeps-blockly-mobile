@@ -278,6 +278,7 @@ function recvInput(rn) {
 // 接收者是复杂表达式（如 Game.spawns['Spawn1']）时用的原样表达式积木
 def('api_js_prop_raw', { message0: '%1', args0: [{ type: 'field_input', name: 'E', text: 'Game' }], output: null }, b => [b.getFieldValue('E').replace(/[;\n]/g, ''), OM], 'js', '对象');
 function flyoutFor(c) {
+  if (c.items) return c.items;
   if (c.custom) return c.custom;
   if (c.std) return c.std.map(t => ({ kind: 'block', type: t }));
   const out = []; let sub = null;
@@ -310,5 +311,5 @@ const body = B('variables_set', { VALUE: B('api_js_get', { O: B('api_game_g_Game
     DO0: ifRange(B('api_creep_harvest_1', { O: CREEP, A0: closest('FIND_SOURCES') }), closest('FIND_SOURCES')),
     ELSE: ifRange(B('api_creep_transfer_2', { O: CREEP, A0: RAW("Game.spawns['Spawn1']"), A1: B('api_const_resource', null, { K: 'RESOURCE_ENERGY' }) }), RAW("Game.spawns['Spawn1']")),
   }, null, { extraState: { hasElse: true } }) });
-const DEFAULT_WS = { blocks: { languageVersion: 0, blocks: [Object.assign(spawnStmt.block, { x: 16, y: 16,
+let DEFAULT_WS = { blocks: { languageVersion: 0, blocks: [Object.assign(spawnStmt.block, { x: 16, y: 16,
   next: B('api_js_forin', { O: B('api_game_g_Game_creeps_p'), DO: body }, { VAR: { name: 'creepName' } }) })] } };

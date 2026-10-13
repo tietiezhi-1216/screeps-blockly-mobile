@@ -165,3 +165,39 @@ pre.mem{margin:var(--sp-1) 0 0;max-height:120px;overflow:auto;background:#0008;p
 }
 #roomBar{right:auto}
 #stage,#world{background:#0a0a0a}
+
+/* 新手积木：高级切换、预览、身体部件表单 */
+#catBar .cat.adv{background:#3a3f4b;color:#cfd3dc}
+#prevP{position:absolute;inset:0;z-index:30;background:#1b1e25;color:#e6e6e6;display:flex;flex-direction:column}
+#prevP.hidden{display:none}
+#prevP .hh{display:flex;align-items:center;gap:8px;padding:6px calc(8px + var(--safe-r,0px)) 6px calc(8px + var(--safe-l,0px));border-bottom:1px solid #333;flex:0 0 auto}
+#prevP .hh b{font-size:14px;white-space:nowrap}
+#prevP .sp{flex:1}
+#prevP .seg{display:flex;gap:0}
+#prevP .seg button{height:28px;padding:0 12px;border:0;background:#2a2f3a;color:#cfd3dc;font-size:13px;border-radius:0}
+#prevP .seg button:first-child{border-radius:4px 0 0 4px}#prevP .seg button:last-child{border-radius:0 4px 4px 0}
+#prevP .seg button.on{background:#5973FF;color:#fff}
+#prevP .pvSay{flex:1;overflow:auto;padding:10px 14px;font-size:13px;line-height:22px;white-space:nowrap}
+#prevP .pvCode{flex:1;overflow:auto;padding:10px 14px;color:#d6d9e0;-webkit-user-select:text;user-select:text}
+#prevP .pvCode pre{margin:0;font:12px/18px ui-monospace,Menlo,Consolas,monospace;white-space:pre}
+#prevP .pvCode summary{margin-top:12px;font-size:12px;color:#8a8f99;white-space:nowrap}
+#prevP .pvBack{display:flex;align-items:center;gap:4px;height:28px;padding:0 10px;border:0;border-radius:4px;background:#2a2f3a;color:#e6e6e6;font-size:13px;white-space:nowrap}
+.hlc{color:#6f7787}.hls{color:#9fd18a}.hlk{color:#8fa2ff}.hlK{color:#e5c07b}.hln{color:#d19a66}
+#bodyForm{position:absolute;inset:0;z-index:40;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center}
+#bodyForm .bfBox{background:#1f2229;color:#e6e6e6;border-radius:6px;width:min(560px,94%);max-height:94%;overflow:auto;padding:10px 12px;display:flex;flex-direction:column;gap:8px}
+#bodyForm .bfHead{display:flex;align-items:center;gap:8px;white-space:nowrap}
+#bodyForm .bfHead b{font-size:14px}
+#bodyForm .bfStat{margin-left:auto;font-size:12px;color:#aab}
+#bodyForm .bfStat b{color:#ffe56d}
+#bodyForm .bfParts{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+#bodyForm .bfP{display:flex;align-items:center;gap:6px;height:34px;padding:0 8px;border:0;border-radius:4px;background:#2a2f3a;color:#e6e6e6;font-size:13px;white-space:nowrap}
+#bodyForm .bfP i{width:14px;height:14px;border-radius:50%;flex:0 0 auto}
+#bodyForm .bfP em{margin-left:auto;font-style:normal;font-size:11px;color:#8a8f99}
+#bodyForm .bfCur{display:flex;flex-wrap:wrap;gap:4px;min-height:34px;padding:6px;background:#15171c;border-radius:4px}
+#bodyForm .bfC{height:24px;padding:0 6px;border:0;border-radius:3px;color:#111;font-size:11px;font-weight:600}
+#bodyForm .bfEmpty{font-size:12px;color:#777;align-self:center}
+#bodyForm .bfFoot{display:flex;gap:8px;align-items:center}
+#bodyForm .bfFoot .sp{flex:1}
+#bodyForm .bfFoot button{height:32px;padding:0 14px;border:0;border-radius:4px;font-size:13px;background:#2a2f3a;color:#e6e6e6}
+#bodyForm .bfFoot button.primary{background:#5973FF;color:#fff}
+#bodyForm .bfFoot button:disabled{opacity:.4}

@@ -60,6 +60,9 @@ function initBlockly() {
   window.addEventListener('popstate', () => { if (fly && fly.isVisible()) closeFlyout(true); });
   fly.hide(); buildCatBar();
   let saved = null; try { saved = JSON.parse(localStorage.getItem(SAVE_C)); } catch (e) {}
+  let migrated = false;
+  if (saved && !localStorage.getItem('sbm_easy1')) { const t = JSON.stringify(saved); if (!t.includes('"e_')) { try { const L = histList(); L.unshift({ ts: Date.now(), reason: '旧版程序', n: (t.match(/"type"/g) || []).length, st: t }); localStorage.setItem(HIST_K, JSON.stringify(L.slice(0, HIST_N))); } catch (e) {} saved = null; migrated = true; } }
+  localStorage.setItem('sbm_easy1', '1');
   try { Blockly.serialization.workspaces.load(saved || DEFAULT_WS, ws); } catch (e) { console.warn('旧积木存档不兼容，已恢复默认', e); ws.clear(); Blockly.serialization.workspaces.load(DEFAULT_WS, ws); }
   ws.addChangeListener(e => {
     if (e.type === Blockly.Events.BLOCK_DRAG) { // 从抽屉拖出后自动收起
@@ -72,6 +75,7 @@ function initBlockly() {
   // 点击 flyout 里的积木 = 添加到可见区域中心
   fly.getWorkspace().addChangeListener(e => { if (e.type === Blockly.Events.CLICK && e.blockId && fly.isVisible()) setTimeout(() => tapAdd(e.blockId), 0); });
   regen(false); ws.clearUndo(); histPush('启动时'); undoUI();
+  if (migrated) setTimeout(() => { try { toastMsg('已换成新的入门积木程序，旧程序在历史版本里'); } catch (e) {} }, 800);
 }
 let fly = null, activeCat = null, dragFromFly = false, lastPt = [0, 0], flyScale = 0.7, lpArmed = false;
 // 小号工具按钮（32px）：缩放 / 居中 / 垃圾桶（拖到上面删除，点一下删除选中积木）
@@ -102,17 +106,35 @@ function histShow() {
     if (b.dataset.a === 'restore') { const h = histList()[+b.dataset.i]; if (!h || !confirm(`恢复到 ${dt(h.ts)} 的版本？当前版本会先存入历史。`)) return; histPush('恢复前', true);
       Blockly.Events.setGroup(true); ws.clear(); Blockly.serialization.workspaces.load(JSON.parse(h.st), ws); Blockly.Events.setGroup(false); regen(true); histPush('已恢复', true); p.classList.add('hidden'); toastMsg && toastMsg('已恢复历史版本'); } };
 }
+let showAdv = false; // 「高级」= 完整官方 API 积木
 function buildCatBar() {
   const bar = $('catBar');
-  if (bar.children.length) { for (const b of bar.children) b.classList.toggle('on', b.dataset.cat === activeCat); return; }
-  for (const c of CATS) {
-    const b = document.createElement('button'); b.className = 'cat' + (c.id === activeCat ? ' on' : ''); b.dataset.cat = c.id;
-    b.textContent = c.name; b.style.background = c.colour; let d0 = null; // 用 pointer 事件，避免 Blockly 拖拽后浏览器吞掉 click
+  if (bar.children.length && bar.dataset.adv === String(showAdv)) { for (const b of bar.children) b.classList.toggle('on', b.dataset.cat === activeCat); return; }
+  bar.innerHTML = ''; bar.dataset.adv = String(showAdv);
+  const mk = (id, name, colour, fn, cls) => { const b = document.createElement('button'); b.className = 'cat' + (cls ? ' ' + cls : '') + (id === activeCat ? ' on' : ''); b.dataset.cat = id;
+    b.textContent = name; if (colour) b.style.background = colour; let d0 = null; // 用 pointer 事件，避免 Blockly 拖拽后浏览器吞掉 click
     b.addEventListener('pointerdown', e => { d0 = [e.clientX, e.clientY]; });
-    b.addEventListener('pointerup', e => { if (d0 && Math.hypot(e.clientX - d0[0], e.clientY - d0[1]) < 10) selectCat(c.id); d0 = null; });
-    b.addEventListener('pointercancel', () => { d0 = null; }); bar.appendChild(b);
-  }
+    b.addEventListener('pointerup', e => { if (d0 && Math.hypot(e.clientX - d0[0], e.clientY - d0[1]) < 10) fn(); d0 = null; });
+    b.addEventListener('pointercancel', () => { d0 = null; }); bar.appendChild(b); };
+  if (showAdv) mk('_back', '返回', null, () => { showAdv = false; closeFlyout(); buildCatBar(); }, 'adv');
+  for (const c of CATS) if (!!c.adv === showAdv) mk(c.id, c.name, c.colour, () => selectCat(c.id));
+  if (!showAdv) mk('_adv', '高级', null, () => { showAdv = true; closeFlyout(); buildCatBar(); }, 'adv');
 }
+window.setAdv = v => { showAdv = !!v; buildCatBar(); };
+// ===== 预览：白话说明 + 生成的代码（只读） =====
+$('edPreview').onclick = () => previewShow();
+function previewShow(tab) {
+  let p = $('prevP'); if (!p) { p = document.createElement('div'); p.id = 'prevP'; $('editor').appendChild(p); }
+  tab = tab || p.dataset.tab || 'say'; p.dataset.tab = tab;
+  const lines = describeProgram(ws), src = Blockly.JavaScript.workspaceToCode(ws);
+  p.innerHTML = `<div class="hh"><button class="pvBack" data-a="back" data-icon="arrow-left">返回</button><b>预览</b><span class="sp"></span><span class="seg"><button data-a="say" class="${tab === 'say' ? 'on' : ''}">说明</button><button data-a="code" class="${tab === 'code' ? 'on' : ''}">代码</button></span></div>
+    ${tab === 'say' ? `<div class="pvSay">${lines.map(l => { const m = l.match(/^( *)(.*)$/); return `<div style="padding-left:${m[1].length * 9}px">${m[2].replace(/&/g, '&amp;').replace(/</g, '&lt;')}</div>`; }).join('')}</div>`
+      : (() => { const i = src.indexOf('// ===== 积木助手'), j = i < 0 ? -1 : src.indexOf('\n\n', i); const lib = i < 0 ? '' : src.slice(i, j < 0 ? undefined : j), main = i < 0 ? src : (src.slice(0, i) + (j < 0 ? '' : src.slice(j + 2))).trim();
+          return `<div class="pvCode"><pre>${highlightJS(main || '// 还没有积木')}</pre>${lib ? `<details><summary>积木助手函数（自动生成）</summary><pre>${highlightJS(lib)}</pre></details>` : ''}</div>`; })()}`;
+  applyIcons(p); p.classList.remove('hidden');
+  p.onclick = e => { const b = e.target.closest('button'); if (!b) return; if (b.dataset.a === 'back') return p.classList.add('hidden'); if (b.dataset.a === 'say' || b.dataset.a === 'code') previewShow(b.dataset.a); };
+}
+window.previewShow = previewShow;
 function closeFlyout(fromPop) { if (!fly) return; const was = fly.isVisible(); fly.hide(); activeCat = null; buildCatBar(); $('edTabs').classList.remove('flyOpen'); Blockly.svgResize(ws);
   if (was && !fromPop && history.state && history.state.fly) history.back(); }
 function selectCat(id) {

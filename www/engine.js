@@ -109,7 +109,7 @@ class Engine {
     if (this._g && this._gVer === w.roomsVer && this._gObj === this._objVer && this._gW === WW) return this._g;
     const g = new Uint8Array(WW * WW).fill(1), road = new Uint8Array(WW * WW); // 未生成的房间当墙
     for (const k in w.rooms) { const [rx, ry] = k.split(',').map(Number), t = w.rooms[k].tiles; for (let ly = 0; ly < ROOM; ly++) for (let lx = 0; lx < ROOM; lx++) { const v = t[ly * ROOM + lx], i = (ry * ROOM + ly) * WW + rx * ROOM + lx; g[i] = v === T_WALL ? 1 : v === T_SWAMP ? 4 : 0; } }
-    for (const L of [w.sources, w.controllers, w.spawns, w.minerals]) for (const o of L) g[o.y * WW + o.x] = 1;
+    for (const L of [w.sources, w.controllers, w.spawns, w.minerals, w.deposits || []]) for (const o of L) g[o.y * WW + o.x] = 1;
     for (const o of w.structures) { if (OBSTACLES.has(o.type)) g[o.y * WW + o.x] = 1; if (o.type === 'road') road[o.y * WW + o.x] = 1; }
     for (const s of w.sites) if (OBSTACLES.has(s.type)) g[s.y * WW + s.x] |= 2; // 自己的工地可走；记号供敌方判断
     this._g = g; this._road = road; this._gVer = w.roomsVer; this._gObj = this._objVer; this._gW = WW; return g;
@@ -705,7 +705,7 @@ function buildApi(E, pid) {
           if (o._pp === w.time) return OK; o._pp = w.time; o.store.power -= 1; o.store.energy -= SC.POWER_SPAWN_ENERGY_RATIO; const pl = w.players[pid]; pl.power = (pl.power || 0) + 1; return OK; }; }
       if (o.type === 'factory') { v.level = o.level;
         v.produce = res => { if (o.owner !== pid) return ERR_NOT_OWNER; if (o.cooldown > 0) return ERR_TIRED; const c = SC.COMMODITIES[res]; if (!c) return ERR_INVALID_ARGS;
-          if (c.level && c.level !== o.level) return ERR_INVALID_TARGET; if (!E.isActive(o)) return ERR_RCL_NOT_ENOUGH; if (c.level && o.level > 0) return ERR_BUSY; // 无 Power Creep：PWR_OPERATE_FACTORY 效果不存在
+          if (c.level && c.level !== o.level) return ERR_INVALID_TARGET; if (!E.isActive(o)) return ERR_RCL_NOT_ENOUGH; if (c.level && !(o.effects || []).some(f => f.power === SC.PWR_OPERATE_FACTORY && f.level === c.level && f.endTime >= w.time)) return ERR_BUSY; // 无 Power Creep：PWR_OPERATE_FACTORY 效果不存在
           if (Object.keys(c.components).some(k => (o.store[k] || 0) < c.components[k])) return ERR_NOT_ENOUGH_RESOURCES;
           const comp = Object.values(c.components).reduce((a, b) => a + b, 0); if (storeSum(o.store) - comp + (c.amount || 1) > SC.FACTORY_CAPACITY) return ERR_FULL;
           for (const k in c.components) o.store[k] -= c.components[k]; o.store[res] = (o.store[res] || 0) + (c.amount || 1); o.cooldown = c.cooldown; return OK; }; }
@@ -1103,8 +1103,8 @@ function buildApi(E, pid) {
 const SC_NAMES = Object.keys(SC).filter(k => /^[A-Z_][A-Z0-9_]*$/.test(k));
 function compileUser(code) {
   const hidden = ['window', 'document', 'localStorage', 'fetch', 'XMLHttpRequest', 'WebSocket', 'Capacitor', 'globalThis', 'self', 'require', 'process', 'setTimeout', 'setInterval', 'SC'];
-  const f = new Function('Game', 'Memory', 'RawMemory', 'RoomPosition', 'Room', 'PathFinder', 'console', '__loopGuard', ...hidden, ...SC_NAMES, '"use strict";\n' + (/__loopGuard\(\)/.test(code) ? code : String(code).replace(/\bwhile\s*\(/g, 'while (__loopGuard(), ').replace(/\b(for\s*\([^()]*\)\s*)\{/g, '$1{ __loopGuard(); ')));
+  const f = new Function('Game', 'Memory', 'RawMemory', 'RoomPosition', 'Room', 'PathFinder', 'RoomVisual', 'PowerCreep', 'console', '__loopGuard', ...hidden, ...SC_NAMES, '"use strict";\n' + (/__loopGuard\(\)/.test(code) ? code : String(code).replace(/\bwhile\s*\(/g, 'while (__loopGuard(), ').replace(/\b(for\s*\([^()]*\)\s*)\{/g, '$1{ __loopGuard(); ')));
   return (api) => { let n = 0; const t0 = Date.now(), lim = (api.Game && api.Game.cpu && api.Game.cpu.tickLimit) || 500; const guard = () => { if (++n > 100000) throw new Error('循环次数过多（可能死循环）'); if ((n & 255) === 0 && Date.now() - t0 > lim) throw new Error('CPU time limit reached（超过 Game.cpu.tickLimit ' + lim + 'ms，本 tick 代码被中止）'); };
-    f(api.Game, api.Memory, api.RawMemory, api.RoomPosition, api.Room, api.PathFinder, { log: api.log }, guard, ...hidden.map(() => undefined), ...SC_NAMES.map(k => SC[k])); };
+    f(api.Game, api.Memory, api.RawMemory, api.RoomPosition, api.Room, api.PathFinder, api.RoomVisual, api.PowerCreep, { log: api.log }, guard, ...hidden.map(() => undefined), ...SC_NAMES.map(k => SC[k])); };
 }
 if (typeof module !== 'undefined') module.exports = { Engine, newWorld, compileUser, countStruct, rclOf };

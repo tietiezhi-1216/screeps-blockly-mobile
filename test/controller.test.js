@@ -3,7 +3,7 @@ const fs = require('fs'), vm = require('vm'), path = require('path');
 const W = p => fs.readFileSync(path.join(__dirname, '../www', p), 'utf8');
 vm.runInThisContext(W('screeps-const.js') + W('worldgen.js') + W('engine.js'));
 const assert = (c, m) => { if (!c) { console.error('FAIL', m); process.exit(1); } console.log('ok -', m); };
-const run = (e, code) => { const f = compileUser(code); let r; const api = e.buildApi('p1'); f(Object.assign({}, api, { log: (...a) => { r = a[0]; } })); return r; };
+const run = (e, code) => { for (const c of e.w.creeps) c._did = {}; /* 每次 run 视为新 tick 的动作配额 */ const f = compileUser(code); let r; const api = e.buildApi('p1'); f(Object.assign({}, api, { log: (...a) => { r = a[0]; } })); return r; };
 
 assert(SC.BODYPART_COST.work === 100 && SC.HARVEST_POWER === 2 && SC.CREEP_LIFE_TIME === 1500 && SC.ENERGY_REGEN_TIME === 300 && SC.SOURCE_ENERGY_CAPACITY === 3000, '常量取自官方 constants.js');
 const e = new Engine(newWorld(42)); e.addPlayer('p1', 'Tester');
@@ -44,7 +44,7 @@ assert(h.fatigue === 0, h.fatigue + ' ' + dir + ' ' + h.px + ',' + h.py + '->' +
 h.x = ctrl.x + 1; h.y = ctrl.y; e._o = null; if (e.blocked(h.x, h.y, h)) { h.x = ctrl.x; h.y = ctrl.y + 1; }
 h.x = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[-1,-1],[1,-1],[-1,1]].map(([dx,dy]) => [ctrl.x+dx, ctrl.y+dy]).find(([x,y]) => !e.solid(x,y))[0];
 h.y = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[-1,-1],[1,-1],[-1,1]].map(([dx,dy]) => [ctrl.x+dx, ctrl.y+dy]).find(([x,y]) => !e.solid(x,y))[1];
-for (let i = 0; i < 199; i++) { h.store.energy = 50; run(e, `const c=Game.creeps.h; c.upgradeController(c.room.controller)`); }
+for (let i = 0; i < 199; i++) { h.store.energy = 50; h._did = {}; run(e, `const c=Game.creeps.h; c.upgradeController(c.room.controller)`); }
 assert(ctrl.level === 1 && ctrl.progress === 199, 'progress 每 WORK +1');
 h.store.energy = 50; run(e, `const c=Game.creeps.h; c.upgradeController(c.room.controller)`);
 assert(ctrl.level === 2 && ctrl.downgradeTime === e.w.time + SC.CONTROLLER_DOWNGRADE[2] / 2, '200 升 RCL2，降级计时为 CONTROLLER_DOWNGRADE[2]/2');

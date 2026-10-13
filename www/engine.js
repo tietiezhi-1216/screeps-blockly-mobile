@@ -78,7 +78,7 @@ function storeCap(w, o, res) { // 官方 Store.getCapacity
   if (t === 'nuker') return res === 'energy' ? SC.NUKER_ENERGY_CAPACITY : res === 'G' ? SC.NUKER_GHODIUM_CAPACITY : null;
   return null;
 }
-const hasStore = o => o.kind === 'creep' || o.kind === 'spawn' || o.kind === 'tombstone' || (o.kind === 'structure' && o.store);
+const hasStore = o => o.kind === 'creep' || o.kind === 'spawn' || o.kind === 'tombstone' || o.kind === 'ruin' || (o.kind === 'structure' && o.store);
 function freeFor(w, o, res) { const cap = storeCap(w, o, res); if (cap == null) return null; const general = storeCap(w, o, undefined) != null; return cap - (general ? storeSum(o.store) : (o.store[res] || 0)); }
 function partHits(c, i) { return Math.max(0, Math.min(100, c.hits - (c.body.length - 1 - i) * 100)); }
 function boostPower(c, type, action) { let n = 0; for (let i = 0; i < c.body.length; i++) if (c.body[i] === type && partHits(c, i) > 0) { const b = c.boosts && c.boosts[i], m = b && SC.BOOSTS[type] && SC.BOOSTS[type][b] && SC.BOOSTS[type][b][action]; n += m || 1; } return n; } // 官方 BOOSTS 效果
@@ -312,6 +312,10 @@ class Engine {
     if (cont) for (const r in ts.store) { const a = Math.min(ts.store[r], freeFor(w, cont, r)); if (a > 0) { cont.store[r] = (cont.store[r] || 0) + a; ts.store[r] -= a; } }
     w.tombstones.push(ts); this.log(c.owner, c.name, c.ttl <= 0 ? '寿终' : '死亡'); this.events.push({ t: 'die', x: c.x, y: c.y });
   }
+  ruinOf(s) { // 官方：建筑被摧毁后留下 Ruin（存储保留），RUIN_DECAY tick 后消失并把资源掉在地上
+    const w = this.w; w.ruins = w.ruins || []; const type = s.kind === 'spawn' ? 'spawn' : s.type;
+    w.ruins.push({ kind: 'ruin', id: 'ru' + (w.nextId++), x: s.x, y: s.y, structureType: type, structureId: s.id, owner: s.owner, destroyTime: w.time, decayAt: w.time + ((SC.RUIN_DECAY_STRUCTURES || {})[type] || SC.RUIN_DECAY), store: Object.assign({}, s.store || {}) });
+  }
   removeStruct(s) { const w = this.w; w.structures = w.structures.filter(x => x !== s); w.spawns = w.spawns.filter(x => x !== s); this._objVer++; if (s.kind === 'spawn') for (const c of w.creeps.filter(c => c.spawning && c.x === s.x && c.y === s.y)) w.creeps.splice(w.creeps.indexOf(c), 1); }
   roomEnergy(k, pid) { const w = this.w, L = w.spawns.filter(s => roomKey(s.x, s.y) === k && s.owner === pid).concat(w.structures.filter(s => s.type === 'extension' && s.owner === pid && roomKey(s.x, s.y) === k && this.isActive(s))); return { list: L, avail: L.reduce((a, s) => a + (s.store.energy || 0), 0), cap: L.reduce((a, s) => a + storeCap(w, s, 'energy'), 0) }; }
   isActive(s) { // 官方 isActive：RCL 降级后超额建筑按离 Controller 距离保留
@@ -390,7 +394,7 @@ class Engine {
         if (s.type === 'road') { const t = this.tile(s.x, s.y); s.hits -= SC.ROAD_DECAY_AMOUNT * (t === T_SWAMP ? SC.CONSTRUCTION_COST_ROAD_SWAMP_RATIO : t === T_WALL ? SC.CONSTRUCTION_COST_ROAD_WALL_RATIO : 1); s.decayAt = w.time + SC.ROAD_DECAY_TIME; }
         else if (s.type === 'container') { s.hits -= SC.CONTAINER_DECAY; s.decayAt = w.time + (rclOf(w, s.x, s.y) > 0 ? SC.CONTAINER_DECAY_TIME_OWNED : SC.CONTAINER_DECAY_TIME); }
         else if (s.type === 'rampart') { s.hits -= SC.RAMPART_DECAY_AMOUNT; s.decayAt = w.time + SC.RAMPART_DECAY_TIME; }
-        if (s.hits <= 0) { if (s.store) for (const r in s.store) this.dropAt(s.x, s.y, r, s.store[r]); this.removeStruct(s); }
+        if (s.hits <= 0) { this.ruinOf(s); this.removeStruct(s); }
       }
       if (s.type === 'rampart') s.hitsMax = SC.RAMPART_HITS_MAX[rclOf(w, s.x, s.y)] || 0;
     }
@@ -399,8 +403,8 @@ class Engine {
       for (const c of w.creeps.slice()) if (roomKey(c.x, c.y) === rk) this.killCreep(c, 0);
       w.sites = w.sites.filter(t => roomKey(t.x, t.y) !== rk);
       const hitAt = (x, y, dmg) => { const list = [...w.structures, ...w.spawns].filter(s => s.x === x && s.y === y); const ramp = list.find(s => s.type === 'rampart'); let left = dmg;
-        if (ramp) { const a = Math.min(ramp.hits, left); ramp.hits -= a; left -= a; if (ramp.hits <= 0) this.removeStruct(ramp); }
-        if (left > 0) for (const s of list) if (s !== ramp && s.hits != null) { s.hits -= left; if (s.hits <= 0) this.removeStruct(s); } };
+        if (ramp) { const a = Math.min(ramp.hits, left); ramp.hits -= a; left -= a; if (ramp.hits <= 0) { this.ruinOf(ramp); this.removeStruct(ramp); } }
+        if (left > 0) for (const s of list) if (s !== ramp && s.hits != null) { s.hits -= left; if (s.hits <= 0) { this.ruinOf(s); this.removeStruct(s); } } };
       for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) { const x = n.x + dx, y = n.y + dy; if (roomKey(x, y) !== rk) continue; hitAt(x, y, dx || dy ? SC.NUKE_DAMAGE[2] : SC.NUKE_DAMAGE[0]); }
       const ct = ctrlOfRoom(w, rk); if (ct) { ct.safeMode = 0; ct.upgradeBlocked = w.time + SC.CONTROLLER_NUKE_BLOCKED_UPGRADE; }
       this._objVer++;
@@ -410,6 +414,7 @@ class Engine {
     const w = this.w;
     for (const r of w.resources) r.amount -= Math.ceil(r.amount / SC.ENERGY_DECAY);
     w.resources = w.resources.filter(r => r.amount > 0);
+    if (w.ruins) for (const t of w.ruins.filter(t => w.time >= t.decayAt)) { for (const r in t.store) this.dropAt(t.x, t.y, r, t.store[r]); w.ruins.splice(w.ruins.indexOf(t), 1); }
     for (const t of w.tombstones.filter(t => w.time >= t.decayAt)) { for (const r in t.store) this.dropAt(t.x, t.y, r, t.store[r]); w.tombstones.splice(w.tombstones.indexOf(t), 1); }
   }
   dropAt(x, y, res, amount) {
@@ -432,7 +437,7 @@ class Engine {
       amount = dealt + Math.max(0, Math.round(rem));
     }
     target.hits -= amount;
-    if (target.kind !== 'creep' && target.hits <= 0) { if (target.store) for (const r in target.store) this.dropAt(target.x, target.y, r, target.store[r]); this.removeStruct(target); }
+    if (target.kind !== 'creep' && target.hits <= 0) { this.ruinOf(target); this.removeStruct(target); }
   }
   gclLevel(pid) { const p = this.w.players[pid].gcl || 0; let lv = 1; while (p >= Math.pow(lv, SC.GCL_POW) * SC.GCL_MULTIPLY) lv++; return lv; }
 
@@ -447,7 +452,7 @@ function worldSnapshot(w0, events, pid) {
     const en = s => (s.store && s.store.energy) || 0;
     // pid 给定时按官方视野过滤：地形/能量源/矿物/Controller 位置始终可见，其他对象只在有视野的房间可见
     let w = w0, vis = null;
-    if (pid) { vis = visibleRooms(w0, pid); const F = l => (l || []).filter(o => vis.has(roomKey(o.x, o.y))); w = Object.assign({}, w0, { creeps: F(w0.creeps), spawns: F(w0.spawns), structures: F(w0.structures), sites: F(w0.sites), resources: F(w0.resources), tombstones: F(w0.tombstones), flags: (w0.flags || []).filter(f => f.owner === pid || vis.has(roomKey(f.x, f.y))) }); }
+    if (pid) { vis = visibleRooms(w0, pid); const F = l => (l || []).filter(o => vis.has(roomKey(o.x, o.y))); w = Object.assign({}, w0, { creeps: F(w0.creeps), spawns: F(w0.spawns), structures: F(w0.structures), sites: F(w0.sites), resources: F(w0.resources), tombstones: F(w0.tombstones), ruins: F(w0.ruins), flags: (w0.flags || []).filter(f => f.owner === pid || vis.has(roomKey(f.x, f.y))) }); }
     return { time: w.time, S: w.S, roomsVer: w.roomsVer, players: Object.fromEntries(Object.entries(w.players).map(([k, p]) => [k, { name: p.name, color: p.color, needsSpawn: !!p.needsSpawn, badge: p.badge || defaultBadge(k), gcl: p.gcl || 0 }])), owned: ownedMap(w),
       sources: w.sources.map(s => ({ id: s.id, x: s.x, y: s.y, energy: s.energy, cap: s.cap })),
       minerals: w.minerals.map(m => ({ id: m.id, x: m.x, y: m.y, type: m.type, amount: m.amount })),
@@ -487,6 +492,7 @@ function findList(E, pid, type, k, wrap) {
     case SC.FIND_HOSTILE_CONSTRUCTION_SITES: return W(w.sites.filter(hostile));
     case SC.FIND_MINERALS: return W(w.minerals);
     case SC.FIND_TOMBSTONES: return W(w.tombstones);
+    case SC.FIND_RUINS: return W(w.ruins || []);
     case SC.FIND_EXIT_TOP: case SC.FIND_EXIT_RIGHT: case SC.FIND_EXIT_BOTTOM: case SC.FIND_EXIT_LEFT: case SC.FIND_EXIT: {
       if (k == null) return []; const [rx, ry] = k.split(',').map(Number), out = [];
       const add = (lx, ly) => { const x = rx * ROOM + lx, y = ry * ROOM + ly; if (E.tile(x, y) !== T_WALL) out.push(wrap({ kind: 'pos', x, y })); };
@@ -545,6 +551,7 @@ function buildApi(E, pid) {
     for (const o of w.flags) if (at(o) && o.owner === pid) add(SC.LOOK_FLAGS, o);
     for (const o of w.sites) if (at(o)) add(SC.LOOK_CONSTRUCTION_SITES, o);
     for (const o of w.tombstones) if (at(o)) add(SC.LOOK_TOMBSTONES, o);
+    for (const o of (w.ruins || [])) if (at(o)) add(SC.LOOK_RUINS, o);
     out.push({ type: SC.LOOK_TERRAIN, terrain: TERRAIN_NAME[E.tile(x, y)] });
     return out;
   }
@@ -552,9 +559,9 @@ function buildApi(E, pid) {
     const s = {}; for (const r in o.store) if (o.store[r] > 0) s[r] = o.store[r];
     const P = new Proxy(s, { get: (t, key) => key in t ? t[key] : (RESOURCES.has(key) ? 0 : undefined) });
     const def = (n, f) => Object.defineProperty(s, n, { value: f, enumerable: false });
-    def('getCapacity', r => o.kind === 'tombstone' ? null : storeCap(w, o, r));
-    def('getUsedCapacity', r => { if (r === undefined) { if (o.kind !== 'tombstone' && storeCap(w, o) == null) return null; return storeSum(o.store); } if (o.kind !== 'tombstone' && storeCap(w, o, r) == null) return 0; return o.store[r] || 0; });
-    def('getFreeCapacity', r => o.kind === 'tombstone' ? null : freeFor(w, o, r === undefined && storeCap(w, o) == null ? 'energy' : r));
+    def('getCapacity', r => (o.kind === 'tombstone' || o.kind === 'ruin') ? null : storeCap(w, o, r));
+    def('getUsedCapacity', r => { if (r === undefined) { if (o.kind !== 'tombstone' && o.kind !== 'ruin' && storeCap(w, o) == null) return null; return storeSum(o.store); } if (o.kind !== 'tombstone' && o.kind !== 'ruin' && storeCap(w, o, r) == null) return 0; return o.store[r] || 0; });
+    def('getFreeCapacity', r => (o.kind === 'tombstone' || o.kind === 'ruin') ? null : freeFor(w, o, r === undefined && storeCap(w, o) == null ? 'energy' : r));
     return P;
   }
 
@@ -611,6 +618,7 @@ function buildApi(E, pid) {
     source(v, o) { Object.assign(v, { energy: o.energy, energyCapacity: o.cap, ticksToRegeneration: o.regenAt ? o.regenAt - w.time : undefined }); },
     mineral(v, o) { Object.assign(v, { mineralType: o.type, mineralAmount: o.amount, density: o.density, ticksToRegeneration: o.regenAt ? o.regenAt - w.time : undefined }); },
     resource(v, o) { Object.assign(v, { resourceType: o.resourceType, amount: o.amount }); },
+    ruin(v, o) { Object.assign(v, { destroyTime: o.destroyTime, ticksToDecay: o.decayAt - w.time, store: makeStore(o), structure: { id: o.structureId, structureType: o.structureType, owner: owner(o), my: o.owner === pid } }); },
     tombstone(v, o) { Object.assign(v, { deathTime: o.deathTime, ticksToDecay: o.decayAt - w.time, store: makeStore(o), creep: { id: o.id, name: o.creepName, my: o.owner === pid, owner: owner(o), body: o.creepBody.map(t => ({ type: t, hits: 0 })) } }); },
     flag(v, o) { Object.assign(v, { name: o.name, color: o.color, secondaryColor: o.secondaryColor });
       Object.defineProperty(v, 'memory', { get: () => (mem.flags = mem.flags || {}, mem.flags[o.name] = mem.flags[o.name] || {}), set: x => { mem.flags = mem.flags || {}; mem.flags[o.name] = x; } });
@@ -805,7 +813,7 @@ function buildApi(E, pid) {
       };
       v.transfer = (t, res, amount) => {
         const e = pre(); if (e) return e; if (!RESOURCES.has(res)) return ERR_INVALID_ARGS; const x = tgt(t, 1); if (typeof x === 'number') return x;
-        if (!hasStore(x) || x.kind === 'tombstone' || x === o) return ERR_INVALID_TARGET; if (x.kind === 'creep' && x.spawning) return ERR_INVALID_TARGET;
+        if (!hasStore(x) || x.kind === 'tombstone' || x.kind === 'ruin' || x === o) return ERR_INVALID_TARGET; if (x.kind === 'creep' && x.spawning) return ERR_INVALID_TARGET;
         const have = o.store[res] || 0; if (amount != null && amount < 0) return ERR_INVALID_ARGS; if (!have || (amount != null && have < amount)) return ERR_NOT_ENOUGH_RESOURCES;
         const free = freeFor(w, x, res); if (free == null) return ERR_INVALID_TARGET; if (free <= 0) return ERR_FULL;
         if (amount != null && amount > free) return ERR_FULL; if (x.kind === 'controller') return ERR_INVALID_TARGET; const a = Math.min(amount ?? have, free);
@@ -815,7 +823,7 @@ function buildApi(E, pid) {
       v.withdraw = (t, res, amount) => {
         const e = pre(); if (e) return e; if (!RESOURCES.has(res)) return ERR_INVALID_ARGS; const x = tgt(t, 1); if (typeof x === 'number') return x;
         if (!hasStore(x) || x.kind === 'creep' || x.kind === 'spawn' && false) return ERR_INVALID_TARGET;
-        if (x.owner && x.owner !== pid && x.kind !== 'tombstone') return ERR_NOT_OWNER;
+        if (x.owner && x.owner !== pid && x.kind !== 'tombstone' && x.kind !== 'ruin') return ERR_NOT_OWNER;
         if (x.kind === 'structure' && w.structures.some(s => s.type === 'rampart' && s.x === x.x && s.y === x.y && s.owner !== pid && !s.isPublic)) return ERR_NOT_OWNER;
         const have = x.store[res] || 0; if (amount != null && amount < 0) return ERR_INVALID_ARGS; if (!have || (amount != null && have < amount)) return ERR_NOT_ENOUGH_RESOURCES;
         const free = cap - used(); if (free <= 0 || (amount != null && amount > free)) return ERR_FULL; const a = Math.min(amount ?? have, free);
@@ -898,6 +906,16 @@ function buildApi(E, pid) {
       v.heal = t => { const e = pre('heal'); if (e) return e; const x = tgt(t, 1, ['creep']); if (typeof x === 'number') return x; x.hits = Math.min(x.body.length * 100, x.hits + boostPower(o, 'heal', 'heal') * SC.HEAL_POWER); ev.push({ t: 'heal', fx: o.x, fy: o.y, x: x.x, y: x.y }); return OK; };
       v.rangedHeal = t => { const e = pre('heal'); if (e) return e; const x = tgt(t, 3, ['creep']); if (typeof x === 'number') return x; x.hits = Math.min(x.body.length * 100, x.hits + boostPower(o, 'heal', 'rangedHeal') * SC.RANGED_HEAL_POWER); ev.push({ t: 'heal', fx: o.x, fy: o.y, x: x.x, y: x.y }); return OK; };
       v.pull = t => { const e = pre(); if (e) return e; const x = tgt(t, 1, ['creep']); if (typeof x === 'number') return x; if (x === o) return ERR_INVALID_TARGET; o._pulling = x; return OK; };
+      // 官方同时动作规则（docs: Simultaneous execution of creep actions）：同一方法每 tick 只生效一次；
+      // 管线 A（harvest/attack/build/repair/dismantle/attackController/rangedHeal/heal）与管线 B（rangedAttack/rangedMassAttack/build/repair/rangedHeal）各只执行一个。
+      // 本引擎动作立即结算，冲突时先到先得，后续调用返回 OK 但无效果（官方为高优先级覆盖）。
+      const RNG = { harvest: 1, attack: 1, build: 3, repair: 3, dismantle: 1, attackController: 1, rangedHeal: 3, heal: 1, rangedAttack: 3, upgradeController: 3, transfer: 1, withdraw: 1, pickup: 1, claimController: 1, reserveController: 1, generateSafeMode: 1, signController: 1 };
+      const GA = ['harvest', 'attack', 'build', 'repair', 'dismantle', 'attackController', 'rangedHeal', 'heal'], GB = ['rangedAttack', 'rangedMassAttack', 'build', 'repair', 'rangedHeal'];
+      for (const m of ['harvest', 'attack', 'build', 'repair', 'dismantle', 'attackController', 'rangedHeal', 'heal', 'rangedAttack', 'rangedMassAttack', 'upgradeController', 'transfer', 'withdraw', 'drop', 'pickup', 'claimController', 'reserveController', 'generateSafeMode', 'signController']) {
+        const f = v[m]; if (typeof f !== 'function') continue;
+        v[m] = (...a) => { if (mine && !o.spawning && o._did) { if (o._did[m] || (GA.includes(m) && GA.some(k => o._did[k])) || (GB.includes(m) && GB.some(k => o._did[k]))) { const e = pre(); if (e) return e; const R = RNG[m]; if (R) { const x = raw(a[0]); if (!x) return ERR_INVALID_TARGET; if (!sameRoom(x, o) || dist(x, o) > R) return ERR_NOT_IN_RANGE; } return OK; } }
+          const r = f(...a); if (r === OK && o._did) o._did[m] = true; return r; };
+      }
     },
   };
 
@@ -961,7 +979,7 @@ function buildApi(E, pid) {
     gpl: { level: 0, progress: 0, progressTotal: SC.POWER_LEVEL_MULTIPLY },
     cpu: { limit: 20, tickLimit: Math.min(500, (w.players[pid] && w.players[pid].bucket != null ? w.players[pid].bucket : 10000)), bucket: (w.players[pid] && w.players[pid].bucket != null ? w.players[pid].bucket : 10000), shardLimits: { shard0: 20 }, unlocked: true, unlockedTime: undefined, getUsed: () => Date.now() - t0, getHeapStatistics: () => ({}), halt: () => { throw new Error('Game.cpu.halt'); }, setShardLimits: () => ERR_BUSY, unlock: () => ERR_FULL, generatePixel: () => { const P = w.players[pid]; if (!P || (P.bucket != null ? P.bucket : 10000) < SC.PIXEL_CPU_COST) return ERR_NOT_ENOUGH_RESOURCES; P.bucket -= SC.PIXEL_CPU_COST; P.pixels = (P.pixels || 0) + 1; return OK; } },
     market: { credits: 0, get incomingTransactions() { return (w.transactions || []).filter(t => t._r === pid).reverse(); }, get outgoingTransactions() { return (w.transactions || []).filter(t => t._s === pid).reverse(); }, orders: {}, calcTransactionCost: (amount, a, b) => Math.ceil(amount * (1 - Math.exp(-Game.map.getRoomLinearDistance(a, b, true) / 30))), getAllOrders: () => [], getHistory: () => [], getOrderById: () => null, cancelOrder: () => ERR_INVALID_ARGS, changeOrderPrice: () => ERR_INVALID_ARGS, createOrder: () => ERR_NOT_ENOUGH_RESOURCES, deal: () => ERR_NOT_ENOUGH_RESOURCES, extendOrder: () => ERR_INVALID_ARGS },
-    getObjectById: id => { for (const L of [w.creeps, w.spawns, w.structures, w.controllers, w.sources, w.minerals, w.sites, w.resources, w.tombstones, w.flags]) { const o = L.find(o => o.id === id); if (o) return (vis.has(roomKey(o.x, o.y)) || (L === w.sites && o.owner === pid)) ? wrap(o) : null; } return null; },
+    getObjectById: id => { for (const L of [w.creeps, w.spawns, w.structures, w.controllers, w.sources, w.minerals, w.sites, w.resources, w.tombstones, w.ruins || [], w.flags]) { const o = L.find(o => o.id === id); if (o) return (vis.has(roomKey(o.x, o.y)) || (L === w.sites && o.owner === pid)) ? wrap(o) : null; } return null; },
     notify: (msg) => { E.log(pid, '[notify]', msg); return OK; },
     map: {
       describeExits: n => { const p = parseRoomName(n); if (p) ensureRoom(w, p[0], p[1]); if (!p || !w.rooms[p[0] + ',' + p[1]]) return null; const out = {}; const t = w.rooms[p[0] + ',' + p[1]].tiles, open = (f) => { for (let i = 0; i < 50; i++) if (f(i) !== T_WALL) return true; return false; };

@@ -106,7 +106,7 @@
 
   pages.about = () => head('关于') + `<div class="shBody"><div class="aboutTop"><img src="art/logo.png" alt=""><div class="bt">Screeps <b>World</b></div></div>
     ${row('none', 'info-circle', '版本', 'V' + esc(window.APP_VERSION || 'dev'), 'static')}
-    
+    ${row('chkUpd', 'refresh', '检查更新', window.UPDATE_REL ? '有新版本 ' + esc(window.UPDATE_REL.tag_name) : '')}
     </div>`;
 
   // ---- 弹窗：输入 / 文本导入导出 ----
@@ -153,6 +153,9 @@
     snExport(b) { const s = J('sbm_snips', [])[b.dataset.i]; s && exportText(s.name, JSON.stringify({ kind: 'screeps-blockly-snippet', name: s.name, ws: s.ws })); },
     snDel(b) { const L = J('sbm_snips', []); if (!confirm(`删除「${L[b.dataset.i].name}」？`)) return; L.splice(b.dataset.i, 1); saveList('sbm_snips', L); show('snippets', false); },
     snImport() { importText('导入片段', j => { const w = j.ws || j; if (!w.blocks) throw new Error('不是积木程序'); const L = J('sbm_snips', []); L.unshift({ name: j.name || '导入的片段', ts: Date.now(), blocks: countBlocks(w), ws: w }); saveList('sbm_snips', L); toast('已导入'); show('snippets', false); }); },
+    async chkUpd(b) { if (b.dataset.busy) return; const v = b.querySelector('.v'); b.dataset.busy = '1'; b.disabled = true; v.textContent = '检查中…';
+      const r = await (window.checkUpdate ? checkUpdate('about') : 'fail'); delete b.dataset.busy; b.disabled = false;
+      v.textContent = r === 'new' ? '有新版本 ' + (window.UPDATE_REL ? window.UPDATE_REL.tag_name : '') : r === 'latest' ? '已是最新版本' : '检查失败，请稍后重试'; },
     sound() { const s = st(); s.sound = !s.sound; saveList('sbm_settings', s); toast('当前版本暂无音效'); show('settings', false); },
     defSpeed() { setSpeed(speed >= 8 ? 1 : speed * 2); show('settings', false); },
     edDark() { window.setEdDark(!window.edDark()); show('settings', false); },

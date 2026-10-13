@@ -6,49 +6,31 @@ function openUrl(u) { const B = nativePlugin('Browser'); if (B) B.open({ url: u 
 const fmtMB = n => (n / 1048576).toFixed(1) + ' MB';
 
 const Upd = {
-  el: null, rel: null, apk: null, path: null, busy: false, waitingPerm: false,
+  ui_: null, el: null, rel: null, apk: null, path: null, busy: false, waitingPerm: false,
   ui() {
-    if (this.el) return this.el;
-    const d = document.createElement('div'); d.id = 'upd'; d.className = 'panel hidden'; d.style.zIndex = 60;
-    d.innerHTML = `<h3 id="updTitle" style="margin:0;text-align:center"></h3><div id="updNotes" style="font-size:13px;white-space:pre-wrap;max-height:30vh;overflow:auto;color:#ccc"></div>
-      <div id="updBarWrap" class="hidden" style="background:#111;border-radius:8px;height:18px;overflow:hidden"><div id="updBar" style="height:100%;width:0;background:#5973ff;transition:width .15s"></div></div>
-      <div id="updMsg" style="text-align:center;font-size:13px;color:#8b93a1;min-height:1em"></div>
-      <button id="updGo" class="primary">立即更新</button><button id="updLater" style="background:#2a2f3a">稍后</button>`;
-    document.body.appendChild(d); this.el = d;
-    d.querySelector('#updGo').onclick = () => this.start();
-    d.querySelector('#updLater').onclick = () => { if (this.busy) { const P = nativePlugin('AppUpdater'); P && P.cancel(); } d.classList.add('hidden'); };
+    if (this.ui_) return this.ui_;
+    this.ui_ = UpdateUI.create({ accent: '#5973FF', onUpdate: () => this.path ? this.tryInstall() : this.start(),
+      onLater: () => { if (this.busy) { const P = nativePlugin('AppUpdater'); P && P.cancel(); this.busy = false; } } });
+    this.el = this.ui_.el;
     const P = nativePlugin('AppUpdater');
-    if (P) {
-      P.addListener('progress', e => this.progress(e.received, e.total));
-      P.addListener('resume', () => { if (this.waitingPerm) this.tryInstall(); });
-    }
-    return d;
+    if (P) { P.addListener('progress', e => this.ui_.downloading(e.received, e.total)); P.addListener('resume', () => { if (this.waitingPerm) this.tryInstall(); }); }
+    return this.ui_;
   },
-  $(id) { return this.el.querySelector('#' + id); },
-  show(rel, apk, cur) {
-    this.rel = rel; this.apk = apk; this.path = null; this.ui();
-    this.$('updTitle').textContent = `发现新版本 ${rel.tag_name}（当前 ${cur}）`;
-    this.$('updNotes').textContent = (rel.body || '').slice(0, 800);
-    this.$('updMsg').textContent = `安装包 ${fmtMB(apk.size)}`; this.$('updBarWrap').classList.add('hidden');
-    this.$('updGo').textContent = '立即更新'; this.$('updGo').disabled = false;
-    this.el.classList.remove('hidden');
-  },
-  progress(got, total) { const p = total > 0 ? Math.min(100, got / total * 100) : 0; this.$('updBar').style.width = p.toFixed(1) + '%'; this.$('updMsg').textContent = `下载中 ${fmtMB(got)} / ${total > 0 ? fmtMB(total) : '?'}（${p.toFixed(0)}%）`; },
-  fail(msg) { this.busy = false; this.$('updMsg').textContent = '' + msg; this.$('updGo').textContent = '重试'; this.$('updGo').disabled = false; },
+  show(rel, apk, cur) { this.rel = rel; this.apk = apk; this.path = null; this.ui().show({ tag: rel.tag_name, current: cur, notes: rel.body || '', size: apk.size }); },
+  fail(msg) { this.busy = false; this.ui_.error(String(msg)); },
   async start() {
-    const P = nativePlugin('AppUpdater'); if (!P) { this.$('updMsg').textContent = '当前环境不支持应用内安装，请在安卓设备上更新'; return; }
-    if (this.path) return this.tryInstall();
-    this.busy = true; this.$('updGo').disabled = true; this.$('updBarWrap').classList.remove('hidden'); this.progress(0, this.apk.size);
+    const P = nativePlugin('AppUpdater'); if (!P) { this.ui_.info('当前环境不支持应用内安装，请在安卓设备上更新'); return; }
+    this.busy = true; this.ui_.downloading(0, this.apk.size);
     const sha = (this.apk.digest || '').startsWith('sha256:') ? this.apk.digest.slice(7) : (((this.rel && this.rel.body) || '').match(/SHA-?256[^0-9a-fA-F]*([0-9a-fA-F]{64})/i) || [])[1]?.toLowerCase() || ''; // GitHub 资产摘要，或发布说明里的 SHA-256
-    try { const r = await P.download({ url: this.apk.browser_download_url, size: this.apk.size, sha256: sha }); this.path = r.path; this.busy = false; this.$('updMsg').textContent = `下载完成，已校验${sha ? ' SHA-256' : '大小'}`; this.tryInstall(); }
-    catch (e) { this.fail(e.message || String(e)); }
+    try { const r = await P.download({ url: this.apk.browser_download_url, size: this.apk.size, sha256: sha }); if (!this.busy) return; this.path = r.path; this.busy = false; this.ui_.install(`下载完成，已校验${sha ? ' SHA-256' : '大小'}`); this.tryInstall(); }
+    catch (e) { if (this.busy) this.fail(e.message || String(e)); }
   },
   async tryInstall() {
-    const P = nativePlugin('AppUpdater'); this.$('updGo').disabled = false; this.$('updGo').textContent = '安装';
+    const P = nativePlugin('AppUpdater'); this.ui_.install();
     try {
       const { allowed } = await P.canInstall();
-      if (!allowed) { this.waitingPerm = true; this.$('updMsg').textContent = '请在设置里允许“安装未知应用”，返回后会自动继续安装'; await P.openInstallSettings(); return; }
-      this.waitingPerm = false; await P.install({ path: this.path }); this.$('updMsg').textContent = '已打开系统安装器，按提示点“更新”即可';
+      if (!allowed) { this.waitingPerm = true; this.ui_.info('请在设置里允许“安装未知应用”，返回后会自动继续安装'); await P.openInstallSettings(); return; }
+      this.waitingPerm = false; await P.install({ path: this.path }); this.ui_.info('已打开系统安装器，按提示点“更新”即可');
     } catch (e) { this.fail(e.message || String(e)); }
   },
 };
@@ -59,9 +41,9 @@ async function checkUpdate(manual) {
     const rel = await r.json(), cur = window.APP_VERSION || '0.0.0', apk = (rel.assets || []).find(a => a.name.endsWith('.apk'));
     if (apk && cmpVer(rel.tag_name, cur) > 0) { window.UPDATE_REL = rel; updBadge(true);
       // 自动检查发现新版本：直接在游戏内弹窗（同一版本「稍后」后本次运行不再打扰，下次启动再提示）
-      if (manual || (checkUpdate.shown !== rel.tag_name && !Upd.busy && (!Upd.el || Upd.el.classList.contains('hidden')))) { checkUpdate.shown = rel.tag_name; Upd.show(rel, apk, cur); } }
-    else { window.UPDATE_REL = null; updBadge(false); if (manual) alert(`已是最新版本（${cur}）`); }
-  } catch (e) { if (manual) alert('检查更新失败：' + e.message); }
+      if (manual || (checkUpdate.shown !== rel.tag_name && !Upd.busy && (!Upd.el || Upd.el.classList.contains('hidden')))) { checkUpdate.shown = rel.tag_name; Upd.show(rel, apk, cur); } return 'new'; }
+    else { window.UPDATE_REL = null; updBadge(false); if (manual === true) alert(`已是最新版本（${cur}）`); return 'latest'; }
+  } catch (e) { if (manual === true) alert('检查更新失败：' + e.message); return 'fail'; }
 }
 // 有新版本时在菜单按钮 / 检查更新 / 设置入口上显示蓝点（不打断游戏）
 function updBadge(on) {

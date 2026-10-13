@@ -25,10 +25,10 @@ async function run(scenario) {
   const silent = await pg.evaluate(() => !document.getElementById('upd') && !!document.querySelector('#sSet .updDot,#btnMenu .updDot')); // 自动检查：只显示蓝点，不弹窗
   await pg.evaluate(() => checkUpdate(true)); await new Promise(r => setTimeout(r, 800));
   const visible = silent && await pg.$eval('#upd', e => !e.classList.contains('hidden'));
-  await pg.click('#updGo'); await new Promise(r => setTimeout(r, 200)); await pg.screenshot({ path: `/tmp/upd-${scenario}-1.png` });
-  if (scenario === 'fail') { await new Promise(r => setTimeout(r, 300)); const msg = await pg.$eval('#updMsg', e => e.textContent), link = await pg.$eval('#updLink', e => !e.classList.contains('hidden')); console.log(scenario, 'after fail:', msg, 'fallback link shown:', link); await pg.screenshot({ path: '/tmp/upd-fail-2.png' }); await pg.click('#updGo'); }
+  await pg.click('.uuGo'); await new Promise(r => setTimeout(r, 200)); await pg.screenshot({ path: `/tmp/upd-${scenario}-1.png` });
+  if (scenario === 'fail') { await new Promise(r => setTimeout(r, 300)); const msg = await pg.$eval('.uuMsg', e => e.textContent); console.log(scenario, 'after fail:', msg); await pg.screenshot({ path: '/tmp/upd-fail-2.png' }); await pg.click('.uuGo'); }
   await new Promise(r => setTimeout(r, 1500));
-  const res = await pg.evaluate(() => ({ calls: window.__calls, msg: document.querySelector('#updMsg').textContent }));
+  const res = await pg.evaluate(() => ({ calls: window.__calls, msg: document.querySelector('.uuMsg').textContent }));
   await pg.screenshot({ path: `/tmp/upd-${scenario}-end.png` }); await b.close();
   const order = res.calls.map(c => c.split('{')[0]).join(' > ');
   const ok = visible && /AppUpdater.canInstall > AppUpdater.openInstallSettings > AppUpdater.canInstall > AppUpdater.install$/.test(order) && res.calls.some(c => c.includes('"sha256":"ab"') && c.includes('"size":3500000'));

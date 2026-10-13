@@ -1,0 +1,17 @@
+/* 系列通用更新弹窗：只需改 --uu-acc（World #5973FF / Arena #E5484D） */
+.uu{--uu-acc:#5973FF;--uu-bg:#1b1d22;--uu-line:#33363d;--uu-text:#e6e8eb;--uu-sub:#8b93a1;--uu-btn:#2a2d33;--uu-r:3px;--uu-pad:16px;--uu-gap:10px;
+  position:fixed;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;background:#000a;padding:max(12px,env(safe-area-inset-top)) 12px max(12px,env(safe-area-inset-bottom))}
+.uu.hidden{display:none}
+.uuBox{width:min(440px,100%);max-height:100%;display:flex;flex-direction:column;background:var(--uu-bg);border:1px solid var(--uu-line);border-radius:var(--uu-r);padding:var(--uu-pad);gap:var(--uu-gap);color:var(--uu-text);font-size:14px;box-sizing:border-box}
+.uuTitle{font-size:17px;font-weight:600}
+.uuCur{font-size:12px;color:var(--uu-sub);margin-top:-6px}
+.uuNotes{flex:1 1 auto;min-height:48px;max-height:42vh;overflow:auto;-webkit-overflow-scrolling:touch;font-size:13px;line-height:1.6;color:#c9cdd4;border-top:1px solid var(--uu-line);border-bottom:1px solid var(--uu-line);padding:8px 0;word-break:break-word}
+.uuNotes h3,.uuNotes h4,.uuNotes h5,.uuNotes h6{margin:10px 0 4px;font-size:14px;color:var(--uu-text)}.uuNotes>:first-child{margin-top:0}
+.uuNotes p{margin:4px 0}.uuNotes ul,.uuNotes ol{margin:4px 0;padding-left:20px}.uuNotes li{margin:2px 0}
+.uuNotes code{font-family:ui-monospace,Consolas,monospace;font-size:12px;background:#0e0f12;border:1px solid var(--uu-line);border-radius:2px;padding:0 4px;word-break:normal;overflow-wrap:anywhere}
+.uuNotes pre{background:#0e0f12;padding:8px;overflow:auto;font-size:12px}.uuNotes blockquote{margin:4px 0;padding-left:8px;border-left:2px solid var(--uu-line);color:var(--uu-sub)}.uuNotes hr{border:0;border-top:1px solid var(--uu-line)}
+.uuFoot{flex:0 0 auto;display:flex;flex-direction:column;gap:8px}
+.uuBar{height:6px;background:#0e0f12;border:1px solid var(--uu-line);border-radius:var(--uu-r);overflow:hidden}.uuBar.hidden{display:none}.uuBar i{display:block;height:100%;width:0;background:var(--uu-acc);transition:width .15s}
+.uuMsg{font-size:12px;color:var(--uu-sub);text-align:center;min-height:1em}.uuMsg:empty{display:none}
+.uuBtns{display:flex;gap:8px}.uuBtns button{flex:1;height:40px;border-radius:var(--uu-r);border:1px solid var(--uu-line);background:var(--uu-btn);color:var(--uu-text);font-size:14px;box-shadow:none;background-image:none}
+.uuBtns .uuGo{background:var(--uu-acc);border-color:var(--uu-acc);color:#fff;font-weight:600}.uuBtns .uuGo:disabled{opacity:.55}

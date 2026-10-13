@@ -215,6 +215,13 @@ class Renderer {
     }
     for (const mn of v.minerals || []) { const s = ent(mn.id, () => { const c = new PIXI.Container(); c.addChild(this.sprite(this.tex('min' + mn.type, 1.2, 1.2, g => { const cc = hex(MINERAL_COL[mn.type] ?? 0xcccccc); Renderer.circle(g, .5, '#000', cc, .08); g.fillStyle = cc; g.font = 'bold .55px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(mn.type, 0, .03); }), 1.2, 1.2)); c.x = (mn.x + .5) * TS; c.y = (mn.y + .5) * TS; this.objL.addChild(c); return c; }); s.alpha = mn.amount > 0 ? 1 : .4; }
     for (const r of v.resources || []) { const g = ent(r.id, () => { const c = new PIXI.Container(); c.e = this.sprite(this.disc(), 1, 1); c.e.tint = r.resourceType === 'energy' ? ENERGY : (MINERAL_COL[r.resourceType] ?? 0xffffff); c.addChild(c.e); c.x = (r.x + .5) * TS; c.y = (r.y + .5) * TS; this.groundL.addChild(c); return c; }); fillDisc(g, Math.min(1, .15 + r.amount / 1000), .3); }
+    for (const n of v.nukes || []) { // 官方核弹：紫色菱形 + 落地倒计时
+      const s = ent(n.id, () => { const c = new PIXI.Container(); c.addChild(this.sprite(this.tex('nuke', .9, .9, g => {
+        g.fillStyle = '#a020f0'; g.beginPath(); g.moveTo(0, -.35); g.lineTo(.28, 0); g.lineTo(0, .35); g.lineTo(-.28, 0); g.closePath(); g.fill();
+        g.strokeStyle = '#e0b0ff'; g.lineWidth = .04; g.stroke();
+      }), .9, .9)); c.tl = new PIXI.Text('', { fontSize: 10, fill: 0xe0b0ff }); c.tl.anchor.set(.5, 1.6); c.addChild(c.tl); this.objL.addChild(c); return c; });
+      s.tl.text = String(n.timeToLand); s.x = (n.x + .5) * TS; s.y = (n.y + .5) * TS;
+    }
     for (const t of v.tombstones || []) { const s = ent(t.id, () => { const c = new PIXI.Container(); c.addChild(this.sprite(this.tex('tomb', .7, .9, g => { Renderer.rrect(g, -.24, -.34, .48, .66, .2, '#3a3a3a', '#7a7a7a', .05); g.fillStyle = '#7a7a7a'; g.fillRect(-.03, -.22, .06, .3); g.fillRect(-.12, -.14, .24, .06); }), .7, .9)); c.x = (t.x + .5) * TS; c.y = (t.y + .5) * TS; this.groundL.addChild(c); return c; }); s.alpha = Math.min(1, .4 + (t.decay || 0) / 15); }
     for (const f of v.flags || []) { if (f.owner && f.owner !== me) continue; ent(f.id, () => { const c = new PIXI.Container(); c.addChild(this.sprite(this.tex('flag' + f.color + '_' + f.secondaryColor, 1, 1, g => { g.fillStyle = '#ddd'; g.fillRect(-.3, -.45, .05, .8); Renderer.poly(g, [[-.25, -.45], [.35, -.3], [-.25, -.12]], hex(FLAG_COL[f.color] || 0xffffff)); Renderer.poly(g, [[-.25, -.34], [.1, -.29], [-.25, -.22]], hex(FLAG_COL[f.secondaryColor] || 0xffffff)); }), 1, 1)); c.x = (f.x + .5) * TS; c.y = (f.y + .5) * TS; this.topL.addChild(c); return c; }); }
     for (const so of v.sources) { // 官方能量源：圆角黄色方块，能量越少越暗
@@ -242,7 +249,7 @@ class Renderer {
   }
   select(o) { this.selected = o; this.drawSel(); }
   drawSel() { const g = this.selG; g.clear(); const pv = this.preview; if (pv) g.lineStyle(2, pv.ok ? 0x7ee2a0 : 0xff6b6b, 1).beginFill(pv.ok ? 0x7ee2a0 : 0xff6b6b, .25).drawRect(pv.x * TS, pv.y * TS, TS, TS).endFill(); const o = this.selected; if (!o || !this.view) return; const cur = this.find(o); if (!cur) return; if (!o.kind || o.kind !== 'creep') g.lineStyle(1.5, 0xffffff, .9).drawRect(cur.x * TS, cur.y * TS, TS, TS); }
-  find(o) { const v = this.view; if (!v || !o) return null; const L = { creep: v.creeps, spawn: v.spawns, source: v.sources, site: v.sites, controller: v.controllers, structure: v.structures, mineral: v.minerals || [], resource: v.resources || [], tombstone: v.tombstones || [], flag: v.flags || [] }[o.kind]; return L ? L.find(x => x.id === o.id) : null; }
+  find(o) { const v = this.view; if (!v || !o) return null; const L = { creep: v.creeps, spawn: v.spawns, source: v.sources, site: v.sites, controller: v.controllers, structure: v.structures, nuke: v.nukes || [], mineral: v.minerals || [], resource: v.resources || [], tombstone: v.tombstones || [], flag: v.flags || [] }[o.kind]; return L ? L.find(x => x.id === o.id) : null; }
   // ===== 每帧：creep 线性插值 + 镜头 =====
   frame() {
     const now = performance.now(); this._fpsN++; if (now - this._fpsT > 500) { this.fps = this._fpsN * 1000 / (now - this._fpsT); this._fpsN = 0; this._fpsT = now; }

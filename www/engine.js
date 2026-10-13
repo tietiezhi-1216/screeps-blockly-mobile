@@ -82,6 +82,15 @@ const hasStore = o => o.kind === 'creep' || o.kind === 'spawn' || o.kind === 'to
 function freeFor(w, o, res) { const cap = storeCap(w, o, res); if (cap == null) return null; const general = storeCap(w, o, undefined) != null; return cap - (general ? storeSum(o.store) : (o.store[res] || 0)); }
 function partHits(c, i) { return Math.max(0, Math.min(100, c.hits - (c.body.length - 1 - i) * 100)); }
 function boostPower(c, type, action) { let n = 0; for (let i = 0; i < c.body.length; i++) if (c.body[i] === type && partHits(c, i) > 0) { const b = c.boosts && c.boosts[i], m = b && SC.BOOSTS[type] && SC.BOOSTS[type][b] && SC.BOOSTS[type][b][action]; n += m || 1; } return n; } // 官方 BOOSTS 效果
+function boostExtra(c, type, action, baseUnits) { // 官方：先按未强化单位数选取最强的 baseUnits 个强化加成
+  const extras = [];
+  for (let i = 0; i < c.body.length; i++) if (c.body[i] === type && partHits(c, i) > 0) {
+    const b = c.boosts && c.boosts[i], m = b && SC.BOOSTS[type] && SC.BOOSTS[type][b] && SC.BOOSTS[type][b][action];
+    extras.push(m ? (m - 1) * (type === 'work' && action === 'upgradeController' ? 1 : (action === 'build' || action === 'repair' ? SC[action === 'build' ? 'BUILD_POWER' : 'REPAIR_POWER'] : 1)) : 0);
+  }
+  extras.sort((a, b) => b - a);
+  return extras.slice(0, baseUnits).reduce((a, b) => a + b, 0);
+}
 function totalReactionTime(r) { const t = SC.REACTION_TIME[r]; if (!t) return 0; for (const a in SC.REACTIONS) for (const b in SC.REACTIONS[a]) if (SC.REACTIONS[a][b] === r) return t + totalReactionTime(a) + totalReactionTime(b); return t; } // 官方 utils.calcTotalReactionsTime
 function activeParts(c, type) { let n = 0; for (let i = 0; i < c.body.length; i++) if (c.body[i] === type && partHits(c, i) > 0) n++; return n; }
 
@@ -211,7 +220,10 @@ class Engine {
     if (!this._gs || this._gs.length !== N) { this._gs = new Float64Array(N); this._prev = new Int32Array(N); this._stamp = new Uint32Array(N); this._st = 0; }
     const gs = this._gs, prev = this._prev, stamp = this._stamp, st = ++this._st, pid = me && me.owner;
     const tos = Array.isArray(to) ? to : [to];
-    const H = k => { const x = k % WW, y = (k / WW) | 0; let m = Infinity; for (const t of tos) { const d = Math.max(Math.abs(x - t.x), Math.abs(y - t.y)) - range; if (d < m) m = d; } return Math.max(0, m); };
+    const hw = opts.heuristicWeight == null ? 1.0001 : opts.heuristicWeight, maxCost = opts.maxCost == null ? Infinity : opts.maxCost;
+    const H = k => { const x = k % WW, y = (k / WW) | 0;
+      if (opts.flee) { let m = Infinity; for (const t of (opts.fleeGoals || tos.map(t => ({ g: t, r: range })))) { const g = t.g || t, r = t.r != null ? t.r : range; const d = Math.max(Math.abs(x - g.x), Math.abs(y - g.y)); if (d < m) m = d; if (d <= r) return 1; } return Math.max(0, 50 - m); } // flee：远离目标
+      let m = Infinity; for (const t of tos) { const d = Math.max(Math.abs(x - t.x), Math.abs(y - t.y)) - range; if (d < m) m = d; } return Math.max(0, m); };
     const heap = [], push = (k, f) => { heap.push([f, k]); let i = heap.length - 1; while (i) { const p = (i - 1) >> 1; if (heap[p][0] <= heap[i][0]) break; [heap[p], heap[i]] = [heap[i], heap[p]]; i = p; } };
     const pop = () => { const top = heap[0], last = heap.pop(); if (heap.length) { heap[0] = last; let i = 0; for (;;) { const l = 2 * i + 1, r = l + 1; let m = i; if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r; if (m === i) break; [heap[m], heap[i]] = [heap[i], heap[m]]; i = m; } } return top; };
     if (tos.length === 1 && range <= 1 && dist(from, tos[0]) > range) { // 快速判定：目标周围可站的格子全被占/是墙 → 不必搜索
@@ -225,7 +237,8 @@ class Engine {
     let end = -1, ops = 0, maxOps = opts.maxOps || 4000, bestK = start, bestH = H(start); const cms = new Map();
     while (heap.length && ops++ < maxOps) {
       const [, k] = pop(), x = k % WW, y = (k / WW) | 0, hk = H(k);
-      if (hk === 0) { end = k; break; }
+      if (opts.flee) { let safe = true; for (const t of (opts.fleeGoals || tos.map(t => ({ g: t, r: range })))) { const g = t.g || t, r = t.r != null ? t.r : range; if (Math.max(Math.abs(x - g.x), Math.abs(y - g.y)) <= r) { safe = false; break; } } if (safe) { end = k; break; } }
+      else if (hk === 0) { end = k; break; }
       if (hk < bestH) { bestH = hk; bestK = k; }
       for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
         if (!dx && !dy) continue; const nx = x + dx, ny = y + dy; if (nx < 0 || ny < 0 || nx >= WW || ny >= WW) continue; const nk = ny * WW + nx;
@@ -238,7 +251,7 @@ class Engine {
           if (m === false) continue; if (m) { const v = m.get(nx % ROOM, ny % ROOM); if (v === 255) continue; if (v > 0) cost = v; } } // 官方 CostMatrix：0=默认地形，255=不可通行
         const ng = gs[k] + cost;
         if (stamp[nk] === st && gs[nk] <= ng) continue;
-        stamp[nk] = st; gs[nk] = ng; prev[nk] = k; push(nk, ng + H(nk) * 1.0001);
+        if (ng > maxCost) continue; stamp[nk] = st; gs[nk] = ng; prev[nk] = k; push(nk, ng + H(nk) * hw);
       }
     }
     if (end < 0) { if (!opts.partial || bestK === start) return []; end = bestK; } // 官方 PathFinder：到不了时返回到最近点的不完整路径
@@ -252,11 +265,12 @@ class Engine {
     const w = this.w; w.time++; this.events = []; this._o = null;
     if (!this._near) this._near = new Set();
     for (const c of w.creeps) { const k = roomKey(c.x, c.y); if (!this._near.has(k)) { this._near.add(k); ensureNear(w, Math.floor(c.x / ROOM), Math.floor(c.y / ROOM)); } }
-    for (const c of w.creeps) { c._did = {}; c.px = c.x; c.py = c.y; }
+    w._spawnedNames = {}; for (const c of w.creeps) { c._did = {}; c._intents = {}; c.px = c.x; c.py = c.y; }
     for (const pid in w.players) {
       const f = this.fns[pid]; if (!f) continue; const api = this.buildApi(pid), t0 = Date.now();
       const P = w.players[pid]; if (P.bucket == null) P.bucket = SC.PIXEL_CPU_COST;
       try { f(api); } catch (e) { this.log(pid, '代码错误:', e && e.stack ? String(e.stack).split('\n').slice(0, 2).join(' ') : e); }
+      for (const c of w.creeps) if (c.owner === pid && c._flushIntents) c._flushIntents(); // 官方：代码跑完后按优先级结算 intent
       this.cpuUsed = Date.now() - t0;
       if (api.RawMemory) { const segs = api.RawMemory.segments, ks = Object.keys(segs || {}); if (ks.length > 10) this.log(pid, 'RawMemory.segments: 同时最多 10 个'); else { const st = (w.segments = w.segments || {})[pid] = w.segments[pid] || {}; for (const id of ks) { const v = segs[id]; if (typeof v !== 'string' || !(+id >= 0 && +id <= 99)) continue; if (v.length > 100 * 1024) this.log(pid, 'RawMemory 段', id, '超过 100KB，未保存'); else st[id] = v; } } }
       // 官方 CPU：bucket += limit - used（上限 10000）
@@ -452,7 +466,7 @@ function worldSnapshot(w0, events, pid) {
     const en = s => (s.store && s.store.energy) || 0;
     // pid 给定时按官方视野过滤：地形/能量源/矿物/Controller 位置始终可见，其他对象只在有视野的房间可见
     let w = w0, vis = null;
-    if (pid) { vis = visibleRooms(w0, pid); const F = l => (l || []).filter(o => vis.has(roomKey(o.x, o.y))); w = Object.assign({}, w0, { creeps: F(w0.creeps), spawns: F(w0.spawns), structures: F(w0.structures), sites: F(w0.sites), resources: F(w0.resources), tombstones: F(w0.tombstones), ruins: F(w0.ruins), flags: (w0.flags || []).filter(f => f.owner === pid || vis.has(roomKey(f.x, f.y))) }); }
+    if (pid) { vis = visibleRooms(w0, pid); const F = l => (l || []).filter(o => vis.has(roomKey(o.x, o.y))); w = Object.assign({}, w0, { creeps: F(w0.creeps), spawns: F(w0.spawns), structures: F(w0.structures), sites: F(w0.sites), resources: F(w0.resources), tombstones: F(w0.tombstones), ruins: F(w0.ruins), nukes: F(w0.nukes), flags: (w0.flags || []).filter(f => f.owner === pid || vis.has(roomKey(f.x, f.y))) }); }
     return { time: w.time, S: w.S, roomsVer: w.roomsVer, players: Object.fromEntries(Object.entries(w.players).map(([k, p]) => [k, { name: p.name, color: p.color, needsSpawn: !!p.needsSpawn, badge: p.badge || defaultBadge(k), gcl: p.gcl || 0 }])), owned: ownedMap(w),
       sources: w.sources.map(s => ({ id: s.id, x: s.x, y: s.y, energy: s.energy, cap: s.cap })),
       minerals: w.minerals.map(m => ({ id: m.id, x: m.x, y: m.y, type: m.type, amount: m.amount })),
@@ -463,6 +477,7 @@ function worldSnapshot(w0, events, pid) {
       structures: w.structures.map(s => ({ id: s.id, type: s.type, owner: s.owner, x: s.x, y: s.y, hits: s.hits, hitsMax: s.hitsMax, energy: s.store ? en(s) : undefined, energyCapacity: s.store ? storeCap(w, s, 'energy') ?? storeCap(w, s) : undefined })),
       resources: w.resources.map(r => ({ id: r.id, x: r.x, y: r.y, resourceType: r.resourceType, amount: r.amount })),
       tombstones: w.tombstones.map(t => ({ id: t.id, x: t.x, y: t.y, owner: t.owner, creepName: t.creepName, energy: t.store.energy || 0, decay: t.decayAt - w.time })),
+      nukes: (w.nukes || []).map(n => ({ id: n.id, x: n.x, y: n.y, timeToLand: n.landTime - w.time, launchRoomName: n.launchRoomName })),
       flags: (w.flags || []).map(f => ({ id: f.id, x: f.x, y: f.y, owner: f.owner, name: f.name, color: f.color, secondaryColor: f.secondaryColor })),
       events: (events || []).filter(e => !vis || e.x == null || vis.has(roomKey(e.x, e.y))), vis: vis ? [...vis] : null };
 }
@@ -493,6 +508,7 @@ function findList(E, pid, type, k, wrap) {
     case SC.FIND_MINERALS: return W(w.minerals);
     case SC.FIND_TOMBSTONES: return W(w.tombstones);
     case SC.FIND_RUINS: return W(w.ruins || []);
+    case SC.FIND_NUKES: return W(w.nukes || []);
     case SC.FIND_EXIT_TOP: case SC.FIND_EXIT_RIGHT: case SC.FIND_EXIT_BOTTOM: case SC.FIND_EXIT_LEFT: case SC.FIND_EXIT: {
       if (k == null) return []; const [rx, ry] = k.split(',').map(Number), out = [];
       const add = (lx, ly) => { const x = rx * ROOM + lx, y = ry * ROOM + ly; if (E.tile(x, y) !== T_WALL) out.push(wrap({ kind: 'pos', x, y })); };
@@ -500,7 +516,7 @@ function findList(E, pid, type, k, wrap) {
       return out;
     }
     case 'controller': return W(w.controllers.filter(mine)); // 兼容 v1.2 积木
-    default: return []; // FIND_NUKES / POWER_CREEPS / DEPOSITS / RUINS 等：本游戏中不存在
+    default: return []; // POWER_CREEPS / DEPOSITS 等：本游戏中不存在
   }
 }
 
@@ -552,6 +568,7 @@ function buildApi(E, pid) {
     for (const o of w.sites) if (at(o)) add(SC.LOOK_CONSTRUCTION_SITES, o);
     for (const o of w.tombstones) if (at(o)) add(SC.LOOK_TOMBSTONES, o);
     for (const o of (w.ruins || [])) if (at(o)) add(SC.LOOK_RUINS, o);
+    for (const o of (w.nukes || [])) if (at(o)) add(SC.LOOK_NUKES, o);
     out.push({ type: SC.LOOK_TERRAIN, terrain: TERRAIN_NAME[E.tile(x, y)] });
     return out;
   }
@@ -580,14 +597,14 @@ function buildApi(E, pid) {
     const here = w.structures.filter(s => s.x === x && s.y === y).concat(w.spawns.filter(s => s.x === x && s.y === y));
     if (here.some(s => (s.type || 'spawn') === type || (type !== 'rampart' && OBSTACLES.has(type) && OBSTACLES.has(s.type || 'spawn')) || (type === 'rampart' ? false : (s.type === 'constructedWall')))) return ERR_INVALID_TARGET;
     const ctrl = ctrlOfRoom(w, k);
-    if (ctrl && ctrl.owner && ctrl.owner !== pid) return ERR_RCL_NOT_ENOUGH;
-    if (ctrl && ctrl.reservation && ctrl.reservation.owner !== pid) return ERR_RCL_NOT_ENOUGH;
+    if (ctrl && ctrl.owner && ctrl.owner !== pid) return ERR_NOT_OWNER;
+    if (ctrl && ctrl.reservation && ctrl.reservation.owner !== pid) return ERR_NOT_OWNER;
     const lvl = ctrl && ctrl.owner === pid ? ctrl.level : 0, lim = SC.CONTROLLER_STRUCTURES[type][lvl] || 0;
     if (countStruct(w, pid, type, k) >= lim) return ERR_RCL_NOT_ENOUGH;
     if (w.sites.filter(s => s.owner === pid).length >= SC.MAX_CONSTRUCTION_SITES) return ERR_FULL;
     let total = SC.CONSTRUCTION_COST[type];
     if (type === 'road') { const t = E.tile(x, y); if (t === T_SWAMP) total *= SC.CONSTRUCTION_COST_ROAD_SWAMP_RATIO; if (t === T_WALL) total *= SC.CONSTRUCTION_COST_ROAD_WALL_RATIO; }
-    if (type === 'spawn') { name = name || ('Spawn' + (w.spawns.filter(s => s.owner === pid).length + w.sites.filter(s => s.owner === pid && s.type === 'spawn').length + 1)); if (w.spawns.some(s => s.name === name && s.owner === pid)) return ERR_INVALID_ARGS; }
+    if (type === 'spawn') { name = name || ('Spawn' + (w.spawns.filter(s => s.owner === pid).length + w.sites.filter(s => s.owner === pid && s.type === 'spawn').length + 1)); if (typeof name !== 'string' || name.length > 100 || w.spawns.some(s => s.name === name && s.owner === pid) || w.sites.some(s => s.name === name && s.owner === pid && s.type === 'spawn')) return ERR_INVALID_ARGS; }
     w.sites.push({ kind: 'site', id: 'cs' + (w.nextId++), owner: pid, x, y, type, progress: 0, total, name }); E._objVer++; return OK;
   }
   function createFlag(g, name, color = SC.COLOR_WHITE, color2 = color) {
@@ -618,6 +635,7 @@ function buildApi(E, pid) {
     source(v, o) { Object.assign(v, { energy: o.energy, energyCapacity: o.cap, ticksToRegeneration: o.regenAt ? o.regenAt - w.time : undefined }); },
     mineral(v, o) { Object.assign(v, { mineralType: o.type, mineralAmount: o.amount, density: o.density, ticksToRegeneration: o.regenAt ? o.regenAt - w.time : undefined }); },
     resource(v, o) { Object.assign(v, { resourceType: o.resourceType, amount: o.amount }); },
+    nuke(v, o) { Object.assign(v, { timeToLand: o.landTime - w.time, launchRoomName: o.launchRoomName }); },
     ruin(v, o) { Object.assign(v, { destroyTime: o.destroyTime, ticksToDecay: o.decayAt - w.time, store: makeStore(o), structure: { id: o.structureId, structureType: o.structureType, owner: owner(o), my: o.owner === pid } }); },
     tombstone(v, o) { Object.assign(v, { deathTime: o.deathTime, ticksToDecay: o.decayAt - w.time, store: makeStore(o), creep: { id: o.id, name: o.creepName, my: o.owner === pid, owner: owner(o), body: o.creepBody.map(t => ({ type: t, hits: 0 })) } }); },
     flag(v, o) { Object.assign(v, { name: o.name, color: o.color, secondaryColor: o.secondaryColor });
@@ -642,7 +660,8 @@ function buildApi(E, pid) {
         setDirections: d => { if (o.owner !== pid) return ERR_NOT_OWNER; if (!Array.isArray(d) || !d.length || d.some(x => !DIRS[x])) return ERR_INVALID_ARGS; o.spawning.directions = d.slice(); return OK; } } : null;
       v.spawnCreep = (body, name, opts = {}) => { // 校验顺序与官方 engine/src/game/structures.js 一致
         if (!name || opts === null || typeof opts !== 'object') return ERR_INVALID_ARGS; name = String(name); if (name.length > 100) return ERR_INVALID_ARGS;
-        if (w.creeps.some(c => c.owner === pid && c.name === name)) return ERR_NAME_EXISTS;
+        const created = (w._spawnedNames = w._spawnedNames || {})[pid] || [];
+        if (w.creeps.some(c => c.owner === pid && c.name === name) || created.includes(name)) return ERR_NAME_EXISTS;
         if (opts.directions !== undefined && (!Array.isArray(opts.directions) || !opts.directions.length || opts.directions.some(d => !DIRS[+d] || +d !== (+d | 0)))) return ERR_INVALID_ARGS;
         if (o.owner !== pid) return ERR_NOT_OWNER;
         if (o.spawning) return ERR_BUSY;
@@ -657,6 +676,7 @@ function buildApi(E, pid) {
         o.spawning = { name, needTime: need, spawnTime: w.time + need, directions: opts.directions };
         w.creeps.push({ kind: 'creep', id: 'c' + (w.nextId++), owner: pid, name, body: body.slice(), hits: body.length * 100, x: o.x, y: o.y, px: o.x, py: o.y, store: {}, ttl: 0, fatigue: 0, spawning: true });
         if (opts.memory !== undefined) { mem.creeps = mem.creeps || {}; mem.creeps[name] = opts.memory; }
+        (w._spawnedNames = w._spawnedNames || {})[pid] = created.concat(name);
         return OK;
       };
       v.createCreep = (body, name, memory) => { name = name || ('creep' + w.nextId); const r = v.spawnCreep(body, name, { memory }); return r === OK ? name : r; };
@@ -805,8 +825,8 @@ function buildApi(E, pid) {
       v.harvest = t => {
         const e = pre('work'); if (e) return e; const x = raw(t); if (!x || (x.kind !== 'source' && x.kind !== 'mineral')) return ERR_INVALID_TARGET; if (!sameRoom(x, o) || dist(x, o) > 1) return ERR_NOT_IN_RANGE;
         const ctrl = ctrlOfRoom(w, roomKey(x.x, x.y)); if (ctrl && ((ctrl.owner && ctrl.owner !== pid) || (ctrl.reservation && ctrl.reservation.owner !== pid))) return ERR_NOT_OWNER;
-        if (x.kind === 'source') { if (!x.energy) return ERR_NOT_ENOUGH_RESOURCES; const a = Math.min(x.energy, boostPower(o, 'work', 'harvest') * SC.HARVEST_POWER); x.energy -= a; o.store.energy = (o.store.energy || 0) + a; }
-        else { const ex = w.structures.find(s => s.type === 'extractor' && s.x === x.x && s.y === x.y); if (!ex) return ERR_NOT_FOUND; if (ex.owner !== pid) return ERR_NOT_OWNER; if (!E.isActive(ex)) return ERR_RCL_NOT_ENOUGH; if (ex.cooldown > 0) return ERR_TIRED; if (!x.amount) return ERR_NOT_ENOUGH_RESOURCES;
+        if (x.kind === 'source') { if (!x.energy) return ERR_NOT_ENOUGH_RESOURCES; if (o._intentOnly) return OK; const a = Math.min(x.energy, boostPower(o, 'work', 'harvest') * SC.HARVEST_POWER); x.energy -= a; o.store.energy = (o.store.energy || 0) + a; }
+        else { const ex = w.structures.find(s => s.type === 'extractor' && s.x === x.x && s.y === x.y); if (!ex) return ERR_NOT_FOUND; if (ex.owner !== pid) return ERR_NOT_OWNER; if (!E.isActive(ex)) return ERR_RCL_NOT_ENOUGH; if (ex.cooldown > 0) return ERR_TIRED; if (!x.amount) return ERR_NOT_ENOUGH_RESOURCES; if (o._intentOnly) return OK;
           const a = Math.min(x.amount, boostPower(o, 'work', 'harvest') * SC.HARVEST_MINERAL_POWER); x.amount -= a; o.store[x.type] = (o.store[x.type] || 0) + a; ex.cooldown = SC.EXTRACTOR_COOLDOWN; }
         const over = used() - cap; if (over > 0) { const r = x.kind === 'source' ? 'energy' : x.type; o.store[r] -= over; E.dropAt(o.x, o.y, r, over); } // 官方：溢出掉在地上
         ev.push({ t: 'harvest', fx: x.x, fy: x.y, x: o.x, y: o.y }); return OK;
@@ -816,7 +836,7 @@ function buildApi(E, pid) {
         if (!hasStore(x) || x.kind === 'tombstone' || x.kind === 'ruin' || x === o) return ERR_INVALID_TARGET; if (x.kind === 'creep' && x.spawning) return ERR_INVALID_TARGET;
         const have = o.store[res] || 0; if (amount != null && amount < 0) return ERR_INVALID_ARGS; if (!have || (amount != null && have < amount)) return ERR_NOT_ENOUGH_RESOURCES;
         const free = freeFor(w, x, res); if (free == null) return ERR_INVALID_TARGET; if (free <= 0) return ERR_FULL;
-        if (amount != null && amount > free) return ERR_FULL; if (x.kind === 'controller') return ERR_INVALID_TARGET; const a = Math.min(amount ?? have, free);
+        if (amount != null && amount > free) return ERR_FULL; if (x.kind === 'controller') return ERR_INVALID_TARGET; if (o._intentOnly) return OK; const a = Math.min(amount ?? have, free);
         o.store[res] -= a; x.store[res] = (x.store[res] || 0) + a;
         ev.push({ t: 'transfer', fx: o.x, fy: o.y, x: x.x, y: x.y }); return OK;
       };
@@ -826,18 +846,23 @@ function buildApi(E, pid) {
         if (x.owner && x.owner !== pid && x.kind !== 'tombstone' && x.kind !== 'ruin') return ERR_NOT_OWNER;
         if (x.kind === 'structure' && w.structures.some(s => s.type === 'rampart' && s.x === x.x && s.y === x.y && s.owner !== pid && !s.isPublic)) return ERR_NOT_OWNER;
         const have = x.store[res] || 0; if (amount != null && amount < 0) return ERR_INVALID_ARGS; if (!have || (amount != null && have < amount)) return ERR_NOT_ENOUGH_RESOURCES;
-        const free = cap - used(); if (free <= 0 || (amount != null && amount > free)) return ERR_FULL; const a = Math.min(amount ?? have, free);
+        const free = cap - used(); if (free <= 0 || (amount != null && amount > free)) return ERR_FULL; if (o._intentOnly) return OK; const a = Math.min(amount ?? have, free);
         x.store[res] -= a; o.store[res] = (o.store[res] || 0) + a; ev.push({ t: 'transfer', fx: x.x, fy: x.y, x: o.x, y: o.y }); return OK;
       };
-      v.pickup = t => { const e = pre(); if (e) return e; const x = tgt(t, 1, ['resource']); if (typeof x === 'number') return x; const free = cap - used(); if (free <= 0) return ERR_FULL;
+      v.pickup = t => { const e = pre(); if (e) return e; const x = tgt(t, 1, ['resource']); if (typeof x === 'number') return x; const free = cap - used(); if (free <= 0) return ERR_FULL; if (o._intentOnly) return OK;
         const a = Math.min(free, x.amount); x.amount -= a; o.store[x.resourceType] = (o.store[x.resourceType] || 0) + a; if (x.amount <= 0) w.resources.splice(w.resources.indexOf(x), 1); return OK; };
       v.drop = (res, amount) => { const e = pre(); if (e) return e; if (!RESOURCES.has(res)) return ERR_INVALID_ARGS; if (amount != null && !(amount > 0)) return ERR_INVALID_ARGS; const have = o.store[res] || 0; if (!have || (amount != null && amount > have)) return ERR_NOT_ENOUGH_RESOURCES;
-        const a = amount ?? have; o.store[res] -= a; E.dropAt(o.x, o.y, res, a); return OK; };
+        if (o._intentOnly) return OK; const a = amount ?? have; o.store[res] -= a; E.dropAt(o.x, o.y, res, a); return OK; };
       v.build = t => {
         const e = pre('work'); if (e) return e; const x = raw(t); if (!x || x.kind !== 'site') return ERR_INVALID_TARGET; if (!sameRoom(x, o) || dist(x, o) > 3) return ERR_NOT_IN_RANGE;
         if (x.owner !== pid) return ERR_NOT_OWNER; if (!(o.store.energy > 0)) return ERR_NOT_ENOUGH_ENERGY;
         if (OBSTACLES.has(x.type) && w.creeps.some(c => !c.spawning && c.x === x.x && c.y === x.y)) return ERR_INVALID_TARGET;
-        const a = Math.min(boostPower(o, 'work', 'build') * SC.BUILD_POWER, o.store.energy, x.total - x.progress); x.progress += a; o.store.energy -= a;
+        // 官方：能量按未强化建造量扣除，进度按强化后增加
+        const base = Math.min(activeParts(o, 'work') * SC.BUILD_POWER, o.store.energy, x.total - x.progress);
+        if (!base) return ERR_NOT_ENOUGH_ENERGY;
+        if (o._intentOnly) return OK;
+        const boosted = Math.min(Math.floor(base + boostExtra(o, 'work', 'build', base)), x.total - x.progress);
+        x.progress += boosted; o.store.energy -= base;
         ev.push({ t: 'build', fx: o.x, fy: o.y, x: x.x, y: x.y });
         if (x.progress >= x.total) {
           w.sites.splice(w.sites.indexOf(x), 1);
@@ -849,12 +874,17 @@ function buildApi(E, pid) {
       v.repair = t => {
         const e = pre('work'); if (e) return e; const x = raw(t); if (!x || x.hits == null || x.kind === 'creep' || x.kind === 'controller') return ERR_INVALID_TARGET; if (!sameRoom(x, o) || dist(x, o) > 3) return ERR_NOT_IN_RANGE;
         if (!(o.store.energy > 0)) return ERR_NOT_ENOUGH_ENERGY; if (x.hits >= x.hitsMax) return OK;
-        const a = Math.min(boostPower(o, 'work', 'repair') * SC.REPAIR_POWER, Math.floor(o.store.energy / SC.REPAIR_COST), x.hitsMax - x.hits);
-        o.store.energy -= Math.max(1, Math.ceil(a * SC.REPAIR_COST)); x.hits += a; ev.push({ t: 'repair', fx: o.x, fy: o.y, x: x.x, y: x.y }); return OK;
+        // 官方：能量按未强化修复量 * REPAIR_COST 扣除，hits 按强化后增加
+        const base = Math.min(activeParts(o, 'work') * SC.REPAIR_POWER, Math.floor(o.store.energy / SC.REPAIR_COST), x.hitsMax - x.hits);
+        if (!base) return ERR_NOT_ENOUGH_ENERGY;
+        if (o._intentOnly) return OK;
+        const boosted = Math.min(Math.floor(base + boostExtra(o, 'work', 'repair', base)), x.hitsMax - x.hits);
+        o.store.energy -= Math.ceil(base * SC.REPAIR_COST); x.hits += boosted; ev.push({ t: 'repair', fx: o.x, fy: o.y, x: x.x, y: x.y }); return OK;
       };
       v.dismantle = t => {
         const e = pre('work'); if (e) return e; const x = raw(t); if (!x || x.kind !== 'structure' && x.kind !== 'spawn') return ERR_INVALID_TARGET; if (!sameRoom(x, o) || dist(x, o) > 1) return ERR_NOT_IN_RANGE;
         const ctrl = ctrlOfRoom(w, roomKey(x.x, x.y)); if (ctrl && ctrl.safeMode > w.time && ctrl.owner !== pid) return ERR_NO_BODYPART;
+        if (o._intentOnly) return OK;
         const a = Math.min(boostPower(o, 'work', 'dismantle') * SC.DISMANTLE_POWER, x.hits), back = Math.floor(a * SC.DISMANTLE_COST);
         if (back) { o.store.energy = (o.store.energy || 0) + back; const over = used() - cap; if (over > 0) { o.store.energy -= over; E.dropAt(o.x, o.y, 'energy', over); } }
         E.damage(x, a, pid); return OK;
@@ -863,9 +893,12 @@ function buildApi(E, pid) {
         const e = pre('work'); if (e) return e; const x = raw(t); if (!x || x.kind !== 'controller') return ERR_INVALID_TARGET; if (x.owner !== pid || !x.level) return ERR_NOT_OWNER;
         if (!sameRoom(x, o) || dist(x, o) > 3) return ERR_NOT_IN_RANGE; if (!(o.store.energy > 0)) return ERR_NOT_ENOUGH_RESOURCES; if (x.upgradeBlocked > w.time) return ERR_INVALID_TARGET;
         x._upTick = x._upTick === w.time ? w.time : (x._upCnt = 0, w.time);
-        let eff = Math.min(boostPower(o, 'work', 'upgradeController') * SC.UPGRADE_CONTROLLER_POWER, o.store.energy);
-        if (x.level === 8) { eff = Math.min(eff, SC.CONTROLLER_MAX_UPGRADE_PER_TICK - x._upCnt); if (eff <= 0) return OK; }
-        x._upCnt += eff; o.store.energy -= eff; x._upgraded = 1; w.players[pid].gcl = (w.players[pid].gcl || 0) + eff;
+        // 官方：能量与 RCL8 上限按未强化量；GCL/progress 按强化后
+        let base = Math.min(activeParts(o, 'work') * SC.UPGRADE_CONTROLLER_POWER, o.store.energy);
+        if (x.level === 8) { base = Math.min(base, SC.CONTROLLER_MAX_UPGRADE_PER_TICK - x._upCnt); if (base <= 0) return OK; }
+        if (o._intentOnly) return OK;
+        const eff = Math.floor(base + boostExtra(o, 'work', 'upgradeController', base));
+        x._upCnt += base; o.store.energy -= base; x._upgraded = 1; w.players[pid].gcl = (w.players[pid].gcl || 0) + eff;
         if (x.level < 8) {
           const next = SC.CONTROLLER_LEVELS[x.level];
           if (x.progress + eff >= next && x.downgradeTime + SC.CONTROLLER_DOWNGRADE_RESTORE >= w.time + SC.CONTROLLER_DOWNGRADE[x.level]) {
@@ -878,44 +911,69 @@ function buildApi(E, pid) {
         const e = pre('claim'); if (e) return e; const x = tgt(t, 1, ['controller']); if (typeof x === 'number') return x;
         if (x.owner || (x.reservation && x.reservation.owner !== pid)) return ERR_INVALID_TARGET;
         if (w.controllers.filter(c => c.owner === pid).length >= E.gclLevel(pid)) return ERR_GCL_NOT_ENOUGH;
+        if (o._intentOnly) return OK;
         Object.assign(x, { owner: pid, level: 1, progress: 0, downgradeTime: null, reservation: null, safeModeAvailable: 0 }); const rm = w.rooms[roomKey(x.x, x.y)]; if (!rm.owner) rm.owner = pid; return OK;
       };
       v.reserveController = t => {
         const e = pre('claim'); if (e) return e; const x = tgt(t, 1, ['controller']); if (typeof x === 'number') return x;
         if (x.owner || (x.reservation && x.reservation.owner !== pid)) return ERR_INVALID_TARGET;
         const end = x.reservation ? x.reservation.endTime : w.time + 1, add = activeParts(o, 'claim') * SC.CONTROLLER_RESERVE;
-        if (end - w.time + add > SC.CONTROLLER_RESERVE_MAX) return ERR_FULL; x.reservation = { owner: pid, endTime: end + add }; return OK;
+        if (end - w.time + add > SC.CONTROLLER_RESERVE_MAX) return ERR_FULL; if (o._intentOnly) return OK; x.reservation = { owner: pid, endTime: end + add }; return OK;
       };
       v.attackController = t => {
         const e = pre('claim'); if (e) return e; const x = tgt(t, 1, ['controller']); if (typeof x === 'number') return x;
         if (!x.owner && !x.reservation) return ERR_INVALID_TARGET; if (x.owner === pid || (x.reservation && x.reservation.owner === pid)) return ERR_INVALID_TARGET; if (x.upgradeBlocked > w.time) return ERR_TIRED;
+        if (o._intentOnly) return OK;
         const n = activeParts(o, 'claim');
         if (x.reservation) { x.reservation.endTime -= n * SC.CONTROLLER_RESERVE; } else { x.downgradeTime -= n * SC.CONTROLLER_CLAIM_DOWNGRADE; x.upgradeBlocked = w.time + SC.CONTROLLER_ATTACK_BLOCKED_UPGRADE; }
         return OK;
       };
-      v.signController = (t, text) => { const e = pre(); if (e) return e; const x = tgt(t, 1, ['controller']); if (typeof x === 'number') return x; x.sign = text ? { username: w.players[pid].name, text: String(text).slice(0, 100), time: w.time, datetime: Date.now() } : null; return OK; };
-      v.generateSafeMode = t => { const e = pre(); if (e) return e; const x = tgt(t, 1, ['controller']); if (typeof x === 'number') return x; if ((o.store.G || 0) < SC.SAFE_MODE_COST) return ERR_NOT_ENOUGH_RESOURCES; o.store.G -= SC.SAFE_MODE_COST; x.safeModeAvailable++; return OK; };
+      v.signController = (t, text) => { const e = pre(); if (e) return e; const x = tgt(t, 1, ['controller']); if (typeof x === 'number') return x; if (o._intentOnly) return OK; x.sign = text ? { username: w.players[pid].name, text: String(text).slice(0, 100), time: w.time, datetime: Date.now() } : null; return OK; };
+      v.generateSafeMode = t => { const e = pre(); if (e) return e; const x = tgt(t, 1, ['controller']); if (typeof x === 'number') return x; if ((o.store.G || 0) < SC.SAFE_MODE_COST) return ERR_NOT_ENOUGH_RESOURCES; if (o._intentOnly) return OK; o.store.G -= SC.SAFE_MODE_COST; x.safeModeAvailable++; return OK; };
       const hostileOk = x => x.kind === 'creep' ? x.owner !== pid || true : true;
       v.attack = t => { const e = pre('attack'); if (e) return e; const x = tgt(t, 1, ['creep', 'structure', 'spawn']); if (typeof x === 'number') return x; if (!hostileOk(x) || x.hits == null) return ERR_INVALID_TARGET;
+        if (o._intentOnly) return OK;
         E.damage(x, boostPower(o, 'attack', 'attack') * SC.ATTACK_POWER, pid); if (x.kind === 'creep' && activeParts(x, 'attack')) E.damage(o, boostPower(x, 'attack', 'attack') * SC.ATTACK_POWER, x.owner); ev.push({ t: 'attack', fx: o.x, fy: o.y, x: x.x, y: x.y }); return OK; };
       v.rangedAttack = t => { const e = pre('ranged_attack'); if (e) return e; const x = tgt(t, 3, ['creep', 'structure', 'spawn']); if (typeof x === 'number') return x; if (x.hits == null) return ERR_INVALID_TARGET;
+        if (o._intentOnly) return OK;
         E.damage(x, boostPower(o, 'ranged_attack', 'rangedAttack') * SC.RANGED_ATTACK_POWER, pid); ev.push({ t: 'attack', fx: o.x, fy: o.y, x: x.x, y: x.y }); return OK; };
-      v.rangedMassAttack = () => { const e = pre('ranged_attack'); if (e) return e; const n = boostPower(o, 'ranged_attack', 'rangedMassAttack') * SC.RANGED_ATTACK_POWER;
+      v.rangedMassAttack = () => { const e = pre('ranged_attack'); if (e) return e; if (o._intentOnly) return OK; const n = boostPower(o, 'ranged_attack', 'rangedMassAttack') * SC.RANGED_ATTACK_POWER;
         for (const x of w.creeps.filter(c => !c.spawning && c.owner !== pid && sameRoom(c, o) && dist(c, o) <= 3).concat(w.structures.concat(w.spawns).filter(s => s.owner && s.owner !== pid && sameRoom(s, o) && dist(s, o) <= 3))) E.damage(x, Math.round(n * ({ 0: 1, 1: 1, 2: 0.4, 3: 0.1 })[dist(x, o)]), pid);
         return OK; };
-      v.heal = t => { const e = pre('heal'); if (e) return e; const x = tgt(t, 1, ['creep']); if (typeof x === 'number') return x; x.hits = Math.min(x.body.length * 100, x.hits + boostPower(o, 'heal', 'heal') * SC.HEAL_POWER); ev.push({ t: 'heal', fx: o.x, fy: o.y, x: x.x, y: x.y }); return OK; };
-      v.rangedHeal = t => { const e = pre('heal'); if (e) return e; const x = tgt(t, 3, ['creep']); if (typeof x === 'number') return x; x.hits = Math.min(x.body.length * 100, x.hits + boostPower(o, 'heal', 'rangedHeal') * SC.RANGED_HEAL_POWER); ev.push({ t: 'heal', fx: o.x, fy: o.y, x: x.x, y: x.y }); return OK; };
+      v.heal = t => { const e = pre('heal'); if (e) return e; const x = tgt(t, 1, ['creep']); if (typeof x === 'number') return x; if (o._intentOnly) return OK; x.hits = Math.min(x.body.length * 100, x.hits + boostPower(o, 'heal', 'heal') * SC.HEAL_POWER); ev.push({ t: 'heal', fx: o.x, fy: o.y, x: x.x, y: x.y }); return OK; };
+      v.rangedHeal = t => { const e = pre('heal'); if (e) return e; const x = tgt(t, 3, ['creep']); if (typeof x === 'number') return x; if (o._intentOnly) return OK; x.hits = Math.min(x.body.length * 100, x.hits + boostPower(o, 'heal', 'rangedHeal') * SC.RANGED_HEAL_POWER); ev.push({ t: 'heal', fx: o.x, fy: o.y, x: x.x, y: x.y }); return OK; };
       v.pull = t => { const e = pre(); if (e) return e; const x = tgt(t, 1, ['creep']); if (typeof x === 'number') return x; if (x === o) return ERR_INVALID_TARGET; o._pulling = x; return OK; };
-      // 官方同时动作规则（docs: Simultaneous execution of creep actions）：同一方法每 tick 只生效一次；
-      // 管线 A（harvest/attack/build/repair/dismantle/attackController/rangedHeal/heal）与管线 B（rangedAttack/rangedMassAttack/build/repair/rangedHeal）各只执行一个。
-      // 本引擎动作立即结算，冲突时先到先得，后续调用返回 OK 但无效果（官方为高优先级覆盖）。
-      const RNG = { harvest: 1, attack: 1, build: 3, repair: 3, dismantle: 1, attackController: 1, rangedHeal: 3, heal: 1, rangedAttack: 3, upgradeController: 3, transfer: 1, withdraw: 1, pickup: 1, claimController: 1, reserveController: 1, generateSafeMode: 1, signController: 1 };
-      const GA = ['harvest', 'attack', 'build', 'repair', 'dismantle', 'attackController', 'rangedHeal', 'heal'], GB = ['rangedAttack', 'rangedMassAttack', 'build', 'repair', 'rangedHeal'];
-      for (const m of ['harvest', 'attack', 'build', 'repair', 'dismantle', 'attackController', 'rangedHeal', 'heal', 'rangedAttack', 'rangedMassAttack', 'upgradeController', 'transfer', 'withdraw', 'drop', 'pickup', 'claimController', 'reserveController', 'generateSafeMode', 'signController']) {
+      // 官方同时动作：调用时只校验并登记 intent，tick 末按优先级结算（engine/src/processor/intents/creeps/intents.js）
+      // priorities[name] 列出会挡住 name 的更高优先级动作；同一方法每 tick 只保留最后一次成功登记
+      const BLOCKED_BY = {
+        rangedHeal: ['heal'], attackController: ['rangedHeal', 'heal'], dismantle: ['attackController', 'rangedHeal', 'heal'],
+        repair: ['dismantle', 'attackController', 'rangedHeal', 'heal'], build: ['repair', 'dismantle', 'attackController', 'rangedHeal', 'heal'],
+        attack: ['build', 'repair', 'dismantle', 'attackController', 'rangedHeal', 'heal'],
+        harvest: ['attack', 'build', 'repair', 'dismantle', 'attackController', 'rangedHeal', 'heal'],
+        rangedMassAttack: ['build', 'repair', 'rangedHeal'], rangedAttack: ['rangedMassAttack', 'build', 'repair', 'rangedHeal']
+      };
+      const INTENT_ORDER = ['drop', 'transfer', 'withdraw', 'pickup', 'heal', 'rangedHeal', 'dismantle', 'attack', 'harvest', 'repair', 'build', 'rangedMassAttack', 'rangedAttack', 'claimController', 'upgradeController', 'reserveController', 'attackController', 'generateSafeMode', 'signController'];
+      for (const m of INTENT_ORDER) {
         const f = v[m]; if (typeof f !== 'function') continue;
-        v[m] = (...a) => { if (mine && !o.spawning && o._did) { if (o._did[m] || (GA.includes(m) && GA.some(k => o._did[k])) || (GB.includes(m) && GB.some(k => o._did[k]))) { const e = pre(); if (e) return e; const R = RNG[m]; if (R) { const x = raw(a[0]); if (!x) return ERR_INVALID_TARGET; if (!sameRoom(x, o) || dist(x, o) > R) return ERR_NOT_IN_RANGE; } return OK; } }
-          const r = f(...a); if (r === OK && o._did) o._did[m] = true; return r; };
+        v[m] = (...a) => {
+          if (!mine || o.spawning || o._flushing) return f(...a);
+          o._intentOnly = true; let r; try { r = f(...a); } finally { o._intentOnly = false; }
+          if (r === OK) { o._intents = o._intents || {}; o._intents[m] = a; }
+          return r;
+        };
       }
+      o._flushIntents = v._flushIntents = () => {
+        if (!o._intents) return;
+        const intents = o._intents; o._intents = {}; o._flushing = true;
+        try {
+          for (const m of INTENT_ORDER) {
+            if (!intents[m]) continue;
+            const block = BLOCKED_BY[m];
+            if (block && block.some(k => intents[k])) continue; // 官方：被更高优先级挡住则跳过
+            const f = v[m]; if (typeof f === 'function') f(...intents[m]);
+          }
+        } finally { o._flushing = false; }
+      };
     },
   };
 
@@ -979,7 +1037,7 @@ function buildApi(E, pid) {
     gpl: { level: 0, progress: 0, progressTotal: SC.POWER_LEVEL_MULTIPLY },
     cpu: { limit: 20, tickLimit: Math.min(500, (w.players[pid] && w.players[pid].bucket != null ? w.players[pid].bucket : 10000)), bucket: (w.players[pid] && w.players[pid].bucket != null ? w.players[pid].bucket : 10000), shardLimits: { shard0: 20 }, unlocked: true, unlockedTime: undefined, getUsed: () => Date.now() - t0, getHeapStatistics: () => ({}), halt: () => { throw new Error('Game.cpu.halt'); }, setShardLimits: () => ERR_BUSY, unlock: () => ERR_FULL, generatePixel: () => { const P = w.players[pid]; if (!P || (P.bucket != null ? P.bucket : 10000) < SC.PIXEL_CPU_COST) return ERR_NOT_ENOUGH_RESOURCES; P.bucket -= SC.PIXEL_CPU_COST; P.pixels = (P.pixels || 0) + 1; return OK; } },
     market: { credits: 0, get incomingTransactions() { return (w.transactions || []).filter(t => t._r === pid).reverse(); }, get outgoingTransactions() { return (w.transactions || []).filter(t => t._s === pid).reverse(); }, orders: {}, calcTransactionCost: (amount, a, b) => Math.ceil(amount * (1 - Math.exp(-Game.map.getRoomLinearDistance(a, b, true) / 30))), getAllOrders: () => [], getHistory: () => [], getOrderById: () => null, cancelOrder: () => ERR_INVALID_ARGS, changeOrderPrice: () => ERR_INVALID_ARGS, createOrder: () => ERR_NOT_ENOUGH_RESOURCES, deal: () => ERR_NOT_ENOUGH_RESOURCES, extendOrder: () => ERR_INVALID_ARGS },
-    getObjectById: id => { for (const L of [w.creeps, w.spawns, w.structures, w.controllers, w.sources, w.minerals, w.sites, w.resources, w.tombstones, w.ruins || [], w.flags]) { const o = L.find(o => o.id === id); if (o) return (vis.has(roomKey(o.x, o.y)) || (L === w.sites && o.owner === pid)) ? wrap(o) : null; } return null; },
+    getObjectById: id => { for (const L of [w.creeps, w.spawns, w.structures, w.controllers, w.sources, w.minerals, w.sites, w.resources, w.tombstones, w.ruins || [], w.nukes || [], w.flags]) { const o = L.find(o => o.id === id); if (o) return (vis.has(roomKey(o.x, o.y)) || (L === w.sites && o.owner === pid)) ? wrap(o) : null; } return null; },
     notify: (msg) => { E.log(pid, '[notify]', msg); return OK; },
     map: {
       describeExits: n => { const p = parseRoomName(n); if (p) ensureRoom(w, p[0], p[1]); if (!p || !w.rooms[p[0] + ',' + p[1]]) return null; const out = {}; const t = w.rooms[p[0] + ',' + p[1]].tiles, open = (f) => { for (let i = 0; i < 50; i++) if (f(i) !== T_WALL) return true; return false; };
@@ -1000,12 +1058,39 @@ function buildApi(E, pid) {
   Game.map.getTerrainAt = (a, b, n) => { const pos = typeof a === 'number' ? { x: a, y: b, roomName: n } : a; const v = new RoomTerrain(pos.roomName).get(pos.x, pos.y); return v & SC.TERRAIN_MASK_WALL ? 'wall' : v & SC.TERRAIN_MASK_SWAMP ? 'swamp' : 'plain'; };
   const P_ = w.players[pid] || {}, segStore = (w.segments = w.segments || {})[pid] = (w.segments[pid] || {}), segsNow = {}; for (const id of P_.activeSegs || []) segsNow[id] = segStore[id] || '';
   const RawMemory = { segments: segsNow, foreignSegment: undefined, get: () => JSON.stringify(mem), set: s => { const m = JSON.parse(s); for (const k in mem) delete mem[k]; Object.assign(mem, m); }, setActiveSegments: ids => { if (!Array.isArray(ids) || ids.length > 10 || ids.some(i => !(i >= 0 && i <= 99 && Number.isInteger(i)))) throw new Error('RawMemory.setActiveSegments: 最多 10 个 0~99 的整数'); if (w.players[pid]) w.players[pid].activeSegs = ids.slice(); }, setActiveForeignSegment: () => undefined, setDefaultPublicSegment: () => undefined, setPublicSegments: () => undefined, interShardSegment: '' };
-  const Room = function () { throw new Error('Room 不能直接构造'); }; Room.Terrain = RoomTerrain; Room.serializePath = p => JSON.stringify(p); Room.deserializePath = s => JSON.parse(s);
-  const PathFinder = { search(origin, goal, opts = {}) { // 官方 PathFinder.search：plainCost 1 / swampCost 5，不考虑道路与 creep；roomCallback 返回 CostMatrix 或 false
+  const Room = function () { throw new Error('Room 不能直接构造'); }; Room.Terrain = RoomTerrain;
+  Room.serializePath = path => { // 官方：两位 x + 两位 y + 方向数字串
+    if (!Array.isArray(path)) throw new Error('path is not an array');
+    if (!path.length) return '';
+    let result = (path[0].x < 10 ? '0' : '') + path[0].x + (path[0].y < 10 ? '0' : '') + path[0].y;
+    result += String(path[0].direction || 5);
+    for (let i = 1; i < path.length; i++) {
+      const d = path[i].direction || dirOf(path[i].x - path[i - 1].x, path[i].y - path[i - 1].y) || 5;
+      result += String(d);
+    }
+    return result;
+  };
+  Room.deserializePath = path => {
+    path = String(path || ''); const result = []; if (path.length < 5) return result;
+    let x = parseInt(path.substring(0, 2), 10), y = parseInt(path.substring(2, 4), 10);
+    for (let i = 4; i < path.length; i++) {
+      const direction = parseInt(path.charAt(i), 10), d = DIRS[direction] || [0, 0];
+      if (i !== 4) { x += d[0]; y += d[1]; }
+      result.push({ x, y, dx: d[0], dy: d[1], direction });
+    }
+    return result;
+  };
+  const PathFinder = { search(origin, goal, opts = {}) { // 官方 PathFinder.search：plainCost 1 / swampCost 5；flee / maxRooms / heuristicWeight / maxCost
       const o = gpos(origin), goals = (Array.isArray(goal) ? goal : [goal]).map(g => ({ g: gpos(g && g.pos || g) || gpos(g), r: (g && g.range) || 0 })).filter(x => x.g);
       if (!o || !goals.length) return { path: [], ops: 0, cost: 0, incomplete: true };
-      const fo = { ignoreCreeps: true, ignoreRoads: true, plainCost: opts.plainCost || 1, swampCost: opts.swampCost || 5, maxOps: opts.maxOps || 2000, partial: true };
-      if (opts.roomCallback) fo._cm = (rx, ry) => { const m = opts.roomCallback(roomNameXY(rx, ry)); return m === false ? false : (m && m.get ? m : null); };
+      const maxRooms = Math.min(64, Math.max(1, opts.maxRooms || 16)), hw = opts.heuristicWeight == null ? 1.2 : opts.heuristicWeight, maxCost = opts.maxCost == null ? Infinity : opts.maxCost;
+      const fo = { ignoreCreeps: true, ignoreRoads: true, plainCost: opts.plainCost || 1, swampCost: opts.swampCost || 5, maxOps: opts.maxOps || 2000, partial: true, heuristicWeight: hw, maxCost, maxRooms, flee: !!opts.flee, fleeGoals: goals };
+      if (opts.roomCallback) fo._cm = (rx, ry) => { const orx = (o.x / ROOM) | 0, ory = (o.y / ROOM) | 0; if (Math.max(Math.abs(rx - orx), Math.abs(ry - ory)) >= maxRooms) return false; const m = opts.roomCallback(roomNameXY(rx, ry)); return m === false ? false : (m && m.get ? m : null); };
+      else fo._cm = (rx, ry) => { const orx = (o.x / ROOM) | 0, ory = (o.y / ROOM) | 0; return Math.max(Math.abs(rx - orx), Math.abs(ry - ory)) >= maxRooms ? false : null; };
+      if (opts.flee) {
+        const p = E.findPath(o, goals.map(g => g.g), goals[0].r, undefined, fo);
+        return { path: p.map(q => new RoomPosition(q.x % ROOM, q.y % ROOM, roomName(q.x, q.y))), ops: E._lastOps || 0, cost: p.length ? E._lastCost : 0, incomplete: !!E._lastIncomplete };
+      }
       let best = null, meta = null; for (const { g, r } of goals) { const p = E.findPath(o, g, r, undefined, fo); const m = { ops: E._lastOps || 0, cost: p.length ? E._lastCost : 0, inc: !p.length && dist(o, g) > r ? true : !!E._lastIncomplete };
         if (!best || (!m.inc && meta.inc) || (m.inc === meta.inc && m.cost < meta.cost)) { best = p; meta = m; } }
       return { path: best.map(p => new RoomPosition(p.x % ROOM, p.y % ROOM, roomName(p.x, p.y))), ops: meta.ops, cost: meta.cost, incomplete: meta.inc }; },

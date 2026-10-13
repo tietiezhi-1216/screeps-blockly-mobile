@@ -169,3 +169,9 @@ body.barMin{--lbar:0px}
   #roomBar{top:auto!important;bottom:calc(60px + var(--bot))!important;left:0!important}
 }
 .ri .riBtns button:not(.primary){background:#2a2f3a!important;color:#e6e6e6!important;border:0!important}
+/* v1.8.2 积木页：分类栏/完成移到屏幕最底部（避开顶部摄像头挖孔），操作按钮移到左侧靠上 */
+#editor #edTabs{order:2;padding-top:4px;padding-bottom:calc(4px + var(--sab));padding-left:calc(6px + var(--sal));padding-right:calc(6px + var(--sar));border-top:1px solid #333}
+#editor #blocklyDiv{order:1}
+#editor #catBar{border-bottom:0}
+#edTools{left:calc(8px + var(--sal));right:auto;top:calc(8px + var(--sat));bottom:auto;flex-wrap:wrap;max-height:calc(100% - 16px - var(--sat))}
+@media (orientation:landscape){#editor{padding-left:0;padding-right:0}#editor #blocklyDiv{margin-left:var(--sal);margin-right:var(--sar)}#editor #edTabs{padding-left:calc(6px + var(--sal))}#edTools{left:8px}}

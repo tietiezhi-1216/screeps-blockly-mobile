@@ -162,6 +162,7 @@ class Engine {
     { // 首个房间周围 3×3 的普通无主房间划为新手区（重生玩家为重生区）
       const P = w.players[pid], status = P.respawned ? 'respawn' : 'novice', id = 'z' + (w.nextId++), until = w.time + (status === 'novice' ? NOVICE_TICKS : RESPAWN_TICKS); w.zones = w.zones || {};
       for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const X = rx + dx, Y = ry + dy, rk = X + ',' + Y; if (X < 0 || Y < 0 || X >= w.S || Y >= w.S || roomType(X, Y) !== 'normal' || this.zoneOf(X, Y) || (rk !== k && w.rooms[rk] && w.rooms[rk].owner)) continue; w.zones[rk] = { id, status, until }; }
+      this.zoneWalls(id);
     }
     ensureNear(w, rx, ry); this._objVer++; w.roomsVer++; maybeExpand(w); this.log(pid, '在', w.rooms[k].name, '放下 Spawn1'); return null;
   }
@@ -288,7 +289,7 @@ class Engine {
       const lx = c.x % ROOM, ly = c.y % ROOM; let nx = c.x, ny = c.y;
       if (lx === 0) nx--; else if (lx === ROOM - 1) nx++; else if (ly === 0) ny--; else if (ly === ROOM - 1) ny++;
       const za = this.zoneOf(Math.floor(c.x / ROOM), Math.floor(c.y / ROOM)), zb = this.zoneOf(Math.floor(nx / ROOM), Math.floor(ny / ROOM)), zoneOk = (za && za.id) === (zb && zb.id);
-      if ((nx !== c.x || ny !== c.y) && zoneOk && c._arrived !== w.time && !this.blocked(nx, ny, c)) { const o = this._occ(); o.delete(c.y * this.W + c.x); c.x = nx; c.y = ny; c.px = nx; c.py = ny; o.set(c.y * this.W + c.x, c); c._path = null; }
+      if ((nx !== c.x || ny !== c.y) && c._arrived !== w.time && !this.blocked(nx, ny, c)) { const o = this._occ(); o.delete(c.y * this.W + c.x); c.x = nx; c.y = ny; c.px = nx; c.py = ny; o.set(c.y * this.W + c.x, c); c._path = null; }
       c.fatigue = Math.max(0, c.fatigue - boostPower(c, 'move', 'fatigue') * 2);
       if (!c.noAge) c.ttl--; // Keeper 不衰老（官方无 ageTime）
     }
@@ -396,7 +397,18 @@ class Engine {
     }
   }
   // 新手区/重生区（官方 novice/respawn zone）：到期解除；区内外不能穿越
-  tickZones() { const z = this.w.zones; if (!z) return; for (const k in z) if (this.w.time >= z[k].until) delete z[k]; }
+  tickZones() { const w = this.w, z = w.zones || {}; for (const k in z) if (w.time >= z[k].until) delete z[k];
+    const live = new Set(Object.values(z).map(q => q.id)), n0 = w.structures.length; // 区域到期（或被移除）→ 拆除对应边界墙
+    if (w.structures.some(s => s.zoneWall && !live.has(s.zoneWall))) { w.structures = w.structures.filter(s => !s.zoneWall || live.has(s.zoneWall)); this._objVer++; this._o = null; } }
+  // 官方：新手区/重生区与外界之间的出口格上放置无 hits 的 constructedWall（不可摧毁），寻路自然绕开
+  zoneWalls(id) { const w = this.w, z = w.zones, rooms = Object.keys(z).filter(k => z[k].id === id);
+    for (const k of rooms) { const [rx, ry] = k.split(',').map(Number); if (!w.rooms[k]) ensureRoom(w, rx, ry);
+      const edges = [[0, -1, (i) => [i, 0]], [0, 1, (i) => [i, ROOM - 1]], [-1, 0, (i) => [0, i]], [1, 0, (i) => [ROOM - 1, i]]];
+      for (const [dx, dy, at] of edges) { const nk = (rx + dx) + ',' + (ry + dy); if (z[nk] && z[nk].id === id) continue;
+        for (let i = 0; i < ROOM; i++) { const [lx, ly] = at(i), x = rx * ROOM + lx, y = ry * ROOM + ly; if (this.tile(x, y) === T_WALL || w.structures.some(s => s.x === x && s.y === y && s.zoneWall)) continue;
+          w.structures.push({ kind: 'structure', id: 'st' + (w.nextId++), type: 'constructedWall', owner: null, x, y, zoneWall: id }); } } }
+    this._objVer++; this._o = null; this._grid0 = null; }
+  isNovice(o) { const z = this.zoneOf(Math.floor(o.x / ROOM), Math.floor(o.y / ROOM)); return !!(z && z.status === 'novice'); }
   zoneOf(rx, ry) { const z = this.w.zones && this.w.zones[rx + ',' + ry]; return z && z.until > this.w.time ? z : null; }
   tickSources() {
     const w = this.w;
@@ -443,7 +455,7 @@ class Engine {
       if (s.type === 'rampart') s.hitsMax = SC.RAMPART_HITS_MAX[rclOf(w, s.x, s.y)] || 0;
     }
     if (w.nukes && w.nukes.length) for (const n of w.nukes.slice()) if (w.time >= n.landTime) { // 官方核弹落地：杀死房间内所有 creep、移除工地、2 格内伤害
-      const rk = roomKey(n.x, n.y); w.nukes.splice(w.nukes.indexOf(n), 1);
+      const rk = roomKey(n.x, n.y); w.nukes.splice(w.nukes.indexOf(n), 1); if (this.zoneOf(Math.floor(n.x / ROOM), Math.floor(n.y / ROOM))) continue; // 官方 nukes/tick.js：落在新手/重生区直接消失
       for (const c of w.creeps.slice()) if (roomKey(c.x, c.y) === rk) this.killCreep(c, 0);
       w.sites = w.sites.filter(t => roomKey(t.x, t.y) !== rk);
       const hitAt = (x, y, dmg) => { for (const s of [...w.structures, ...w.spawns]) if (s.x === x && s.y === y && s.hits != null) this.elog(n, SC.EVENT_ATTACK, { targetId: s.id, damage: dmg, attackType: SC.EVENT_ATTACK_TYPE_NUKE }); const list = [...w.structures, ...w.spawns].filter(s => s.x === x && s.y === y); const ramp = list.find(s => s.type === 'rampart'); let left = dmg;
@@ -682,8 +694,8 @@ function buildApi(E, pid) {
         reservation: o.reservation ? { username: w.players[o.reservation.owner]?.name, ticksToEnd: o.reservation.endTime - w.time } : undefined,
         safeMode: o.safeMode > w.time ? o.safeMode - w.time : undefined, safeModeAvailable: o.safeModeAvailable, safeModeCooldown: o.safeModeCooldown > w.time ? o.safeModeCooldown - w.time : undefined,
         upgradeBlocked: o.upgradeBlocked > w.time ? o.upgradeBlocked - w.time : undefined, sign: o.sign || undefined, isPowerEnabled: false });
-      v.activateSafeMode = () => { if (o.owner !== pid) return ERR_NOT_OWNER; if (o.safeModeAvailable <= 0) return ERR_NOT_ENOUGH_RESOURCES; if (o.safeModeCooldown > w.time || o.upgradeBlocked > w.time || (o.downgradeTime - w.time) < SC.CONTROLLER_DOWNGRADE[o.level] / 2 - SC.CONTROLLER_DOWNGRADE_SAFEMODE_THRESHOLD) return ERR_TIRED; if (w.controllers.some(c => c.owner === pid && c.safeMode > w.time)) return ERR_BUSY; o.safeModeAvailable--; o.safeMode = w.time + SC.SAFE_MODE_DURATION; o.safeModeCooldown = w.time + SC.SAFE_MODE_COOLDOWN; return OK; };
-      v.unclaim = () => { if (o.owner !== pid) return ERR_NOT_OWNER; const rm = w.rooms[roomKey(o.x, o.y)]; if (rm.owner === pid) rm.owner = null; Object.assign(o, { owner: null, level: 0, progress: 0, downgradeTime: null, safeMode: null, safeModeAvailable: 0 }); return OK; };
+      v.activateSafeMode = () => { if (o.owner !== pid) return ERR_NOT_OWNER; if (o.safeModeAvailable <= 0) return ERR_NOT_ENOUGH_RESOURCES; if (o.safeModeCooldown > w.time || o.upgradeBlocked > w.time || (o.downgradeTime - w.time) < SC.CONTROLLER_DOWNGRADE[o.level] / 2 - SC.CONTROLLER_DOWNGRADE_SAFEMODE_THRESHOLD) return ERR_TIRED; if (w.controllers.some(c => c.owner === pid && c.safeMode > w.time)) return ERR_BUSY; o.safeModeAvailable--; o.safeMode = w.time + SC.SAFE_MODE_DURATION; o.safeModeCooldown = E.isNovice(o) ? null : w.time + SC.SAFE_MODE_COOLDOWN; return OK; }; // 官方 controllers/tick.js：新手区无安全模式冷却
+      v.unclaim = () => { if (o.owner !== pid) return ERR_NOT_OWNER; const rm = w.rooms[roomKey(o.x, o.y)]; if (rm.owner === pid) rm.owner = null; Object.assign(o, { owner: null, level: 0, progress: 0, downgradeTime: null, safeMode: null, safeModeAvailable: 0, safeModeCooldown: E.isNovice(o) ? null : w.time + SC.SAFE_MODE_COOLDOWN }); return OK; }; // 官方 unclaim.js
     },
     spawn(v, o) {
       structBase(v, o, 'spawn'); o.store = o.store || { energy: 0 }; v.store = makeStore(o); v.energy = o.store.energy || 0; v.energyCapacity = SC.SPAWN_ENERGY_CAPACITY; v.name = o.name;
@@ -918,7 +930,7 @@ function buildApi(E, pid) {
         o.store.energy -= Math.ceil(base * SC.REPAIR_COST); x.hits += boosted; E.elog(o, SC.EVENT_REPAIR, { targetId: x.id, amount: boosted, energySpent: Math.ceil(base * SC.REPAIR_COST) }); ev.push({ t: 'repair', fx: o.x, fy: o.y, x: x.x, y: x.y }); return OK;
       };
       v.dismantle = t => {
-        const e = pre('work'); if (e) return e; const x = raw(t); if (!x || x.kind !== 'structure' && x.kind !== 'spawn') return ERR_INVALID_TARGET; if (!sameRoom(x, o) || dist(x, o) > 1) return ERR_NOT_IN_RANGE;
+        const e = pre('work'); if (e) return e; const x = raw(t); if (!x || x.kind !== 'structure' && x.kind !== 'spawn' || x.hits == null) return ERR_INVALID_TARGET; if (!sameRoom(x, o) || dist(x, o) > 1) return ERR_NOT_IN_RANGE;
         const ctrl = ctrlOfRoom(w, roomKey(x.x, x.y)); if (ctrl && ctrl.safeMode > w.time && ctrl.owner !== pid) return ERR_NO_BODYPART;
         if ((x.effects || []).some(f => f.power === SC.PWR_FORTIFY && f.endTime > w.time)) return ERR_INVALID_TARGET;
         if (o._intentOnly) return OK;
@@ -949,6 +961,7 @@ function buildApi(E, pid) {
         const e = pre('claim'); if (e) return e; const x = tgt(t, 1, ['controller']); if (typeof x === 'number') return x;
         if (x.owner || (x.reservation && x.reservation.owner !== pid)) return ERR_INVALID_TARGET;
         if (w.controllers.filter(c => c.owner === pid).length >= E.gclLevel(pid)) return ERR_GCL_NOT_ENOUGH;
+        if (w.controllers.filter(c => c.owner === pid).length >= SC.GCL_NOVICE && E.isNovice(o)) return ERR_FULL; // 官方：新手区最多 GCL_NOVICE 个房间
         if (o._intentOnly) return OK;
         Object.assign(x, { owner: pid, level: 1, progress: 0, downgradeTime: null, reservation: null, safeModeAvailable: 0 }); const rm = w.rooms[roomKey(x.x, x.y)]; if (!rm.owner) rm.owner = pid; return OK;
       };

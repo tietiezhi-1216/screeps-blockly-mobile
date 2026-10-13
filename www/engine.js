@@ -225,7 +225,7 @@ class Engine {
     const tos = Array.isArray(to) ? to : [to];
     const hw = opts.heuristicWeight == null ? 1.0001 : opts.heuristicWeight, maxCost = opts.maxCost == null ? Infinity : opts.maxCost;
     const H = k => { const x = k % WW, y = (k / WW) | 0;
-      if (opts.flee) { let m = Infinity; for (const t of (opts.fleeGoals || tos.map(t => ({ g: t, r: range })))) { const g = t.g || t, r = t.r != null ? t.r : range; const d = Math.max(Math.abs(x - g.x), Math.abs(y - g.y)); if (d < m) m = d; if (d <= r) return 1; } return Math.max(0, 50 - m); } // flee：远离目标
+      if (opts.flee) { let m = 0; for (const t of (opts.fleeGoals || tos.map(t => ({ g: t, r: range })))) { const g = t.g || t, r = t.r != null ? t.r : range; const d = Math.max(Math.abs(x - g.x), Math.abs(y - g.y)); if (d < r) m = Math.max(m, r - d); } return m; } // 官方 pf.cc flee 启发：max(range - dist)，全部 dist ≥ range 即到达
       let m = Infinity; for (const t of tos) { const d = Math.max(Math.abs(x - t.x), Math.abs(y - t.y)) - range; if (d < m) m = d; } return Math.max(0, m); };
     const heap = [], push = (k, f) => { heap.push([f, k]); let i = heap.length - 1; while (i) { const p = (i - 1) >> 1; if (heap[p][0] <= heap[i][0]) break; [heap[p], heap[i]] = [heap[i], heap[p]]; i = p; } };
     const pop = () => { const top = heap[0], last = heap.pop(); if (heap.length) { heap[0] = last; let i = 0; for (;;) { const l = 2 * i + 1, r = l + 1; let m = i; if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r; if (m === i) break; [heap[m], heap[i]] = [heap[i], heap[m]]; i = m; } } return top; };
@@ -240,8 +240,8 @@ class Engine {
     let end = -1, ops = 0, maxOps = opts.maxOps || 4000, bestK = start, bestH = H(start); const cms = new Map();
     while (heap.length && ops++ < maxOps) {
       const [, k] = pop(), x = k % WW, y = (k / WW) | 0, hk = H(k);
-      if (opts.flee) { let safe = true; for (const t of (opts.fleeGoals || tos.map(t => ({ g: t, r: range })))) { const g = t.g || t, r = t.r != null ? t.r : range; if (Math.max(Math.abs(x - g.x), Math.abs(y - g.y)) <= r) { safe = false; break; } } if (safe) { end = k; break; } }
-      else if (hk === 0) { end = k; break; }
+      if (hk === 0) { end = k; break; }
+      if (gs[k] + hk > maxCost) break; // 官方：g + h > maxCost 终止
       if (hk < bestH) { bestH = hk; bestK = k; }
       for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
         if (!dx && !dy) continue; const nx = x + dx, ny = y + dy; if (nx < 0 || ny < 0 || nx >= WW || ny >= WW) continue; const nk = ny * WW + nx;
@@ -272,14 +272,24 @@ class Engine {
     for (const pid in w.players) {
       const f = this.fns[pid]; if (!f) continue; const api = this.buildApi(pid), t0 = Date.now();
       const P = w.players[pid]; if (P.bucket == null) P.bucket = SC.PIXEL_CPU_COST;
-      try { f(api); } catch (e) { this.log(pid, '代码错误:', e && e.stack ? String(e.stack).split('\n').slice(0, 2).join(' ') : e); }
+      let halted = false;
+      try { f(api); } catch (e) { if (e && e.__halt) halted = true; else this.log(pid, '代码错误:', e && e.stack ? String(e.stack).split('\n').slice(0, 2).join(' ') : e); }
+      if (halted) { // 官方 Game.cpu.halt：运行时被销毁，本 tick 登记的 intents / Memory / 段都不提交，下 tick 重新加载代码
+        for (const c of w.creeps) if (c.owner === pid) { c._intents = {}; delete c._move; c._path = null; delete c._pulling; }
+        for (const r of w.powerCreeps || []) if (r.owner === pid) r._pi = null;
+        if (w.market && w.market.intents) w.market.intents = w.market.intents.filter(it => it._pid !== pid);
+        if (this._memOk && this._memOk[pid] != null) w.memory[pid] = JSON.parse(this._memOk[pid]);
+        try { this.fns[pid] = P.code ? compileUser(P.code) : null; } catch (e) {}
+        this.cpuUsed = Date.now() - t0; P.bucket = Math.max(0, Math.min(SC.PIXEL_CPU_COST, P.bucket + this.cpuLimit(pid) - this.cpuUsed)); continue; }
       for (const c of w.creeps) if (c.owner === pid && c._flushIntents) c._flushIntents(); // 官方：代码跑完后按优先级结算 intent
       this.cpuUsed = Date.now() - t0;
       if (api.RawMemory) { const segs = api.RawMemory.segments, ks = Object.keys(segs || {}); if (ks.length > 10) this.log(pid, 'RawMemory.segments: 同时最多 10 个'); else { const st = (w.segments = w.segments || {})[pid] = w.segments[pid] || {}; for (const id of ks) { const v = segs[id]; if (typeof v !== 'string' || !(+id >= 0 && +id <= 99)) continue; if (v.length > 100 * 1024) this.log(pid, 'RawMemory 段', id, '超过 100KB，未保存'); else st[id] = v; } } }
       // 官方 CPU：bucket += limit - used（上限 10000）
-      P.bucket = Math.max(0, Math.min(SC.PIXEL_CPU_COST, P.bucket + 20 - this.cpuUsed));
+      P.bucket = Math.max(0, Math.min(SC.PIXEL_CPU_COST, P.bucket + this.cpuLimit(pid) - this.cpuUsed));
       // 官方 Memory：tick 结束时 JSON 序列化；不可序列化的内容（函数/循环引用）不会保存
-      try { const str = JSON.stringify(w.memory[pid]); if (str.length > 2 * 1024 * 1024) this.log(pid, 'Memory 超过 2MB 限制，未保存'); else { w.memory[pid] = JSON.parse(str); (this._memOk = this._memOk || {})[pid] = str; } } catch (e) { this.log(pid, 'Memory 序列化失败:', String(e && e.message || e)); const ok = this._memOk && this._memOk[pid]; if (ok) w.memory[pid] = JSON.parse(ok); }
+      if (api.RawMemory && api.RawMemory._rawSet != null) { const v = api.RawMemory._rawSet; (w.rawMemory = w.rawMemory || {})[pid] = v; try { w.memory[pid] = JSON.parse(v || '{}'); } catch (e) { w.memory[pid] = {}; } (this._memOk = this._memOk || {})[pid] = JSON.stringify(w.memory[pid]); } else // 官方：RawMemory.set 后不再序列化 Memory
+      { if (w.rawMemory) delete w.rawMemory[pid];
+      try { const str = JSON.stringify(w.memory[pid]); if (str.length > 2 * 1024 * 1024) this.log(pid, 'Memory 超过 2MB 限制，未保存'); else { w.memory[pid] = JSON.parse(str); (this._memOk = this._memOk || {})[pid] = str; } } catch (e) { this.log(pid, 'Memory 序列化失败:', String(e && e.message || e)); const ok = this._memOk && this._memOk[pid]; if (ok) w.memory[pid] = JSON.parse(ok); } }
     }
     this.keeperAI(); // 官方：NPC pretick 与玩家 intent 同一 tick 结算
     this.resolveMoves();
@@ -498,6 +508,7 @@ class Engine {
     target.hits -= amount;
     if (target.kind !== 'creep' && target.hits <= 0) { this.ruinOf(target); this.removeStruct(target); }
   }
+  cpuLimit(pid) { const P = this.w.players[pid]; return P && (P.cpuUnlockedUntil || 0) > Date.now() ? Math.min(300, 20 + 10 * this.gclLevel(pid)) : 20; } // 官方：解锁后 10×GCL+20（≤300）
   gclLevel(pid) { const p = this.w.players[pid].gcl || 0; let lv = 1; while (p >= Math.pow(lv, SC.GCL_POW) * SC.GCL_MULTIPLY) lv++; return lv; }
 
   buildApi(pid) { return buildApi(this, pid); }
@@ -838,10 +849,10 @@ function buildApi(E, pid) {
       v.getActiveBodyparts = t => activeParts(o, t);
       const pre = (part) => { if (!mine) return ERR_NOT_OWNER; if (o.spawning) return ERR_BUSY; if (part && !activeParts(o, part)) return ERR_NO_BODYPART; return 0; };
       const used = () => storeSum(o.store);
-      v.say = (msg, pub) => { if (!mine) return ERR_NOT_OWNER; if (o.spawning) return ERR_BUSY; o.say = String(msg).slice(0, 10); o.sayT = w.time; o.sayPublic = !!pub; return OK; };
-      v.suicide = () => { const e = pre(); if (e) return e; E.killCreep(o, SC.CREEP_CORPSE_RATE); return OK; };
+      v.say = (msg, pub) => { if (!mine) return ERR_NOT_OWNER; if (o.spawning) return ERR_BUSY; if (o._intentOnly) return OK; o.say = String(msg).slice(0, 10); o.sayT = w.time; o.sayPublic = !!pub; return OK; };
+      v.suicide = () => { const e = pre(); if (e) return e; if (o._intentOnly) return OK; E.killCreep(o, SC.CREEP_CORPSE_RATE); return OK; };
       v.notifyWhenAttacked = en => { const e = pre(); if (e) return e; return typeof en === 'boolean' ? OK : ERR_INVALID_ARGS; };
-      v.cancelOrder = n => { if (!mine) return ERR_NOT_OWNER; if (n === 'move' && o._move) { delete o._move; return OK; } if (o._did[n]) { return OK; } return ERR_NOT_FOUND; };
+      v.cancelOrder = n => { if (!mine) return ERR_NOT_OWNER; if (n === 'move' && o._move) { delete o._move; o._path = null; return OK; } if (o._intents && o._intents[n]) { delete o._intents[n]; return OK; } return ERR_NOT_FOUND; }; // 官方 intents.remove
       v.move = d => {
         const e = pre('move'); if (e) return e; if (o.fatigue > 0) return ERR_TIRED;
         if (d && d._raw && d._raw.kind === 'creep') { const r = d._raw; if (dist(r, o) > 1) return ERR_NOT_IN_RANGE; d = dirOf(r.x - o.x, r.y - o.y); }
@@ -995,7 +1006,7 @@ function buildApi(E, pid) {
         return OK; };
       v.heal = t => { const e = pre('heal'); if (e) return e; const x = tgt(t, 1, ['creep']); if (typeof x === 'number') return x; if (o._intentOnly) return OK; { const hv = boostPower(o, 'heal', 'heal') * SC.HEAL_POWER; E.elog(o, SC.EVENT_HEAL, { targetId: x.id, amount: hv, healType: SC.EVENT_HEAL_TYPE_MELEE }); x.hits = Math.min(x.body.length * 100, x.hits + hv); } ev.push({ t: 'heal', fx: o.x, fy: o.y, x: x.x, y: x.y }); return OK; };
       v.rangedHeal = t => { const e = pre('heal'); if (e) return e; const x = tgt(t, 3, ['creep']); if (typeof x === 'number') return x; if (o._intentOnly) return OK; { const hv = boostPower(o, 'heal', 'rangedHeal') * SC.RANGED_HEAL_POWER; E.elog(o, SC.EVENT_HEAL, { targetId: x.id, amount: hv, healType: SC.EVENT_HEAL_TYPE_RANGED }); x.hits = Math.min(x.body.length * 100, x.hits + hv); } ev.push({ t: 'heal', fx: o.x, fy: o.y, x: x.x, y: x.y }); return OK; };
-      v.pull = t => { const e = pre(); if (e) return e; const x = tgt(t, 1, ['creep']); if (typeof x === 'number') return x; if (x === o) return ERR_INVALID_TARGET; o._pulling = x; return OK; };
+      v.pull = t => { const e = pre(); if (e) return e; const x = tgt(t, 1, ['creep']); if (typeof x === 'number') return x; if (x === o) return ERR_INVALID_TARGET; if (o._intentOnly) return OK; o._pulling = x; return OK; };
       // 官方同时动作：调用时只校验并登记 intent，tick 末按优先级结算（engine/src/processor/intents/creeps/intents.js）
       // priorities[name] 列出会挡住 name 的更高优先级动作；同一方法每 tick 只保留最后一次成功登记
       const BLOCKED_BY = {
@@ -1005,7 +1016,8 @@ function buildApi(E, pid) {
         harvest: ['attack', 'build', 'repair', 'dismantle', 'attackController', 'rangedHeal', 'heal'],
         rangedMassAttack: ['build', 'repair', 'rangedHeal'], rangedAttack: ['rangedMassAttack', 'build', 'repair', 'rangedHeal']
       };
-      const INTENT_ORDER = ['drop', 'transfer', 'withdraw', 'pickup', 'heal', 'rangedHeal', 'dismantle', 'attack', 'harvest', 'repair', 'build', 'rangedMassAttack', 'rangedAttack', 'claimController', 'upgradeController', 'reserveController', 'attackController', 'generateSafeMode', 'signController'];
+      // 官方 creepActions 顺序（move 由全局 movement 统一结算）
+      const INTENT_ORDER = ['drop', 'transfer', 'withdraw', 'pickup', 'heal', 'rangedHeal', 'dismantle', 'attack', 'harvest', 'repair', 'build', 'rangedMassAttack', 'rangedAttack', 'say', 'suicide', 'claimController', 'upgradeController', 'reserveController', 'attackController', 'generateSafeMode', 'signController', 'pull'];
       for (const m of INTENT_ORDER) {
         const f = v[m]; if (typeof f !== 'function') continue;
         v[m] = (...a) => {
@@ -1020,7 +1032,7 @@ function buildApi(E, pid) {
         const intents = o._intents; o._intents = {}; o._flushing = true;
         try {
           for (const m of INTENT_ORDER) {
-            if (!intents[m]) continue;
+            if (!intents[m]) continue; if (!w.creeps.includes(o)) break; // suicide 之后不再结算
             const block = BLOCKED_BY[m];
             if (block && block.some(k => intents[k])) continue; // 官方：被更高优先级挡住则跳过
             const f = v[m]; if (typeof f === 'function') f(...intents[m]);
@@ -1110,7 +1122,17 @@ function buildApi(E, pid) {
   };
   Game.map.getTerrainAt = (a, b, n) => { const pos = typeof a === 'number' ? { x: a, y: b, roomName: n } : a; const v = new RoomTerrain(pos.roomName).get(pos.x, pos.y); return v & SC.TERRAIN_MASK_WALL ? 'wall' : v & SC.TERRAIN_MASK_SWAMP ? 'swamp' : 'plain'; };
   const P_ = w.players[pid] || {}, segStore = (w.segments = w.segments || {})[pid] = (w.segments[pid] || {}), segsNow = {}; for (const id of P_.activeSegs || []) segsNow[id] = segStore[id] || '';
-  const RawMemory = { segments: segsNow, foreignSegment: undefined, get: () => JSON.stringify(mem), set: s => { const m = JSON.parse(s); for (const k in mem) delete mem[k]; Object.assign(mem, m); }, setActiveSegments: ids => { if (!Array.isArray(ids) || ids.length > 10 || ids.some(i => !(i >= 0 && i <= 99 && Number.isInteger(i)))) throw new Error('RawMemory.setActiveSegments: 最多 10 个 0~99 的整数'); if (w.players[pid]) w.players[pid].activeSegs = ids.slice(); }, setActiveForeignSegment: () => undefined, setDefaultPublicSegment: () => undefined, setPublicSegments: () => undefined, interShardSegment: '' };
+  // 官方 driver/lib/runtime/runtime.js 的 RawMemory：段 / 公共段 / 外部段；set 仅接受 ≤2MB 字符串
+  const segId = v => { const id = parseInt(v); if (Number.isNaN(id) || id > 99 || id < 0) throw new Error(`"${v}" is not a valid segment ID`); return id; };
+  const foreign = (() => { const F = P_.foreignSeg; if (!F) return undefined; const tp = Object.keys(w.players).find(k => w.players[k].name === F.username); if (!tp) return undefined; const T = w.players[tp], id = F.id != null ? F.id : T.defaultPublicSeg;
+    if (id == null || !(T.publicSegs || []).includes(id)) return undefined; return { username: F.username, id, data: ((w.segments || {})[tp] || {})[id] || '' }; })();
+  const RawMemory = { segments: segsNow, foreignSegment: foreign, interShardSegment: '', _rawSet: null,
+    get: () => (RawMemory._rawSet != null ? RawMemory._rawSet : (w.rawMemory && w.rawMemory[pid] != null ? w.rawMemory[pid] : JSON.stringify(mem))),
+    set: v => { if (typeof v !== 'string') throw new Error('Raw memory value is not a string'); if (v.length > 2 * 1024 * 1024) throw new Error('Raw memory length exceeded 2 MB limit'); RawMemory._rawSet = v; },
+    setActiveSegments: ids => { if (!Array.isArray(ids)) throw new Error(`"${ids}" is not an array`); if (ids.length > 10) throw new Error('Only 10 memory segments can be active at the same time'); const L = ids.map(segId); if (w.players[pid]) w.players[pid].activeSegs = L; },
+    setPublicSegments: ids => { if (!Array.isArray(ids)) throw new Error(`"${ids}" is not an array`); const L = ids.map(segId); if (w.players[pid]) w.players[pid].publicSegs = L; },
+    setDefaultPublicSegment: id => { const v = id === null ? null : segId(id); if (w.players[pid]) w.players[pid].defaultPublicSeg = v; },
+    setActiveForeignSegment: (username, id) => { if (!w.players[pid]) return; if (username === null) { w.players[pid].foreignSeg = null; return; } w.players[pid].foreignSeg = { username, id: id !== undefined ? segId(id) : undefined }; } };
   const Room = function () { throw new Error('Room 不能直接构造'); }; Room.Terrain = RoomTerrain;
   Room.serializePath = path => { // 官方：两位 x + 两位 y + 方向数字串
     if (!Array.isArray(path)) throw new Error('path is not an array');
@@ -1156,8 +1178,8 @@ function buildApi(E, pid) {
 const SC_NAMES = Object.keys(SC).filter(k => /^[A-Z_][A-Z0-9_]*$/.test(k));
 function compileUser(code) {
   const hidden = ['window', 'document', 'localStorage', 'fetch', 'XMLHttpRequest', 'WebSocket', 'Capacitor', 'globalThis', 'self', 'require', 'process', 'setTimeout', 'setInterval', 'SC'];
-  const f = new Function('Game', 'Memory', 'RawMemory', 'RoomPosition', 'Room', 'PathFinder', 'RoomVisual', 'PowerCreep', 'console', '__loopGuard', ...hidden, ...SC_NAMES, '"use strict";\n' + (/__loopGuard\(\)/.test(code) ? code : String(code).replace(/\bwhile\s*\(/g, 'while (__loopGuard(), ').replace(/\b(for\s*\([^()]*\)\s*)\{/g, '$1{ __loopGuard(); ')));
+  const f = new Function('Game', 'Memory', 'RawMemory', 'RoomPosition', 'Room', 'PathFinder', 'RoomVisual', 'PowerCreep', 'InterShardMemory', 'console', '__loopGuard', ...hidden, ...SC_NAMES, '"use strict";\n' + (/__loopGuard\(\)/.test(code) ? code : String(code).replace(/\bwhile\s*\(/g, 'while (__loopGuard(), ').replace(/\b(for\s*\([^()]*\)\s*)\{/g, '$1{ __loopGuard(); ')));
   return (api) => { let n = 0; const t0 = Date.now(), lim = (api.Game && api.Game.cpu && api.Game.cpu.tickLimit) || 500; const guard = () => { if (++n > 100000) throw new Error('循环次数过多（可能死循环）'); if ((n & 255) === 0 && Date.now() - t0 > lim) throw new Error('CPU time limit reached（超过 Game.cpu.tickLimit ' + lim + 'ms，本 tick 代码被中止）'); };
-    f(api.Game, api.Memory, api.RawMemory, api.RoomPosition, api.Room, api.PathFinder, api.RoomVisual, api.PowerCreep, { log: api.log }, guard, ...hidden.map(() => undefined), ...SC_NAMES.map(k => SC[k])); };
+    f(api.Game, api.Memory, api.RawMemory, api.RoomPosition, api.Room, api.PathFinder, api.RoomVisual, api.PowerCreep, api.InterShardMemory, { log: api.log }, guard, ...hidden.map(() => undefined), ...SC_NAMES.map(k => SC[k])); };
 }
 if (typeof module !== 'undefined') module.exports = { Engine, newWorld, compileUser, countStruct, rclOf };

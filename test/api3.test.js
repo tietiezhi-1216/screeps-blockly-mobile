@@ -13,7 +13,7 @@ const rn = roomName(sp.x, sp.y), ox = sp.x - sp.x % 50, oy = sp.y - sp.y % 50;
 
 // PathFinder flee：离开目标 range
 const flee = JSON.parse(run(e, `const r=PathFinder.search(new RoomPosition(25,25,'${rn}'),{pos:new RoomPosition(25,25,'${rn}'),range:3},{flee:true,maxOps:500});console.log(JSON.stringify({len:r.path.length,inc:r.incomplete,last:r.path[r.path.length-1]}))`));
-assert(flee.len > 0 && flee.last && Math.max(Math.abs(flee.last.x - 25), Math.abs(flee.last.y - 25)) > 3, 'PathFinder flee 终点在 range 外: ' + JSON.stringify(flee));
+assert(flee.len > 0 && flee.last && Math.max(Math.abs(flee.last.x - 25), Math.abs(flee.last.y - 25)) === 3 && !flee.inc, 'PathFinder flee 终点恰在 range（官方 pf.cc：dist ≥ range 即到达）: ' + JSON.stringify(flee));
 const mr = JSON.parse(run(e, `const r=PathFinder.search(new RoomPosition(10,10,'${rn}'),{pos:new RoomPosition(40,40,'${rn}'),range:0},{maxRooms:1,maxOps:200,heuristicWeight:1.5});console.log(JSON.stringify({ops:r.ops,hw:1.5}))`));
 assert(typeof mr.ops === 'number', 'PathFinder maxRooms/heuristicWeight 可运行 ops=' + mr.ops);
 

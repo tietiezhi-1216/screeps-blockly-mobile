@@ -70,8 +70,8 @@
   function ensureNpcOrders(w) {
     w.market = w.market || { orders: [], history: [], deals: {} };
     const rooms = []; for (let ry = 0; ry < w.S; ry += 10) for (let rx = 0; rx < w.S; rx += 10) rooms.push(roomNameXY(rx, ry));
-    const base = { energy: 1, H: 2, O: 2, U: 3, L: 3, K: 3, Z: 3, X: 5, power: 10, ops: 5 };
-    for (const rn of rooms) for (const res in base) for (const type of ['buy', 'sell']) {
+    const base = { energy: 1, H: 2, O: 2, U: 3, L: 3, K: 3, Z: 3, X: 5, power: 10, ops: 5, pixel: 500, cpuUnlock: 20000, accessKey: 30000 };
+    for (const res in base) for (const rn of (SC.INTERSHARD_RESOURCES.includes(res) ? [undefined] : rooms)) for (const type of ['buy', 'sell']) {
       let o = w.market.orders.find(o => o.npc && o.roomName === rn && o.resourceType === res && o.type === type);
       if (!o) { o = { id: 'mo' + (w.nextId++), npc: true, owner: null, created: w.time, createdTimestamp: Date.now(), active: true, type, resourceType: res, roomName: rn, price: 0, amount: 0, remainingAmount: 0, totalAmount: 0 }; w.market.orders.push(o); }
       o.price = +(base[res] * (type === 'buy' ? 0.9 : 1.1)).toFixed(3); o.amount = o.remainingAmount = o.totalAmount = 100000;
@@ -97,7 +97,7 @@
       if (typeof params !== 'object' || params === null) params = { type: params, resourceType: rest[0], price: rest[1], totalAmount: rest[2], roomName: rest[3] };
       const { type, resourceType, price, totalAmount, roomName: rn } = params;
       if ((type !== 'buy' && type !== 'sell') || !RESOURCES.has(resourceType) || !(price > 0) || !(totalAmount > 0)) return ERR_INVALID_ARGS;
-      if (resourceType !== 'token' && !terminalIn(w, pid, rn)) return ERR_NOT_OWNER;
+      if (!SC.INTERSHARD_RESOURCES.includes(resourceType) && !terminalIn(w, pid, rn)) return ERR_NOT_OWNER; // 跨 shard 资源无需房间/终端
       if (w.market.orders.filter(o => o.owner === pid).length >= SC.MARKET_MAX_ORDERS) return ERR_FULL;
       const f = fee(price * totalAmount); if (pl.credits < f) return ERR_NOT_ENOUGH_RESOURCES;
       if (dry) return OK; pl.credits -= f; w.market.orders.push({ id: 'mo' + (w.nextId++), owner: pid, created: w.time, createdTimestamp: Date.now(), active: true, type, resourceType, roomName: rn, price, amount: totalAmount, remainingAmount: totalAmount, totalAmount });
@@ -117,6 +117,13 @@
       const dl = w.market.deals[pid] || 0; if (dry && dl >= 10) return ERR_FULL;
       const o = w.market.orders.find(o => o.id === id); if (!o || o.owner === pid || !o.active) return ERR_INVALID_ARGS;
       amount = Math.min(amount, o.remainingAmount); if (!amount) return ERR_INVALID_ARGS;
+      if (SC.INTERSHARD_RESOURCES.includes(o.resourceType)) { // 官方 market.js：跨 shard 资源直接在账户间转移，无终端/能量
+        const other = o.owner ? w.players[o.owner] : null, gr = (p, r) => r === 'pixel' ? (p.pixels || 0) : ((p.res || {})[r] || 0), ar = (p, r, d) => { if (r === 'pixel') p.pixels = (p.pixels || 0) + d; else { p.res = p.res || {}; p.res[r] = (p.res[r] || 0) + d; } };
+        const buyer = o.type === 'sell' ? pl : other, seller = o.type === 'sell' ? other : pl;
+        if (buyer && (buyer.credits || 0) < o.price * amount) return ERR_NOT_ENOUGH_RESOURCES; if (seller && gr(seller, o.resourceType) < amount) return ERR_NOT_ENOUGH_RESOURCES;
+        if (dry) return OK;
+        if (buyer) { buyer.credits -= o.price * amount; ar(buyer, o.resourceType, amount); } if (seller) { seller.credits = (seller.credits || 0) + o.price * amount; ar(seller, o.resourceType, -amount); }
+        o.remainingAmount -= amount; o.amount = o.remainingAmount; if (!o.npc && o.remainingAmount <= 0) w.market.orders.splice(w.market.orders.indexOf(o), 1); addHistory(w, o.resourceType, amount, o.price); return OK; }
       const t = terminalIn(w, pid, yourRoom); if (!t) return ERR_NOT_OWNER; if (t.cooldown > 0) return ERR_TIRED;
       const opT = pwrFx(t, SC.PWR_OPERATE_TERMINAL, w.time), cost = opT != null ? Math.ceil(txCost(amount, yourRoom, o.roomName) * opT) : txCost(amount, yourRoom, o.roomName), other = o.owner ? w.players[o.owner] : null, ot = o.owner ? terminalIn(w, o.owner, o.roomName) : null;
       if (o.owner && !ot) return ERR_INVALID_ARGS;
@@ -142,7 +149,7 @@
       return OK;
     };
     // 官方：调用时校验并登记 intent（market.deal 每 tick 最多 10 笔），tick 末 global processor 再次校验后结算
-    const queue = (fn, isDeal) => (...a) => { const r = fn(true, ...a); if (r !== OK) return r; if (isDeal) w.market.deals[pid] = (w.market.deals[pid] || 0) + 1; (w.market.intents = w.market.intents || []).push(() => fn(false, ...a)); return OK; };
+    const queue = (fn, isDeal) => (...a) => { const r = fn(true, ...a); if (r !== OK) return r; if (isDeal) w.market.deals[pid] = (w.market.deals[pid] || 0) + 1; { const it = () => fn(false, ...a); it._pid = pid; (w.market.intents = w.market.intents || []).push(it); } return OK; };
     M.createOrder = queue(createOrder); M.cancelOrder = queue(cancelOrder); M.changeOrderPrice = queue(changeOrderPrice); M.extendOrder = queue(extendOrder); M.deal = queue(deal, true);
     M._flushNow = () => { for (const it of (w.market.intents || []).splice(0)) it(); };
     return M;
@@ -286,6 +293,28 @@
     const pl = w.players[pid], gl = gplLevel(pl), base = Math.pow(gl, SC.POWER_LEVEL_POW) * SC.POWER_LEVEL_MULTIPLY;
     Game.gpl = { level: gl, progress: (pl.power || 0) - base, progressTotal: Math.pow(gl + 1, SC.POWER_LEVEL_POW) * SC.POWER_LEVEL_MULTIPLY - base };
     Game.market = makeMarket(E, pid, Game.market);
+    // 官方 InterShardMemory：本服只有 shard0；setLocal 只接受 ≤100KB 字符串；getRemote(未知 shard) 抛错
+    w.isMem = w.isMem || {};
+    api.InterShardMemory = { getLocal: () => (w.isMem[pid] != null ? w.isMem[pid] : null),
+      setLocal: v => { if (typeof v !== 'string') throw new Error('InterShardMemory value should be a string'); if (v.length > 100 * 1024) throw new Error('InterShardMemory value exceeds 100 KB limit'); w.isMem[pid] = v; },
+      getRemote: shard => { if (shard !== 'shard0') throw new Error(`Invalid shard name "${shard}"`); return w.isMem[pid] != null ? w.isMem[pid] : null; } };
+    // ---- Game.cpu（官方文档）：unlock / unlocked / unlockedTime / shardLimits / setShardLimits / halt；Game.resources 跨 shard 资源 ----
+    pl.res = pl.res || {}; const R = pl.res;
+    Game.resources = { pixel: pl.pixels || 0, cpuUnlock: R.cpuUnlock || 0, accessKey: R.accessKey || 0, token: R.token || 0 };
+    const now = Date.now(), unlocked = (pl.cpuUnlockedUntil || 0) > now, gclLv = E.gclLevel(pid);
+    const full = Math.min(300, 20 + 10 * gclLv); // 官方：解锁后 CPU = 10×GCL + 20（上限 300）；未解锁免费 20
+    const cpu = Game.cpu; cpu.unlocked = unlocked; cpu.unlockedTime = unlocked ? pl.cpuUnlockedUntil : undefined; cpu.limit = unlocked ? full : 20;
+    pl.shardLimits = pl.shardLimits && pl.shardLimits.shard0 != null ? pl.shardLimits : { shard0: cpu.limit }; if (pl.shardLimits.shard0 !== cpu.limit && !pl.shardLimitsCustom) pl.shardLimits.shard0 = cpu.limit;
+    cpu.shardLimits = Object.assign({}, pl.shardLimits);
+    cpu.unlock = () => { // OK / ERR_NOT_ENOUGH_RESOURCES（没有 cpuUnlock）/ ERR_FULL（订阅中：本游戏无订阅，不会出现）
+      if (!(R.cpuUnlock > 0)) return ERR_NOT_ENOUGH_RESOURCES; R.cpuUnlock--; pl.cpuUnlockedUntil = Math.max(Date.now(), pl.cpuUnlockedUntil || 0) + 24 * 3600 * 1000; return OK; };
+    cpu.setShardLimits = limits => { // 官方：12 小时一次；各 shard 之和必须等于总 CPU；未知 shard → ERR_INVALID_ARGS
+      if ((pl.shardLimitsAt || 0) + 12 * 3600 * 1000 > Date.now()) return ERR_BUSY;
+      if (!limits || typeof limits !== 'object') return ERR_INVALID_ARGS; const ks = Object.keys(limits); if (!ks.every(k => k === 'shard0') || !ks.every(k => Number.isInteger(limits[k]) && limits[k] >= 0)) return ERR_INVALID_ARGS;
+      const sum = ks.reduce((a, k) => a + limits[k], 0); if (sum !== cpu.limit) return ERR_INVALID_ARGS;
+      pl.shardLimits = Object.assign({}, limits); pl.shardLimitsCustom = true; pl.shardLimitsAt = Date.now(); return OK; };
+    cpu.halt = () => { const err = new Error('Game.cpu.halt'); err.__halt = true; throw err; }; // 官方：立刻终止运行时，本 tick intents 与 Memory 均不提交
+    cpu.getHeapStatistics = () => ({ total_heap_size: 0, total_heap_size_executable: 0, total_physical_size: 0, total_available_size: 0, used_heap_size: 0, heap_size_limit: 0, malloced_memory: 0, peak_malloced_memory: 0, does_zap_garbage: 0, externally_allocated_size: 0 });
     Game.map.visual = new RoomVisual('*');
     // Deposit 包装
     const depCache = new Map(), RP = api.RoomPosition;

@@ -601,6 +601,8 @@ setInterval(() => { if (!$('panel').classList.contains('hidden') && panelTab ===
   L('update', 100, () => !!(Upd.el && !Upd.el.classList.contains('hidden')), () => Upd.el.querySelector('.uuLater').click());
   L('dialog', 95, () => !!document.querySelector('.shDlg'), () => Shell.closeDlg());
   L('bodyForm', 95, () => !!$('bodyForm'), () => $('bodyForm').remove());
+  L('roleEdit', 97, () => !!$('roleEdit'), () => $('roleEdit').querySelector('[data-a="cancel"]').click());
+  L('roleMgr', 96, () => !!$('roleMgr') && !$('roleEdit'), () => $('roleMgr').remove());
   L('dropdown', 90, () => (Blockly.DropDownDiv && Blockly.DropDownDiv.isVisible()) || (Blockly.WidgetDiv && Blockly.WidgetDiv.isVisible()),
     () => { Blockly.DropDownDiv && Blockly.DropDownDiv.hideWithoutAnimation(); Blockly.WidgetDiv && Blockly.WidgetDiv.hide(); });
   L('preview', 85, () => inEd() && vis('prevP'), () => $('prevP').classList.add('hidden'));

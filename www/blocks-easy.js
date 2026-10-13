@@ -338,7 +338,7 @@ const EASY_CATS = [
   { id: 'e_cond', name: '判断', colour: C.cond, items: [IFC('e_store'), IFC('e_exists', true), X('e_store'), X('e_exists'), X('e_hp'), X('e_isrole'),
       X('logic_compare', { inputs: { A: { block: { type: 'e_count' } }, B: { shadow: { type: 'math_number', fields: { NUM: 3 } } } }, fields: { OP: 'LT' } }), X('logic_operation'), X('logic_negate'),
       X('e_count'), X('e_energy'), X('e_level'), X('e_ttl'), X('math_number')] },
-  { id: 'e_spawn', name: '孵化', colour: C.spawn, items: [{ kind: 'button', text: '新建身份', callbackKey: 'sbmNewRole' }, { kind: 'button', text: '管理身份', callbackKey: 'sbmRoles' }, X('e_keep'), X('e_spawn'), X('e_clean')] },
+  { id: 'e_spawn', name: '孵化', colour: C.spawn, items: [{ kind: 'button', text: '＋ 新建身份', callbackKey: 'sbmNewRole' }, { kind: 'button', text: '管理身份', callbackKey: 'sbmRoles' }, X('e_keep'), X('e_spawn'), X('e_clean')] },
   { id: 'e_build', name: '建筑', colour: C.build, items: [X('e_place'), X('e_tower'), X('e_safe')] },
   { id: 'e_misc', name: '其他', colour: C.misc, items: [X('e_log', { inputs: { T: { shadow: { type: 'text', fields: { TEXT: '你好' } } } } }), X('text'), X('controls_repeat_ext', { inputs: { TIMES: { shadow: { type: 'math_number', fields: { NUM: 3 } } } } })] },
 ];

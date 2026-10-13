@@ -23,8 +23,7 @@
 <div id="buildPick" class="hidden"><div class="bpHead"><span id="bpTitle">建造</span><button id="bpClose" data-icon="x" class="iconbtn"></button></div><div id="bpList"></div></div>
 <div id="buildBar" class="hidden"><span id="bbMsg"></span><button id="bbOk" class="primary">放置</button><button id="bbCancel">退出</button></div>
 <div id="wmap" class="hidden"><div class="wmHead"><b id="wmTitle">世界地图</b><span id="wmInfo"></span><button id="wmClose" data-icon="x" class="iconbtn"></button></div><canvas id="wmCanvas"></canvas>
-<div class="wmLegend"><span><i style="background:#3d4a3a"></i>空闲</span><span><i style="background:#5a2b2b"></i>离他人太近</span><span><i style="background:#6dc1ff"></i>我的</span><span><i style="background:#c46b6b"></i>已占领</span><span><i style="background:#1d1d1d;border:1px solid #333"></i>高速公路</span><span><i style="background:#4a4325"></i>扇区中心</span></div>
-<div class="wmBar"><span id="wmSel">点选一个空闲房间</span><button id="wmGo" class="primary" disabled>进入房间</button></div></div>
+<div class="wmBar hidden"><div id="wmSel"><b id="wmSelName"></b><span id="wmSelSt"></span><span id="wmSelInfo"></span></div><button id="wmGo" class="primary" disabled>进入房间</button></div></div>
 <div id="inspect" class="hidden"><div class="insHead"><span id="insTitle"></span><button id="insClose" data-icon="x" class="iconbtn"></button></div><div id="insBody"></div></div>
 <div id="editor" class="hidden">
   <div id="edTabs"><div id="catBar"></div><div id="flyHead"><button id="flyBack" data-icon="arrow-left"><span class="lb">返回</span></button><span id="flyTitle"></span></div><button id="edClose" data-icon="check" class="primary"><span class="lb">完成</span></button></div>
@@ -73,6 +72,7 @@
 <script src="vendor/pixi.min.js"></script>
 <script src="screeps-const.js"></script>
 <script src="worldgen.js"></script>
+<script src="spawnpick.js"></script>
 <script src="engine.js"></script>
 <script src="engine-ext.js"></script>
 <script src="engine-npc.js"></script>

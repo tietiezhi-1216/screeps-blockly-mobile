@@ -161,7 +161,6 @@ pre.mem{margin:var(--sp-1) 0 0;max-height:120px;overflow:auto;background:#0008;p
   #log{height:auto;top:calc(var(--top) + 40px)}
   #start.shell .home,#start.shell .shBody,#start.shell .shHead{max-width:720px;margin-left:auto;margin-right:auto}
   .panel{max-height:calc(100vh - 24px);overflow:auto}
-  #wmap .wmLegend{position:absolute;left:8px;bottom:64px;flex-direction:column;background:#000a;padding:6px 10px;border-radius:4px}
 }
 #roomBar{right:auto}
 #stage,#world{background:#0a0a0a}

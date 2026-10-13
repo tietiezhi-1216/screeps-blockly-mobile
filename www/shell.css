@@ -97,10 +97,8 @@
 #wmap.hidden{display:none}
 #wmap .wmHead{display:flex;align-items:center;gap:8px;padding:12px 14px;font-size:16px;border-bottom:1px solid #2a2a2a}#wmap .wmHead b{flex:1;white-space:nowrap}
 #wmap .wmHead span{font-size:12px;color:#888}
-#wmCanvas{flex:1;width:100%;touch-action:none}
-#wmap .wmLegend{display:flex;flex-wrap:wrap;gap:6px 12px;padding:8px 14px;font-size:12px;color:#999}
-#wmap .wmLegend i{display:inline-block;width:10px;height:10px;margin-right:4px;vertical-align:-1px;border-radius:2px}
-#wmap .wmBar{display:flex;align-items:center;gap:8px;padding:10px 14px 16px;border-top:1px solid #2a2a2a}#wmSel{flex:1;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#wmCanvas{flex:1 1 0;min-height:0;height:0;width:100%;touch-action:none}
+#wmap .wmBar{display:flex;align-items:center;gap:8px;padding:10px calc(14px + var(--sar,0px)) calc(12px + env(safe-area-inset-bottom,0px)) calc(14px + var(--sal,0px));border-top:1px solid #2a2a2a}#wmSel{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;font-size:12px;color:#999}#wmSel b{font-size:15px;color:#eee}#wmSelSt.ok{color:#7ec27e}#wmSelSt.no{color:#e5484d}#wmap .wmBar.hidden{display:none}
 @media (orientation:landscape){
   .home{display:grid;grid-template-columns:1fr 1fr;column-gap:28px;row-gap:14px;padding:calc(var(--top) + 20px) 28px 16px;align-content:start;max-width:900px;margin:0 auto}
   .home .menu{grid-column:2;grid-row:1/span 4}.home .foot{grid-column:1/3}
@@ -131,8 +129,7 @@ body.barMin{--lbar:0px}
   #buildBar{bottom:8px!important}
   #buildPick{right:calc(8px + var(--sar))!important}
   #wmap .wmHead{padding-left:calc(8px + var(--sal))!important;padding-right:calc(8px + var(--sar))!important}
-  #wmap .wmLegend{left:calc(8px + var(--sal))!important}
-  #editor{padding-left:var(--sal);padding-right:var(--sar);background:#1b1e25}
+    #editor{padding-left:var(--sal);padding-right:var(--sar);background:#1b1e25}
   #start.shell .shBody,#start.shell .shHead,#start.shell .home{padding-left:max(20px,var(--sal));padding-right:max(20px,var(--sar))}
 }
 @media (orientation:portrait){#barTog{display:none}}
@@ -151,8 +148,7 @@ body.barMin{--lbar:0px}
   #speedPop{left:auto!important;right:calc(var(--lbar) + var(--sar) + 8px)!important}
   #log{left:var(--sal)!important;right:calc(var(--lbar) + var(--sar))!important}
   #buildBar{left:calc(50% - (var(--lbar) + var(--sar)) / 2)!important}
-  #wmap .wmLegend{left:calc(8px + var(--sal))!important}
-}
+  }
 .glob{display:grid;grid-template-columns:1fr;gap:0;font-size:13px}.glob .gi{display:flex;justify-content:space-between;padding:7px 2px;border-bottom:1px solid #2a2a2a;white-space:nowrap}.glob .gi span{color:#999}.glob .gi b{color:#eee;font-weight:600}
 /* v1.8.0 统一扁平列表：设置 / 个人中心 / 存档等所有列表行只用分隔线，无卡片框；首页纯色深色背景 */
 #start,#start.shell{background:var(--sw-bg)!important;background-image:none!important}
@@ -175,3 +171,4 @@ body.barMin{--lbar:0px}
 #editor #catBar{border-bottom:0}
 #edTools{left:calc(8px + var(--sal));right:auto;top:calc(8px + var(--sat));bottom:auto;flex-wrap:wrap;max-height:calc(100% - 16px - var(--sat))}
 @media (orientation:landscape){#editor{padding-left:0;padding-right:0}#editor #blocklyDiv{margin-left:var(--sal);margin-right:var(--sar)}#editor #edTabs{padding-left:calc(6px + var(--sal))}#edTools{left:8px}}
+#wmGo:disabled{background:#2a2a2a!important;color:#666!important}

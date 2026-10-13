@@ -14,7 +14,7 @@ class Renderer {
     host.appendChild(this.app.view); this.app.view.id = 'world';
     this.world = new PIXI.Container(); this.app.stage.addChild(this.world);
     const L = () => { const c = new PIXI.Container(); this.world.addChild(c); return c; };
-    this.bgG = new PIXI.Graphics(); this.world.addChild(this.bgG); this.terrainL = L(); this.miniG = new PIXI.Graphics(); this.roadG = new PIXI.Graphics(); this.world.addChild(this.roadG); this.groundL = L(); this.objL = L(); this.beamG = new PIXI.Graphics(); this.world.addChild(this.beamG); this.creepL = L(); this.topL = L(); this.labelL = L(); this.selG = new PIXI.Graphics(); this.world.addChild(this.selG); this.world.addChildAt(this.miniG, 2); this.lod = 'full'; this._bgS = 0;
+    this.bgG = new PIXI.Graphics(); this.world.addChild(this.bgG); this.terrainL = L(); this.miniG = new PIXI.Graphics(); this.roadG = new PIXI.Graphics(); this.world.addChild(this.roadG); this.groundL = L(); this.objL = L(); this.beamG = new PIXI.Graphics(); this.world.addChild(this.beamG); this.creepL = L(); this.topL = L(); this.labelL = L(); this.visG = new PIXI.Graphics(); this.world.addChild(this.visG); this.visT = L(); this.selG = new PIXI.Graphics(); this.world.addChild(this.selG); this.world.addChildAt(this.miniG, 2); this.lod = 'full'; this._bgS = 0;
     this.scale = 1.6; this.cx = 25 * TS; this.cy = 25 * TS; this.view = null; this.roomsVer = -1; this.sprites = new Map(); this.tickAt = performance.now(); this.dt = 500;
     this.texCache = new Map(); this.rooms = []; this.onTap = null; this.selected = null; this.myPid = null; this._roadSig = '';
     this.fps = 60; this._fpsN = 0; this._fpsT = performance.now();
@@ -215,6 +215,24 @@ class Renderer {
     }
     for (const mn of v.minerals || []) { const s = ent(mn.id, () => { const c = new PIXI.Container(); c.addChild(this.sprite(this.tex('min' + mn.type, 1.2, 1.2, g => { const cc = hex(MINERAL_COL[mn.type] ?? 0xcccccc); Renderer.circle(g, .5, '#000', cc, .08); g.fillStyle = cc; g.font = 'bold .55px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(mn.type, 0, .03); }), 1.2, 1.2)); c.x = (mn.x + .5) * TS; c.y = (mn.y + .5) * TS; this.objL.addChild(c); return c; }); s.alpha = mn.amount > 0 ? 1 : .4; }
     for (const r of v.resources || []) { const g = ent(r.id, () => { const c = new PIXI.Container(); c.e = this.sprite(this.disc(), 1, 1); c.e.tint = r.resourceType === 'energy' ? ENERGY : (MINERAL_COL[r.resourceType] ?? 0xffffff); c.addChild(c.e); c.x = (r.x + .5) * TS; c.y = (r.y + .5) * TS; this.groundL.addChild(c); return c; }); fillDisc(g, Math.min(1, .15 + r.amount / 1000), .3); }
+    for (const d of v.deposits || []) { // 官方 Deposit：高速公路房间的多边形资源点
+      const DC = { silicon: 0x4ea6d6, metal: 0x956f5c, biomass: 0x84b012, mist: 0xc490d6 };
+      const s = ent(d.id, () => { const g = new PIXI.Graphics(); g.lineStyle(TS * .06, 0x222222, 1).beginFill(DC[d.depositType] ?? 0xcccccc); const pts = []; for (let i = 0; i < 6; i++) { const a = Math.PI / 3 * i; pts.push(Math.cos(a) * TS * .45, Math.sin(a) * TS * .45); } g.drawPolygon(pts).endFill(); g.x = (d.x + .5) * TS; g.y = (d.y + .5) * TS; this.objL.addChild(g); return g; });
+      s.alpha = d.cooldown > 0 ? .6 : 1;
+    }
+    { // RoomVisual：只画自己的视觉（官方：其他玩家看不到）
+      const g = this.visG; g.clear(); this.visT.removeChildren().forEach(t => t.destroy());
+      const hx = c => typeof c === 'string' ? parseInt(c.replace('#', '').padEnd(6, '0').slice(0, 6), 16) : (c ?? 0xffffff);
+      const mv = (v.visuals || {})[me] || {};
+      for (const rn in mv) { const p = parseRoomName(rn); if (!p) continue; const ox = p[0] * ROOM, oy = p[1] * ROOM, X = x => (ox + x + .5) * TS, Y = y => (oy + y + .5) * TS;
+        for (const o of mv[rn]) { const st = o.s || {}, op = st.opacity ?? .5;
+          if (o.t === 'l') g.lineStyle((st.width ?? .1) * TS, hx(st.color || '#ffffff'), op).moveTo(X(o.x1), Y(o.y1)).lineTo(X(o.x2), Y(o.y2));
+          else if (o.t === 'c') { g.lineStyle(st.stroke ? (st.strokeWidth ?? .1) * TS : 0, hx(st.stroke), op); g.beginFill(hx(st.fill || '#ffffff'), op).drawCircle(X(o.x), Y(o.y), (st.radius ?? .15) * TS).endFill(); }
+          else if (o.t === 'r') { g.lineStyle(st.stroke ? (st.strokeWidth ?? .1) * TS : 0, hx(st.stroke), op); g.beginFill(hx(st.fill || '#ffffff'), op).drawRect(X(o.x) - TS / 2, Y(o.y) - TS / 2, o.w * TS, o.h * TS).endFill(); }
+          else if (o.t === 'p' && o.points.length > 1) { g.lineStyle((st.strokeWidth ?? .1) * TS, hx(st.stroke || '#ffffff'), op); if (st.fill) g.beginFill(hx(st.fill), op); g.moveTo(X(o.points[0][0]), Y(o.points[0][1])); for (const q of o.points.slice(1)) g.lineTo(X(q[0]), Y(q[1])); if (st.fill) g.endFill(); }
+          else if (o.t === 't') { const t = new PIXI.Text(o.text, { fontSize: Math.max(8, (parseFloat(st.font) || .7) * TS), fill: hx(st.color || '#ffffff') }); t.anchor.set(st.align === 'left' ? 0 : st.align === 'right' ? 1 : .5, .8); t.alpha = st.opacity ?? 1; t.x = X(o.x); t.y = Y(o.y); this.visT.addChild(t); }
+        } }
+    }
     for (const n of v.nukes || []) { // 官方核弹：紫色菱形 + 落地倒计时
       const s = ent(n.id, () => { const c = new PIXI.Container(); c.addChild(this.sprite(this.tex('nuke', .9, .9, g => {
         g.fillStyle = '#a020f0'; g.beginPath(); g.moveTo(0, -.35); g.lineTo(.28, 0); g.lineTo(0, .35); g.lineTo(-.28, 0); g.closePath(); g.fill();
@@ -236,7 +254,8 @@ class Renderer {
     for (const cr of v.creeps) {
       const m = cr.owner === me, c = ent(cr.id, () => { const c = new PIXI.Container(); c.bd = this.sprite(this.creepTex(cr.body, m, col(cr.owner)), 1, 1); c.addChild(c.bd);
         c.e = this.sprite(this.disc(), 1, 1); c.e.tint = ENERGY; c.addChild(c.e); this.creepL.addChild(c); return c; });
-      c.data = cr; this.bindBadge(c, v.players[cr.owner]?.badge, .44); const cap = cr.body.filter(b => b === 'carry').length * 50, ef = Math.max(0, Math.min(1, cap ? (cr.energy || 0) / cap : 0));
+      c.data = cr; if (cr.pc && !c.pcR) { c.pcR = new PIXI.Graphics(); c.pcR.lineStyle(TS * .07, 0xff5555, .95).drawCircle(0, 0, TS * .52); c.pcR.lineStyle(TS * .03, 0xffffff, .8).drawCircle(0, 0, TS * .6); c.addChild(c.pcR); } // Power Creep：外圈红白环
+      this.bindBadge(c, v.players[cr.owner]?.badge, .44); const cap = cr.body.filter(b => b === 'carry').length * 50, ef = Math.max(0, Math.min(1, cap ? (cr.energy || 0) / cap : 0));
       if (c._f !== ef) { c._f = ef; c.e.visible = ef > 0; c.e.width = c.e.height = TS * 2 * (.22 + .055 * ef); } // 能量：徽章外一圈，越满越宽
       if (cr.px != null && (cr.px !== cr.x || cr.py !== cr.y)) c.tgt = Math.atan2(cr.y - cr.py, cr.x - cr.px) + Math.PI / 2; // 面向移动方向（前方 = 贴图上方）
       if ((cr.say || '') !== (c._say || '')) { c._say = cr.say; if (c.say) { c.say.destroy(); c.say = null; } if (cr.say) { c.say = new PIXI.Text(cr.say, { fontSize: 11, fill: 0x111111 }); const bg = new PIXI.Graphics(); bg.beginFill(0xffffff, .9).drawRoundedRect(-c.say.width / 2 - 3, -c.say.height - 3, c.say.width + 6, c.say.height + 2, 3).endFill(); c.say.anchor.set(.5, 1); c.say.y = -2; const w = new PIXI.Container(); w.addChild(bg, c.say); w.y = -TS * .5; c.addChild(w); c.say = w; } }

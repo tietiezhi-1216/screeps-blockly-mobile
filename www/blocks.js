@@ -184,6 +184,20 @@ g('map', 'Game.market', 'Game.market.calcTransactionCost', ['数量', '房间1',
 g('map', 'Game.market', 'Game.market.getAllOrders', ['过滤'], '所有订单', true); g('map', 'Game.market', 'Game.market.getOrderById', ['id'], '取订单', true);
 g('map', 'Game.market', 'Game.market.deal', ['订单id', '数量', '房间名'], '成交', true, true);
 g('map', 'Game.market', 'Game.market.createOrder', ['参数'], '创建订单', true, true); g('map', 'Game.market', 'Game.market.cancelOrder', ['订单id'], '取消订单', true, true);
+// ===== v1.7.0：事件日志 / RoomVisual / Power Creep / Deposit / 市场补全 =====
+m('room', '事件', RM, 'getEventLog', [], '事件日志'); m('room', '事件', RM, 'getEventLog', ['raw'], '事件日志(原始JSON)');
+['circle:画圆:x,y,样式', 'line:画线:点1,点2,样式', 'rect:画矩形:x,y,宽,高,样式', 'poly:画折线:点数组,样式', 'text:写文字:文字,x,y,样式', 'clear:清除视觉:', 'getSize:视觉大小:']
+  .forEach(q => { const [n, z, a] = q.split(':'); g('room', '视觉', `room.visual.${n}`, a ? a.split(',') : [], z, true, true); });
+g('room', '视觉', 'new RoomVisual', ['房间名'], '新建 RoomVisual', true);
+g('creep', 'Power Creep', 'Game.powerCreeps', null, '所有 Power Creep'); g('creep', 'Power Creep', 'PowerCreep.create', ['名字', '类型'], '创建 Power Creep', true, true);
+['spawn:召唤:能量源', 'renew:续命:目标', 'usePower:使用能力:能力,目标', 'upgrade:升级能力:能力', 'enableRoom:启用房间:控制器', 'delete:删除:', 'rename:改名:新名字']
+  .forEach(q => { const [n, z, a] = q.split(':'); m('creep', 'Power Creep', CR, n, a ? a.split(',') : [], z, true); });
+g('game', '信息', 'Game.gpl.progress', null, 'GPL 进度'); g('game', '信息', 'Game.gpl.progressTotal', null, 'GPL 升级所需');
+p('creep', 'Power Creep', CR, 'level', '等级'); p('creep', 'Power Creep', CR, 'className', '职业'); p('creep', 'Power Creep', CR, 'powers', '能力表'); p('creep', 'Power Creep', CR, 'spawnCooldownTime', '召唤冷却');
+p('room', 'Deposit', 'deposit', 'depositType', '沉积物类型'); p('room', 'Deposit', 'deposit', 'cooldown', '冷却'); p('room', 'Deposit', 'deposit', 'lastCooldown', '上次冷却'); p('room', 'Deposit', 'deposit', 'ticksToDecay', '剩余寿命');
+g('map', 'Game.market', 'Game.market.changeOrderPrice', ['订单id', '新价格'], '改订单价格', true, true);
+g('map', 'Game.market', 'Game.market.extendOrder', ['订单id', '追加数量'], '追加订单数量', true, true);
+g('map', 'Game.market', 'Game.market.getHistory', ['资源'], '价格历史', true);
 g('map', 'Game.cpu', 'Game.cpu.limit', null, 'CPU 上限'); g('map', 'Game.cpu', 'Game.cpu.tickLimit', null, '本 tick 上限'); g('map', 'Game.cpu', 'Game.cpu.bucket', null, 'CPU 桶');
 g('map', 'Game.cpu', 'Game.cpu.getUsed', [], '已用 CPU', true); g('map', 'Game.cpu', 'Game.cpu.generatePixel', [], '生成 pixel', true, true);
 g('map', 'PathFinder', 'PathFinder.search', ['起点', '目标'], '寻路搜索', true);

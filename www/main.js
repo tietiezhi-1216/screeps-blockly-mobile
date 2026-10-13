@@ -126,7 +126,7 @@ function applyCode() { if (mode === 'client') client && client.sendCode(code); e
 
 let _snap = null; // 单机/房主也用快照（字段与客户端一致：spawn.energy/cap 等）
 function view() { if (mode === 'client') return client?.view; if (!engine) return null; if (!_snap || _snap.time !== engine.w.time || _snap.S !== engine.w.S) _snap = engine.snapshot(); return _snap; }
-const chip = (ic, html) => `<span class="chip"><span class="ic">${icon(ic)}</span>${html}</span>`;
+const chip = (ic, html) => `<span class="chip${ic === 'bolt' ? ' en' : ''}"><span class="ic">${icon(ic)}</span>${html}</span>`;
 function stats() {
   const v = view(); let H;
   if (!v) H = chip('plug-connected', mode === 'client' ? '等待房主…' : '');
@@ -262,7 +262,6 @@ renderer.onTap = (x, y) => {
 $('insClose').onclick = () => { sel = null; renderer.select(null); $('inspect').classList.add('hidden'); };
 renderer.onTick = () => renderInspect();
 // 状态栏：不覆盖网页
-(function statusBar() { const C = window.Capacitor; if (!C?.isNativePlatform?.() || !C.registerPlugin) return; const S = C.registerPlugin('StatusBar'); S.setOverlaysWebView({ overlay: false }).catch(() => {}); S.setBackgroundColor({ color: '#0a0a0a' }).catch(() => {}); S.setStyle({ style: 'DARK' }).catch(() => {}); })();
 (function boot() { const host = $('editor'); host.classList.remove('hidden'); host.style.visibility = 'hidden'; initBlockly(); host.classList.add('hidden'); host.style.visibility = ''; loadEngine(); setRunUI(); })();
 document.addEventListener('visibilitychange', () => { if (document.hidden) save(); });
 requestAnimationFrame(loop);
@@ -328,7 +327,7 @@ function drawWorldMap() {
     if (st === 'close') { g.strokeStyle = 'rgba(255,255,255,.08)'; g.beginPath(); for (let i = -cs; i < cs; i += 5) { g.moveTo(x + i, y + cs); g.lineTo(x + i + cs, y); } g.save(); g.rect(x + 1, y + 1, cs - 2, cs - 2); g.clip(); g.stroke(); g.restore(); }
     if (wm.sel && wm.sel[0] === rx && wm.sel[1] === ry) { g.strokeStyle = '#fff'; g.lineWidth = 2; g.strokeRect(x + 2, y + 2, cs - 4, cs - 4); g.lineWidth = 1; }
     if (cs >= 30) { g.fillStyle = 'rgba(255,255,255,.5)'; g.font = Math.min(14, cs / 4) + 'px sans-serif'; g.fillText(roomNameXY(rx, ry), x + 3, y + 3 + Math.min(14, cs / 4)); if (o && d.players[o] && cs >= 50) { g.fillStyle = '#fff'; g.fillText(d.players[o].name, x + 3, y + cs - 6); } }
-    const [cx, cy] = renderer.curRoom(); if (!wm.pick && cx === rx && cy === ry) { g.strokeStyle = '#ffe56d'; g.setLineDash([4, 3]); g.strokeRect(x + 3, y + 3, cs - 6, cs - 6); g.setLineDash([]); }
+    const [cx, cy] = renderer.curRoom(); if (!wm.pick && cx === rx && cy === ry) { g.strokeStyle = '#5973ff'; g.setLineDash([4, 3]); g.strokeRect(x + 3, y + 3, cs - 6, cs - 6); g.setLineDash([]); }
   }
   const me = Object.keys(d.owned).filter(k => d.owned[k] === myPid).length, free = (() => { let n = 0; for (let ry = 0; ry < d.S; ry++) for (let rx = 0; rx < d.S; rx++) if (roomStatus(d.S, d.owned, rx, ry, myPid) === 'free') n++; return n; })();
   $('wmInfo').textContent = `${d.S}×${d.S} · 空闲 ${free} · 我的 ${me}`;

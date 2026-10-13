@@ -1,7 +1,7 @@
 # 从 assets-art/icon.png 生成安卓启动图标（legacy/round/adaptive 前景）
 from PIL import Image, ImageDraw, ImageChops
 import os
-R='android-res'; BG=(26,26,28)
+R='android-res'; BG=(28,37,51)
 src=Image.open('assets-art/icon.png').convert('RGB').crop((24,24,1000,1000))
 diff=ImageChops.difference(src,Image.new('RGB',src.size,BG)).convert('L').point(lambda v:255 if v>60 else 0)
 fg=src.copy(); fg.putalpha(diff); bbox=diff.point(lambda v:255 if v>128 else 0).getbbox()

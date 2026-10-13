@@ -23,15 +23,42 @@ sed -i "s/versionCode 1$/versionCode $VERSION_CODE/; s/versionName \"1.0\"/versi
 cat > android/app/src/main/java/io/github/tietiezhi/screepsblockly/MainActivity.java <<'JAVA'
 package io.github.tietiezhi.screepsblockly;
 
+import android.os.Build;
 import android.os.Bundle;
+import android.view.WindowManager;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsCompat;
+import androidx.core.view.WindowInsetsControllerCompat;
 import com.getcapacitor.BridgeActivity;
 
+// 沉浸式全屏：隐藏状态栏与导航栏（从边缘滑动临时呼出），内容延伸到刘海/挖孔区域；回到前台/重新获得焦点时重新隐藏
 public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         if (getBridge() != null && getBridge().getWebView() != null) getBridge().getWebView().getSettings().setTextZoom(100);
+        WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            WindowManager.LayoutParams lp = getWindow().getAttributes();
+            lp.layoutInDisplayCutoutMode = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+                ? WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+                : WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+            getWindow().setAttributes(lp);
+        }
+        hideSystemBars();
     }
+
+    private void hideSystemBars() {
+        WindowInsetsControllerCompat c = WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
+        c.setSystemBarsBehavior(WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+        c.hide(WindowInsetsCompat.Type.systemBars());
+    }
+
+    @Override
+    public void onResume() { super.onResume(); hideSystemBars(); }
+
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) { super.onWindowFocusChanged(hasFocus); if (hasFocus) hideSystemBars(); }
 }
 JAVA
 # 局域网 ws:// 明文连接

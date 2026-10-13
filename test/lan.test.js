@@ -21,11 +21,12 @@ function connectivity(e) {
   for (const seed of [1, 7, 42, 1234, 99999]) { const e = new Engine(newWorld(seed)); for (let i = 0; i < 6; i++) e.addPlayer('p' + i, 'P' + i); assert(connectivity(e), `seed ${seed}: ${e.w.S}x${e.w.S} 房间全部连通，能量源/Controller/矿物都在墙上且可从旁边采集`); }
   const e = new Engine(newWorld(42)); e.addPlayer('host', '房主'); e.setCode('host', HARV);
   assert(e.w.S === 11, '起始世界为 11x11 扇区 (S=' + e.w.S + ')'); assert(Object.keys(e.w.rooms).length === 121, '官方：整个世界地形全部生成可见（' + Object.keys(e.w.rooms).length + ' 个房间）');
-  const wss = new WebSocketServer({ port: 18787 }); let nid = 1; const socks = new Map();
+  const wss = new WebSocketServer({ port: 0 }); await new Promise(r => wss.once('listening', r)); const PORT = wss.address().port; // 随机端口，避免并发测试 EADDRINUSE
+  let nid = 1; const socks = new Map();
   const tr = { send: (id, d) => socks.get(id)?.send(d), broadcast: d => socks.forEach(s => s.send(d)) };
   wss.on('connection', ws => { const id = nid++; socks.set(id, ws); tr.onConnect(id); ws.on('message', d => tr.onMessage(id, d.toString())); ws.on('close', () => { socks.delete(id); tr.onClose(id); }); });
   const host = new HostSession(e, tr, 'host');
-  const clients = ['A', 'B'].map(n => { const c = new ClientSession('ws://127.0.0.1:18787', 'cli' + n, '玩家' + n, WebSocket); c.code = HARV; return c; });
+  const clients = ['A', 'B'].map(n => { const c = new ClientSession('ws://127.0.0.1:' + PORT, 'cli' + n, '玩家' + n, WebSocket); c.code = HARV; return c; });
   await new Promise(r => setTimeout(r, 500));
   assert(Object.keys(e.w.players).length === 3, '两个客户端加入，房主上共 3 名玩家');
   assert(e.w.players.cliA.needsSpawn && !e.w.spawns.some(s => s.owner === 'cliA'), '新加入的玩家需要自己在地图上选出生点');

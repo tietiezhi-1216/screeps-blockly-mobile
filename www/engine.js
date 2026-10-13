@@ -1110,7 +1110,7 @@ function buildApi(E, pid) {
   function room(k) {
     if (rooms.has(k)) return rooms.get(k); const rm = w.rooms[k]; if (!rm) return undefined;
     const [rx, ry] = k.split(',').map(Number), ox = rx * ROOM, oy = ry * ROOM, ctrlRaw = ctrlOfRoom(w, k), en = E.roomEnergy(k, pid);
-    const R = { name: rm.name, energyAvailable: en.avail, energyCapacityAvailable: en.cap, visual: noopVisual };
+    const R = Object.create(CLS.Room.prototype); Object.assign(R, { name: rm.name, energyAvailable: en.avail, energyCapacityAvailable: en.cap, visual: noopVisual });
     rooms.set(k, R);
     Object.defineProperty(R, 'controller', { get: () => ctrlRaw ? wrap(ctrlRaw) : undefined });
     Object.defineProperty(R, 'storage', { get: () => wrap(w.structures.find(s => s.type === 'storage' && roomKey(s.x, s.y) === k && s.owner === pid)) || undefined });
@@ -1192,7 +1192,7 @@ function buildApi(E, pid) {
     setPublicSegments: ids => { if (!Array.isArray(ids)) throw new Error(`"${ids}" is not an array`); const L = ids.map(segId); if (w.players[pid]) w.players[pid].publicSegs = L; },
     setDefaultPublicSegment: id => { const v = id === null ? null : segId(id); if (w.players[pid]) w.players[pid].defaultPublicSeg = v; },
     setActiveForeignSegment: (username, id) => { if (!w.players[pid]) return; if (username === null) { w.players[pid].foreignSeg = null; return; } w.players[pid].foreignSeg = { username, id: id !== undefined ? segId(id) : undefined }; } };
-  const Room = function () { throw new Error('Room 不能直接构造'); }; Room.Terrain = RoomTerrain;
+  const Room = CLS.Room; Room.Terrain = RoomTerrain;
   Room.serializePath = path => { // 官方：两位 x + 两位 y + 方向数字串
     if (!Array.isArray(path)) throw new Error('path is not an array');
     if (!path.length) return '';
@@ -1255,6 +1255,7 @@ function makeClasses() {
     const par = CLASS_TREE[n]; if (par) { F.prototype = Object.create(C[par].prototype, { constructor: { value: F, writable: true, configurable: true } }); Object.setPrototypeOf(F, C[par]); }
     C[n] = F;
   }
+  C.Room = function Room() { throw new Error('Room 不能直接构造'); }; // 官方 Room 原型：instanceof Room / Room.prototype 扩展
   C.StructureSpawn.Spawning = function Spawning() { throw new Error('StructureSpawn.Spawning 不能直接构造'); };
   return C;
 }
@@ -1265,7 +1266,7 @@ function toClass(C, v, name, drop) {
   let m = v.__m; if (!m) { m = {}; Object.defineProperty(v, '__m', { value: m, enumerable: false }); }
   for (const k of Object.keys(v)) { const d = Object.getOwnPropertyDescriptor(v, k); if (d && typeof d.value === 'function') { m[k] = d.value; delete v[k]; } }
   if (drop) for (const k of drop) delete m[k];
-  for (const k in m) { let H = K; const home = METHOD_HOME[k]; if (home && K.prototype instanceof C[home]) H = C[home];
+  for (const k in m) { let H = K; const home = METHOD_HOME[k]; if (home && C[home] && K.prototype instanceof C[home]) H = C[home];
     if (!Object.prototype.hasOwnProperty.call(H.prototype, k)) Object.defineProperty(H.prototype, k, { value: function (...a) { const f = this.__m && this.__m[k]; if (!f) throw new TypeError(k + ' is not a function'); return f.apply(this, a); }, writable: true, configurable: true }); }
   Object.setPrototypeOf(v, K.prototype); return v;
 }

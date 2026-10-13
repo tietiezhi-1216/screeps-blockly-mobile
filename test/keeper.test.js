@@ -38,8 +38,19 @@ const mel = L.find(x => x.event === SC.EVENT_ATTACK && x.objectId === k.id && x.
 assert(mel && mel.data.damage === 300 && rng && rng.data.damage === 100, 'Keeper 近战 300 + 远程 100（单目标 massDamage=10 ≤ 13）');
 assert(v.hits === 2100 - 400, '目标受到 400 伤害');
 const spot2 = (() => { for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const x = k.x + dx, y = k.y + dy; if ((dx || dy) && e.tile(x, y) !== T_WALL && !e.solid(x, y) && !w.creeps.some(c => c.x === x && c.y === y)) return [x, y]; } })();
-if (spot2 && w.creeps.includes(v)) { w.creeps.push({ kind: 'creep', id: 'v2', owner: 'p1', name: 'v2', body: Array(20).fill('tough').concat(['move']), hits: 2100, x: spot2[0], y: spot2[1], px: spot2[0], py: spot2[1], store: {}, ttl: 1000, fatigue: 0 }); e._o = null;
+assert(spot2 && w.creeps.includes(v), '有第二个相邻空位用于群伤测试');
+{ w.creeps.push({ kind: 'creep', id: 'v2', owner: 'p1', name: 'v2', body: Array(20).fill('tough').concat(['move']), hits: 2100, x: spot2[0], y: spot2[1], px: spot2[0], py: spot2[1], store: {}, ttl: 1000, fatigue: 0 }); e._o = null;
   v.x = v.px = v.x; e.tick(); const L2 = w.eventLog[roomKey(k.x, k.y)] || [];
   assert(L2.filter(x => x.objectId === k.id && x.data.attackType === SC.EVENT_ATTACK_TYPE_RANGED_MASS).length >= 2, '两个相邻敌人 massDamage=20>13 → rangedMassAttack');
   const m2 = L2.find(x => x.objectId === k.id && x.data.attackType === SC.EVENT_ATTACK_TYPE_MELEE); assert(m2, '近战同时进行'); }
+// 近战目标：1 格内 hits 最少的；远程单体：3 格内（不在 1 格）只远程
+{ const v2 = w.creeps.find(c => c.id === 'v2'); v.hits = 1500; v2.hits = 900; w.eventLog = {}; e.tick(); const L3 = w.eventLog[roomKey(k.x, k.y)] || [];
+  const m3 = L3.find(x => x.objectId === k.id && x.data.attackType === SC.EVENT_ATTACK_TYPE_MELEE); assert(m3 && m3.data.targetId === 'v2', '近战打 hits 最少的目标 v2');
+  w.creeps = w.creeps.filter(c => c.id !== 'v1' && c.id !== 'v2'); e._o = null;
+  let far = null; for (let dy = -3; dy <= 3 && !far; dy++) for (let dx = -3; dx <= 3 && !far; dx++) { const x = k.x + dx, y = k.y + dy; if (Math.max(Math.abs(dx), Math.abs(dy)) === 3 && roomKey(x, y) === roomKey(k.x, k.y) && e.tile(x, y) !== T_WALL && !e.solid(x, y) && !w.creeps.some(c => c.x === x && c.y === y)) far = [x, y]; }
+  assert(far, '3 格处有空位');
+  w.creeps.push({ kind: 'creep', id: 'v3', owner: 'p1', name: 'v3', body: Array(20).fill('tough').concat(['move']), hits: 2100, x: far[0], y: far[1], px: far[0], py: far[1], store: {}, ttl: 1000, fatigue: 0 }); e._o = null;
+  const kx = k.x, ky = k.y; k.fatigue = 99; w.eventLog = {}; e.tick(); const L4 = w.eventLog[roomKey(kx, ky)] || [];
+  const r4 = L4.filter(x => x.objectId === k.id && x.event === SC.EVENT_ATTACK);
+  assert(r4.length === 1 && r4[0].data.attackType === SC.EVENT_ATTACK_TYPE_RANGED && r4[0].data.targetId === 'v3' && r4[0].data.damage === 100, '3 格目标：只 rangedAttack 100（massDamage=1 ≤ 13）'); }
 console.log('ALL PASS');

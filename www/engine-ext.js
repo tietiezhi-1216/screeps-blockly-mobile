@@ -329,7 +329,7 @@
       const R = Game.rooms[rn], k = (() => { const p = parseRoomName(rn); return p[0] + ',' + p[1]; })();
       R.getEventLog = raw => { const L = (w.eventLog && w.eventLog[k]) || []; return raw ? JSON.stringify(L) : JSON.parse(JSON.stringify(L)); };
       R.visual = new RoomVisual(rn);
-      const f0 = R.find; R.find = (type, opts) => {
+      const f0 = R.find.bind(R); R.find = (type, opts) => {
         let L = null;
         if (type === SC.FIND_DEPOSITS) L = w.deposits.filter(d => roomKey(d.x, d.y) === k).map(wrapDep);
         else if (type === SC.FIND_POWER_CREEPS || type === SC.FIND_MY_POWER_CREEPS || type === SC.FIND_HOSTILE_POWER_CREEPS) L = w.creeps.filter(c => c.pc && roomKey(c.x, c.y) === k && (type === SC.FIND_POWER_CREEPS || (type === SC.FIND_MY_POWER_CREEPS) === (c.owner === pid))).map(c => pcApi.decorate(w.powerCreeps.find(p => p.id === c.pc)));
@@ -339,6 +339,7 @@
         return L; };
       const c = R.controller; if (c && c._raw) c.isPowerEnabled = !!c._raw.isPowerEnabled;
     }
+    if (api._toClass) for (const rn in Game.rooms) api._toClass(Game.rooms[rn], 'Room'); // 方法挂到 Room.prototype（可被用户覆盖/扩展）
     // Creep.harvest(deposit)：官方 HARVEST_DEPOSIT_POWER，冷却 = ceil(DEPOSIT_EXHAUST_MULTIPLY * harvested^DEPOSIT_EXHAUST_POW)
     for (const n in Game.creeps) { const v = Game.creeps[n], o = v._raw, h0 = v.harvest.bind(v);
       v.harvest = t => { const d = t && t._raw; if (!d || d.kind !== 'deposit') return h0(t);

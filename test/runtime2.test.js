@@ -68,3 +68,6 @@ const st = mk('storage', 3); fresh(); const sv = e.buildApi('p1').Game.getObject
 const pb = mk('powerBank', 4, 'p2'); pb.store = { power: 3000 }; pb.decayAt = w.time + 50; fresh(); const pv = e.buildApi('p1').Game.getObjectById(pb.id); assert(pv.power === 3000 && pv.ticksToDecay === 50, 'PowerBank.power / ticksToDecay');
 const wl = mk('constructedWall', 5); wl.decayAt = w.time + 9; fresh(); assert(e.buildApi('p1').Game.getObjectById(wl.id).ticksToLive === 9, 'Wall.ticksToLive（新手墙）');
 console.log('runtime2: all ok');
+{ L = []; e.fns.p1 = compileUser(`Room.prototype.hello = function () { return 'hi ' + this.name; }; const r = Game.spawns.Spawn1.room; const f0 = Room.prototype.find; Room.prototype.find = function (...a) { return f0.apply(this, a); };
+console.log([r instanceof Room, r.hello() === 'hi ' + r.name, Object.values(Game.rooms).every(x => x instanceof Room), r.find(FIND_MY_SPAWNS).length === 1].join(','))`); e.tick();
+  assert(L[0] === 'true,true,true,true', 'Room 实例 instanceof Room，Room.prototype 扩展/覆盖生效：' + L[0]); e.fns.p1 = null; }

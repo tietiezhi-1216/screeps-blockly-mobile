@@ -59,6 +59,8 @@ function initBlockly() {
   // 返回按钮：按下与抬起都在按钮上才算（避免打开列表那一下的 click 落到同位置的返回键上）
   { const fb = $('flyBack'); let d = false; fb.addEventListener('pointerdown', () => { d = true; }); fb.addEventListener('pointerup', () => { if (d) closeFlyout(); d = false; }); fb.addEventListener('pointercancel', () => { d = false; }); }
   fly.hide(); buildCatBar();
+  { const em = document.createElement('div'); em.id = 'edEmpty'; em.textContent = '点下方分类添加积木'; $('blocklyDiv').appendChild(em);
+    const upd = () => em.classList.toggle('hidden', ws.getTopBlocks(false).length > 0); ws.addChangeListener(upd); upd(); }
   let saved = null; try { saved = JSON.parse(localStorage.getItem(SAVE_C)); } catch (e) {}
   let migrated = false;
   if (saved && !localStorage.getItem('sbm_easy1')) { const t = JSON.stringify(saved); if (!t.includes('"e_')) { try { const L = histList(); L.unshift({ ts: Date.now(), reason: '旧版程序', n: (t.match(/"type"/g) || []).length, st: t }); localStorage.setItem(HIST_K, JSON.stringify(L.slice(0, HIST_N))); } catch (e) {} saved = null; migrated = true; } }

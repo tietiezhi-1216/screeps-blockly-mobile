@@ -172,3 +172,13 @@ body.barMin{--lbar:0px}
 #edTools{left:calc(8px + var(--sal));right:auto;top:calc(8px + var(--sat));bottom:auto;flex-wrap:wrap;max-height:calc(100% - 16px - var(--sat))}
 @media (orientation:landscape){#editor{padding-left:0;padding-right:0}#editor #blocklyDiv{margin-left:var(--sal);margin-right:var(--sar)}#editor #edTabs{padding-left:calc(6px + var(--sal))}#edTools{left:8px}}
 #wmGo:disabled{background:#2a2a2a!important;color:#666!important}
+/* v1.8.6 积木页：工作区满屏无边框无边距；隐藏工作区滚动条（拖动平移、双指缩放照常）；左上竖排小图标按钮；空状态一行淡字 */
+#editor #blocklyDiv,#editor #blocklyDiv .injectionDiv,#editor #blocklyDiv .blocklySvg{margin:0!important;border:0!important;outline:none!important;box-shadow:none!important}
+#editor #blocklyDiv:focus,#editor #blocklyDiv .blocklySvg:focus,#editor .blocklyMainBackground:focus{outline:none!important}
+@media (orientation:landscape){#editor #blocklyDiv{margin-left:0!important;margin-right:0!important}}
+#editor .blocklyMainWorkspaceScrollbar,#editor .blocklyScrollbarHorizontal.blocklyMainWorkspaceScrollbar,#editor .blocklyScrollbarVertical.blocklyMainWorkspaceScrollbar{display:none!important}
+#edTools{z-index:20!important;left:calc(8px + var(--sal))!important;top:calc(8px + var(--sat))!important;right:auto!important;bottom:auto!important;gap:6px!important}
+#edTools button{width:32px!important;height:32px!important;border-radius:6px!important;background:#2a2f3a!important;box-shadow:none!important;background-image:none!important}
+#edTools button .ic{font-size:18px}
+#edEmpty{position:absolute;left:0;right:0;top:50%;transform:translateY(-50%);text-align:center;color:#8a8f99;opacity:.55;font-size:13px;line-height:20px;pointer-events:none;z-index:1;white-space:nowrap}
+#edEmpty.hidden{display:none}

@@ -1,6 +1,7 @@
 // 系列通用的应用内更新弹窗组件（Screeps World / Screeps Arena 共用，规范见 screeps-design/UPDATE-UI.md）
 // 用法：const ui = UpdateUI.create({ accent: '#5973FF', onUpdate, onLater });
 //   ui.show({ tag, current, notes, size }) / ui.downloading(got, total) / ui.install(msg) / ui.error(msg) / ui.info(msg) / ui.hide()
+// 弹窗层级固定在最上层（z-index 2147483000，高于所有弹窗、面板和 Blockly 下拉），每次打开重新挂到 body 末尾。
 // 不依赖任何框架；发布说明按 Markdown 安全渲染（先转义再加标记，链接只显示文字，不打开浏览器）
 (function (G) {
   const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -42,7 +43,7 @@
     const set = (s, label, dis) => { state = s; d.dataset.state = s; go.textContent = label; go.disabled = !!dis; };
     const ui = {
       el: d, md, get state() { return state; },
-      show({ tag, current, notes, size }) { q('.uuTitle').textContent = `发现新版本 ${tag}`; q('.uuCur').textContent = `当前版本 ${current}` + (size ? ` · 安装包 ${fmtMB(size)}` : '');
+      show({ tag, current, notes, size }) { (o.parent || document.body).appendChild(d); /* 每次打开都移到最后，保证在所有弹窗之上 */ q('.uuTitle').textContent = `发现新版本 ${tag}`; q('.uuCur').textContent = `当前版本 ${current}` + (size ? ` · 安装包 ${fmtMB(size)}` : '');
         q('.uuNotes').innerHTML = md(notes); q('.uuNotes').scrollTop = 0; bar.classList.add('hidden'); msg.textContent = ''; later.textContent = '稍后'; set('ready', '立即更新'); d.classList.remove('hidden'); },
       downloading(got, total) { const p = total > 0 ? Math.min(100, got / total * 100) : 0; bar.classList.remove('hidden'); bar.firstChild.style.width = p.toFixed(1) + '%';
         msg.textContent = `${fmtMB(got)} / ${total > 0 ? fmtMB(total) : '?'}（${p.toFixed(0)}%）`; later.textContent = '取消'; set('downloading', '下载中…', true); },

@@ -55,6 +55,10 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'ok - ' : 'FAIL - ') + m)
   await back(); s = await state(); ok(!s.fly && s.editor, '返回 4：收起全屏积木列表');
   await back(); s = await state(); ok(!s.editor && s.page === null, '返回 5：编辑器 → 游戏');
   // 更新弹窗在最上层
+  { await E(() => { const d = document.createElement('div'); d.className = 'shDlg'; d.innerHTML = '<div class="box">x</div>'; document.body.appendChild(d); Upd.show({ tag_name: 'v9.9.9', body: 'x' }, { size: 1 }, '1.0.0'); window.__later = 0; Upd.el.querySelector('.uuLater').addEventListener('click', () => window.__later++); });
+    const r = await E(() => { const b = Upd.el.querySelector('.uuLater').getBoundingClientRect(); const x = b.left + b.width / 2, y = b.top + b.height / 2; return { x, y, top: Upd.el.contains(document.elementFromPoint(x, y)), last: document.body.lastElementChild === Upd.el || document.body.lastElementChild.id === 'toast', z: getComputedStyle(Upd.el).zIndex }; });
+    ok(r.top, '有其他弹窗时更新弹窗在最上层（按钮可点到） z=' + r.z); await pg.touchscreen.tap(r.x, r.y); await W(150);
+    ok(await E(() => window.__later === 1 && Upd.el.classList.contains('hidden')), '点「稍后」真的点到了更新弹窗'); await E(() => document.querySelectorAll('.shDlg').forEach(d => d.remove())); }
   await E(() => Upd.show({ tag_name: 'v9.9.9', body: '## 测试' }, { size: 1 }, '1.0.0')); await E(() => $('btnLog').click());
   await back(); s = await state(); ok(!s.upd && s.panel, '更新弹窗最先关闭'); await back(); ok(!(await state()).panel, '再关右侧面板');
   { const h = await E(() => [history.length, JSON.stringify(history.state)]); ok(h[1] === 'null', '没有往浏览器 history 里塞记录 ' + h); }

@@ -1,0 +1,61 @@
+# Screeps 官方私服（screepers/screeps-launcher + MongoDB + Redis）
+# 用法见 README.md。真实密钥只放在 .env，不要提交到仓库。
+services:
+  screeps:
+    image: screepers/screeps-launcher:latest
+    volumes:
+      - ./config.yml:/screeps/config.yml:ro
+      - screeps-data:/screeps
+    ports:
+      # 游戏端口：手机 App 连这个（建议前面套 Caddy 走 HTTPS）
+      - "${SCREEPS_BIND:-0.0.0.0}:${SCREEPS_PORT:-21025}:21025/tcp"
+      # 管理 CLI（21026）不映射到宿主机，只能在本机用
+      #   docker compose exec screeps screeps-launcher cli
+      # 进入。需要宿主机直连时只允许绑 127.0.0.1：
+      # - "127.0.0.1:21026:21026/tcp"
+    environment:
+      STEAM_KEY: ${STEAM_KEY:?请在 .env 里填写 STEAM_KEY}
+      SERVER_PASSWORD: ${SERVER_PASSWORD:-}
+      MONGO_HOST: mongo
+      REDIS_HOST: redis
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent http://127.0.0.1:21025/api/version || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 600s
+      retries: 3
+
+  mongo:
+    image: mongo:8
+    volumes:
+      - mongo-data:/data/db
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 5
+
+  redis:
+    image: redis:7
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 5s
+      start_period: 5s
+      retries: 5
+
+volumes:
+  screeps-data:
+  mongo-data:
+  redis-data:

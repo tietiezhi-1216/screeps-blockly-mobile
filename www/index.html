@@ -10,14 +10,12 @@
 <div id="pnBody"></div>
 <div id="pnConsole" class="hidden"><div class="cnFilter"><input id="cnFind" placeholder="过滤"><button data-cf="all" class="on">全部</button><button data-cf="err">错误</button><button data-cf="me">我的</button></div><div id="cnOut"></div><div class="cnIn"><input id="cnCmd" placeholder="输入 JS" autocapitalize="off" autocomplete="off" spellcheck="false"><button id="cnRun" class="primary">执行</button></div></div></div>
 <nav id="bar">
-  <button id="btnRun" data-icon="player-play"><span class="lb">运行</span></button>
+  <button id="btnRun" data-icon="cloud-upload"><span class="lb">上传</span></button>
   <button id="btnCode" data-icon="puzzle"><span class="lb">代码</span></button>
   <button id="btnBuild" data-icon="hammer"><span class="lb">建造</span></button>
   <button id="btnFlag" data-icon="flag"><span class="lb">旗帜</span></button>
-  <button id="btnSpeed" data-icon="player-track-next" class="hidden"><span class="lb">1x</span></button>
   <button id="btnView" data-icon="map"><span class="lb">全图</span></button>
   <button id="btnLog" data-icon="terminal-2"><span class="lb">面板</span></button>
-  <button id="btnNet" data-icon="broadcast" class="hidden"><span class="lb">联机</span></button>
   <button id="btnMenu" data-icon="settings"><span class="lb">设置</span></button>
 </nav>
 <div id="log" class="hidden"></div>
@@ -31,38 +29,24 @@
   <div id="edTabs"><div id="catBar"></div><div id="flyHead"><button id="flyBack" data-icon="arrow-left"><span class="lb">返回</span></button><span id="flyTitle"></span></div><button id="edClose" data-icon="check" class="primary"><span class="lb">完成</span></button></div>
   <div id="blocklyDiv"><div id="edTools"><button id="edUndo" data-icon="arrow-back-up" title="撤销"></button><button id="edRedo" data-icon="arrow-forward-up" title="重做"></button><button id="edHist" data-icon="history" title="历史版本"></button><button id="edPreview" data-icon="eye" title="预览"></button><button id="edZin" data-icon="zoom-in"></button><button id="edZout" data-icon="zoom-out"></button><button id="edCenter" data-icon="focus-centered"></button><button id="edTrash" data-icon="trash"></button></div></div>
 </div>
-<div id="net" class="hidden panel">
-  <div class="pTitle">局域网联机</div>
-  <div id="netStatus" class="status">当前：单机</div>
-  <div id="ipList"></div>
-  <input id="nick" placeholder="你的昵称" maxlength="16">
-  <button id="nHost" data-icon="home"><span class="lb">开房（本机做房主）</span></button>
-  <button id="nScan" data-icon="search"><span class="lb">搜索局域网房间</span></button>
-  <div id="hosts"></div>
-  <div class="row"><input id="ip" placeholder="房主 IP，如 192.168.1.5"><button id="nJoin" data-icon="login" class="narrow"><span class="lb">加入</span></button></div>
-  <button id="nSolo" data-icon="device-gamepad-2"><span class="lb">回到单机</span></button>
-  <button id="nClose" data-icon="x" class="ghost"><span class="lb">关闭</span></button>
-</div>
 <div id="intro" class="hidden panel">
   <div class="pTitle">新手提示</div>
   <ol class="tips">
-    <li>持续运行的开放世界：白色圆环是你的 Spawn，黄色方块是能量源，带彩色环的小圆是你的 creep。</li>
-    <li>点「代码」，从顶部分类打开积木列表，点一下或拖出积木拼出 creep 的行为；点「建造」可手动放置工地。</li>
-    <li>点「完成」应用代码，再点「运行」让世界按 tick 运转，「1x」切换速度。</li>
-    <li>单指拖动、双指缩放，点 creep / 建筑查看详情；「联机」可在同一 WiFi 下一起玩。</li>
+    <li>世界运行在服务器上（你的私服或官方服务器），关掉 App 也会继续运行。</li>
+    <li>点「代码」，从底部分类打开积木列表，点一下或拖出积木拼出 creep 的行为。</li>
+    <li>点「完成」或「上传」把代码传到服务器，下一个 tick 开始生效；「建造」「旗帜」可手动放置。</li>
+    <li>单指拖动、双指缩放，点格子查看对象；「面板」里有控制台和内存。</li>
   </ol>
   <button id="introOk" class="primary" data-icon="rocket"><span class="lb">开始玩</span></button>
 </div>
 <div id="menu" class="hidden panel">
   <div class="pTitle">设置</div>
-  <button id="mSave" data-icon="device-floppy"><span class="lb">立即保存</span></button>
   <button id="mIntro" data-icon="help"><span class="lb">新手提示</span></button>
   <button id="mResetCode" data-icon="arrow-back-up"><span class="lb">恢复默认积木</span></button>
-  <button id="mReset" data-icon="trash" class="danger"><span class="lb">重置世界</span></button>
   <div id="ver" class="muted"></div>
   <button id="mClose" data-icon="x" class="ghost"><span class="lb">关闭</span></button>
 </div>
-<div id="start" class="shell"><button id="sPlay"></button><button id="sNet"></button><button id="sSet"></button><div id="startVer"></div></div>
+<div id="start" class="shell"><div id="startVer"></div></div>
 <script src="version.js"></script>
 <script src="vendor/capacitor.js"></script>
 <script src="icons.js"></script>
@@ -73,15 +57,12 @@
 <script src="vendor/msg-zh.js"></script>
 <script src="vendor/pixi.min.js"></script>
 <script src="screeps-const.js"></script>
-<script src="worldgen.js"></script>
+<script src="geo.js"></script>
 <script src="spawnpick.js"></script>
-<script src="engine.js"></script>
-<script src="engine-ext.js"></script>
-<script src="engine-npc.js"></script>
-<script src="stats.js"></script>
+<script src="screeps-api.js"></script>
+<script src="online.js"></script>
 <script src="obj-art.js"></script><script src="render.js"></script>
 <script src="blocks.js"></script>
-<script src="net.js"></script>
 <script src="back-stack.js"></script>
 <script src="update-ui.js"></script><script src="update.js"></script>
 <script src="main.js"></script>

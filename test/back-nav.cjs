@@ -1,5 +1,6 @@
-// 无头测试：安卓返回键（back-stack.js）——逐层关闭、逐级回页、首页两次返回才退出
+// 无头测试（连 test/fake-server.js 回放的私服）：安卓返回键（back-stack.js）——逐层关闭、逐级回页、首页两次返回才退出
 const http = require('http'), fs = require('fs'), path = require('path'), p = require('puppeteer-core');
+const FS = require('./fake-server.js'), FX = require('./fixtures/pserver.json');
 const W = ms => new Promise(r => setTimeout(r, ms)), ROOT = path.join(__dirname, '../www');
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.webp': 'image/webp', '.svg': 'image/svg+xml', '.json': 'application/json' };
 const srv = http.createServer((q, r) => { const f = path.join(ROOT, decodeURIComponent(q.url.split('?')[0])); if (!f.startsWith(ROOT) || !fs.existsSync(f) || fs.statSync(f).isDirectory()) { r.writeHead(404); return r.end(); } r.writeHead(200, { 'Content-Type': MIME[path.extname(f)] || 'application/octet-stream' }); fs.createReadStream(f).pipe(r); });
@@ -14,7 +15,9 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'ok - ' : 'FAIL - ') + m)
     window.__exit = 0; window.__listeners = [];
     window.Capacitor = { Plugins: { App: { addListener: (ev, fn) => { if (ev === 'backButton') window.__listeners.push(fn); return Promise.resolve({ remove() {} }); }, exitApp: () => { window.__exit++; } } } };
   });
+  await pg.evaluateOnNewDocument(FS.install, FX); // 离线回放的私服（App 只做瘦客户端，进游戏需要已连接）
   await pg.goto(`http://localhost:${port}/index.html`); await W(1200);
+  for (let i = 0; i < 50 && !(await pg.evaluate(() => !!sess)); i++) await W(200);
   const E = f => pg.evaluate(f);
   // 模拟一次硬件返回：调用注册到 Capacitor App 的 backButton 监听
   const back = () => E(() => { window.__listeners.forEach(f => f({ canGoBack: false })); }).then(() => W(120));

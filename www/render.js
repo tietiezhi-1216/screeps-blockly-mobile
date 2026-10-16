@@ -1,5 +1,5 @@
 // PixiJS 渲染层：外观对照官方 Screeps 客户端。只读视图；静态外形缓存为贴图（每种类型/状态一张），逐帧只做 creep 插值与镜头。
-// setView 可以接收引擎快照，也可以直接接收原始 world（会先转换成快照），两者字段一致。
+// setView 接收在线会话（online.js）根据服务器房间对象生成的快照。
 const TS = 16;
 const PART_COL = { work: 0xffe56d, carry: 0x777777, move: 0xa9b7c6, attack: 0xf93842, ranged_attack: 0x5d80b2, heal: 0x65fd62, claim: 0xb99cfb, tough: 0xffffff };
 const MINERAL_COL = { H: 0xcccccc, O: 0xcccccc, U: 0x50d7f9, L: 0x00f4a2, K: 0x9370ff, Z: 0xf2d28b, X: 0xff7b7b };
@@ -209,7 +209,6 @@ class Renderer {
   }
   // ===== 每 tick 一次 =====
   setView(v, dt) {
-    if (v && v.gen !== undefined) { const raw = v; v = worldSnapshot(raw, typeof engine !== 'undefined' && engine && engine.w === raw ? engine.events : [], this.myPid); v.rooms = raw.rooms; } // 原始 world → 快照
     const first = !this.view; this.view = v; this.dt = dt; this.tickAt = performance.now();
     if (v.roomsVer !== this.roomsVer && v.rooms) this.rebuildTerrain(v);
     if (this.lod === 'mini') this.drawMini(v);

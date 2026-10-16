@@ -1,26 +1,41 @@
-const SAVE_W = 'sbm_world2', SAVE_C = 'sbm_code', $ = id => document.getElementById(id);
-const myPid = localStorage.getItem('sbm_pid') || ('p' + Math.random().toString(36).slice(2, 10)); localStorage.setItem('sbm_pid', myPid);
-let nick = localStorage.getItem('sbm_nick') || ('玩家' + myPid.slice(1, 4)); $('nick').value = nick;
-let mode = 'solo', engine = null, hostS = null, client = null, transport = null;
-let running = false, speed = 1, ws = null, code = '';
+const SAVE_C = 'sbm_code', $ = id => document.getElementById(id);
+// 在线：房间由服务器上的官方引擎运行，手机只写代码、看世界、发手动操作
+let sess = null, myPid = null, nick = '', ws = null, code = '', lastUploaded = '';
+const upKey = () => 'sbm_last_up:' + srvLabel() + ':' + (myPid || '');
 applyIcons();
-const renderer = new Renderer($('stage')); renderer.myPid = myPid;
+const renderer = new Renderer($('stage'));
 let showFps = false;
 // 控制台：保留最近 500 条，可按文本 / 类型过滤（同官方 Console）
 const LOGS = []; let cnFilter = 'all';
-const _ntSeen = new Map(); // 通知（notifyWhenAttacked / Game.notify）：控制台标记 + 弹出提示，同一消息 10 秒内只弹一次
-const log = (s, cls) => { s = String(s); if (/\[通知\]/.test(s)) { cls = cls || 'ntf'; const m = s.replace(/^\[\d+\]\s*\[通知\]\s*/, ''), t = Date.now(); if (!(_ntSeen.get(m) > t - 10000)) { _ntSeen.set(m, t); if (typeof toastMsg === 'function') toastMsg(m); } } LOGS.push({ s, cls: cls || (/错误|error|失败/i.test(s) ? 'err' : ''), t: engine ? engine.w.time : client?.view?.time }); if (LOGS.length > 500) LOGS.splice(0, LOGS.length - 500); if (typeof renderConsole === 'function') renderConsole(); };
-
+const _ntSeen = new Map();
+const log = (s, cls) => { s = String(s); LOGS.push({ s, cls: cls || (/错误|error|失败/i.test(s) ? 'err' : ''), t: sess ? sess.time : null }); if (LOGS.length > 500) LOGS.splice(0, LOGS.length - 500); if (typeof renderConsole === 'function') renderConsole(); };
 function myBadge() { try { const b = JSON.parse(localStorage.getItem('sbm_profile') || '{}').badge; return b && typeof b.type === 'number' ? b : null; } catch (e) { return null; } }
-function loadEngine() {
-  let w = null; try { w = JSON.parse(localStorage.getItem(SAVE_W)); } catch (e) {}
-  if (!w || w.v !== 3) w = newWorld();
-  engine = new Engine(w); engine.onLog = (pid, s) => { if (pid === myPid) log(s); };
-  engine.addPlayer(myPid, nick, true, myBadge()); engine.setCode(myPid, code);
-  renderer.reset(); renderer.setView(engine.w, 500 / speed);
-  const sp = engine.w.spawns.find(s => s.owner === myPid); if (sp) renderer.fitRoom(Math.floor(sp.x / ROOM), Math.floor(sp.y / ROOM)); else renderer.fitRoom(5, 5);
+// ---- 服务器设置（只存在本机，不写死任何地址或密钥） ----
+const SRV_K = 'sbm_server';
+function srvCfg() { try { return JSON.parse(localStorage.getItem(SRV_K)) || null; } catch (e) { return null; } }
+function srvSave(c) { localStorage.setItem(SRV_K, JSON.stringify(c)); }
+function srvLabel(c) { c = c || srvCfg(); if (!c) return '未连接'; return c.kind === 'official' ? '官方服务器 · ' + (c.shard || 'shard0') : '私服 · ' + c.host; }
+let connecting = null;
+async function connectServer(cfg) {
+  if (sess) { try { sess.stop(); } catch (e) {} sess = null; }
+  renderer.reset(); LOGS.length = 0;
+  const s = new OnlineSession(cfg, { storage: localStorage });
+  s.onStatus = m => { netState = m; stats(); };
+  s.onLog = (m, cls) => log(m, cls);
+  s.onCpu = d => { cpuInfo = d; };
+  s.onTick = v => { renderer.myPid = myPid; renderer.setView(v, 1000); };
+  connecting = s; netState = '连接中…';
+  try { await s.start(); } catch (e) { connecting = null; netState = '未连接'; try { s.stop(); } catch (e2) {} if (window.SBM_DEBUG) console.error(e); throw e; }
+  connecting = null; sess = s; myPid = s.me._id; nick = s.me.username; renderer.myPid = myPid;
+  srvSave(cfg); lastUploaded = localStorage.getItem(upKey()) || ''; log('[服务器] 已连接 ' + srvLabel(cfg) + '，玩家 ' + nick, 'sys');
+  const home = s.home && s.kOf(s.home); if (home) { const [rx, ry] = home.split(',').map(Number); renderer.fitRoom(rx, ry); } else renderer.fitWorld(s.S);
+  renderer.setView(s.view, 1);
+  return s;
 }
-function save() { if (engine && mode !== 'client') localStorage.setItem(SAVE_W, engine.saveData()); }
+window.connectServer = connectServer;
+function logout() { if (sess) { try { sess.stop(); } catch (e) {} } sess = null; myPid = null; renderer.reset(); const c = srvCfg(); if (c) { delete c.password; delete c.token; srvSave(c); } }
+window.logout = logout;
+let netState = '未连接', cpuInfo = null;
 
 // 代码编辑器夜间模式（设置里切换，持久化；默认跟随深色界面 = 开）
 const DARK_THEME = Blockly.Theme.defineTheme('sbmDark', { name: 'sbmDark', base: Blockly.Themes.Classic,
@@ -165,120 +180,59 @@ function tapAdd(blockId) {
   closeFlyout();
 }
 function regen(push = true) {
-  code = Blockly.JavaScript.workspaceToCode(ws); 
-  try { compileUser(code); } catch (e) { log('[错误] 编译失败: ' + e.message); return; }
+  code = Blockly.JavaScript.workspaceToCode(ws);
+  try { new Function('module', 'exports', 'require', code); } catch (e) { log('[错误] 代码有语法错误：' + e.message); return; }
   if (push) applyCode();
 }
-function applyCode() { if (mode === 'client') client && client.sendCode(code); else engine && engine.setCode(myPid, code); }
-
-let _snap = null; // 单机/房主也用快照（字段与客户端一致：spawn.energy/cap 等）
-function view() { if (mode === 'client') return client?.view; if (!engine) return null; if (!_snap || _snap.time !== engine.w.time || _snap.S !== engine.w.S) _snap = engine.snapshot(); return _snap; }
+// 上传：积木生成的 main 模块 → 服务器当前生效的分支（POST /api/user/code）。内容没变不重复上传（官方限额 240 次/天）
+let upBusy = false;
+async function applyCode(force) {
+  if (!sess) { toastMsg('还没连接服务器'); return false; }
+  if (!force && code === lastUploaded) { toastMsg('代码没有变化'); return true; }
+  if (upBusy) return false; upBusy = true; $('btnRun').classList.add('busy');
+  try { const br = await sess.uploadCode(code); lastUploaded = code; try { localStorage.setItem(upKey(), code); } catch (e) {}
+    const left = sess.api.rateLeft('POST /api/user/code'); log(`[代码] 已上传到服务器（分支 ${br}）${left !== Infinity ? '，今天还能上传 ' + left + ' 次' : ''}`, 'sys'); toastMsg('代码已上传，下个 tick 生效'); return true; }
+  catch (e) { log('[错误] 上传失败：' + e.message, 'err'); toastMsg('上传失败：' + e.message); return false; }
+  finally { upBusy = false; $('btnRun').classList.remove('busy'); }
+}
+function view() { return sess ? sess.view : null; }
 const chip = (ic, html) => `<span class="chip${ic === 'bolt' ? ' en' : ''}"><span class="ic">${icon(ic)}</span>${html}</span>`;
 const chipX = (ic, html) => chip(ic, html).replace('class="chip', 'class="chip xl');
 function stats() {
   const v = view(); let H;
-  if (!v) H = chip('plug-connected', mode === 'client' ? '等待房主…' : '');
-  else {
-    const re = roomEnergy(v), n = v.creeps.filter(c => c.owner === myPid).length, np = Object.keys(v.players).length;
-    H = chip(mode === 'solo' ? 'device-gamepad-2' : mode === 'host' ? 'home' : 'wifi', mode === 'client' ? '客户端' : running ? '运行' : '暂停') + chip('refresh', `<b>${v.time}</b>`) + chip('bolt', `<b>${re ? re[0] + '/' + re[1] : '-'}</b>`) + chip('bug', `<b>${n}</b>`);
-  }
+  if (!v) H = chip(connecting ? 'loader-2' : 'plug-connected-x', esc(connecting ? netState : '未连接'));
+  else { const re = roomEnergy(v), n = v.creeps.filter(c => c.owner === myPid).length, live = netState === '已连接';
+    H = chip(live ? 'cloud' : 'cloud-off', live ? (sess.official ? '官方' : '私服') : esc(netState)) + chip('refresh', `<b>${v.time}</b>`) + chip('bolt', `<b>${re ? re[0] + '/' + re[1] : '-'}</b>`) + chip('bug', `<b>${n}</b>`); }
   const need = !!(v && v.players[myPid]?.needsSpawn); $('rbSpawn').classList.toggle('hidden', !need || build.type === 'spawn1');
   if (need && !wm.auto && $('start').classList.contains('hidden') && $('wmap').classList.contains('hidden') && !build.on) openWorldMap(true);
   updateRoomNav(v);
   if (H !== stats._h) $('hud').innerHTML = stats._h = H;
 }
-let tickMs = 0, hudT = 0;
-let acc = 0, lastT = performance.now();
+let hudT = 0, watchT = 0;
+// 只订阅屏幕上看得到的房间（官方客户端也只看当前房间的实时对象）
+function watchRooms() {
+  if (!sess) return; const RS = ROOM * TS, s = renderer.scale; if (renderer.lod === 'mini') return sess.watch([]);
+  const x0 = renderer.cx - innerWidth / 2 / s, x1 = renderer.cx + innerWidth / 2 / s, y0 = renderer.cy - innerHeight / 2 / s, y1 = renderer.cy + innerHeight / 2 / s, [cx, cy] = renderer.curRoom(), L = [cx + ',' + cy];
+  for (let ry = Math.floor(y0 / RS); ry <= Math.floor(y1 / RS); ry++) for (let rx = Math.floor(x0 / RS); rx <= Math.floor(x1 / RS); rx++) { const k = rx + ',' + ry; if (!L.includes(k)) L.push(k); }
+  sess.watch(L);
+}
 function loop(t) {
-  const dt = t - lastT; lastT = t;
-  if (mode !== 'client' && running && engine) {
-    acc += dt; const step = 500 / speed; let n = 0;
-    while (acc >= step && n < 8) { const t0 = performance.now(); engine.tick(); tickMs = tickMs * .9 + (performance.now() - t0) * .1; renderer.setView(engine.w, step); hostS && hostS.afterTick(step); acc -= step; n++; if (engine.w.time % 50 === 0) save(); }
-    if (acc > step * 8) acc = 0; // 设备太慢时丢弃积压，避免卡顿
-  }
-  if (t - hudT > 250) { hudT = t; stats(); } requestAnimationFrame(loop);
+  if (t - hudT > 250) { hudT = t; stats(); } if (t - watchT > 600) { watchT = t; watchRooms(); } requestAnimationFrame(loop);
 }
 function setLabel(btn, ic, text) { const b = $(btn); b.querySelector('.ic').innerHTML = icon(ic); b.querySelector('.lb').textContent = text; }
-function setRunUI() { setLabel('btnRun', running && mode !== 'client' ? 'player-pause' : 'player-play', mode === 'client' ? '房主控制' : running ? '暂停' : '运行'); $('btnRun').classList.toggle('on', running && mode !== 'client'); $('btnRun').disabled = mode === 'client'; $('btnSpeed').disabled = mode === 'client'; }
-$('btnRun').onclick = () => { running = !running; setRunUI(); if (!running) save(); };
-// 运行速度：立即作用于主循环（每 tick 间隔 = 500ms / 速度），并保存到设置，下次进入游戏沿用
-function setSpeed(v, persist = true) {
-  speed = [1, 2, 4, 8].includes(+v) ? +v : 1; acc = 0; setLabel('btnSpeed', 'player-track-next', speed + 'x'); $('btnRun').dataset.speed = speed + 'x';
-  if (persist) try { const s = JSON.parse(localStorage.getItem('sbm_settings') || '{}'); s.speed = speed; localStorage.setItem('sbm_settings', JSON.stringify(s)); } catch (e) {}
-}
-window.setSpeed = setSpeed;
+function setRunUI() { setLabel('btnRun', 'cloud-upload', '上传'); }
+$('btnRun').onclick = () => { regen(false); applyCode(); };
 // 左侧工具栏收起/展开
 (function barToggle() { const t = document.createElement('button'); t.id = 'barTog'; const set = m => { document.body.classList.toggle('barMin', m); t.textContent = m ? '›' : '‹'; localStorage.setItem('sbm_barMin', m ? '1' : ''); }; t.onclick = () => set(!document.body.classList.contains('barMin')); document.body.appendChild(t); set(!!localStorage.getItem('sbm_barMin')); })();
-$('btnSpeed').onclick = () => setSpeed(speed >= 8 ? 1 : speed * 2);
-// 底栏精简：速度并入「运行」长按弹出菜单
-(function runSpeedPopup() {
-  const pop = document.createElement('div'); pop.id = 'speedPop'; pop.className = 'hidden';
-  pop.innerHTML = [1, 2, 4, 8].map(v => `<button data-v="${v}">${v}x</button>`).join(''); document.body.appendChild(pop);
-  const sync = () => pop.querySelectorAll('button').forEach(b => b.classList.toggle('on', +b.dataset.v === speed));
-  pop.onclick = e => { const b = e.target.closest('button'); if (!b) return; setSpeed(b.dataset.v); pop.classList.add('hidden'); };
-  const r = $('btnRun'); let t = null, fired = false;
-  r.addEventListener('pointerdown', () => { fired = false; t = setTimeout(() => { fired = true; sync(); pop.classList.remove('hidden'); }, 450); });
-  ['pointerup', 'pointercancel', 'pointerleave'].forEach(k => r.addEventListener(k, () => clearTimeout(t)));
-  r.addEventListener('click', e => { if (fired) { e.stopImmediatePropagation(); e.preventDefault(); fired = false; } }, true);
-  r.addEventListener('contextmenu', e => e.preventDefault());
-  document.addEventListener('pointerdown', e => { if (!pop.contains(e.target) && e.target.closest('#btnRun') == null) pop.classList.add('hidden'); });
-  window.openSpeedPop = () => { sync(); pop.classList.remove('hidden'); };
-})();
 $('btnLog').onclick = () => $('panel').classList.contains('hidden') ? (infoRoom = null, openPanel(panelTab)) : $('panel').classList.add('hidden');
 $('btnCode').onclick = () => { $('editor').classList.remove('hidden'); renderer.pause(true); Blockly.svgResize(ws); };
-$('edClose').onclick = () => { $('editor').classList.add('hidden'); renderer.pause(false); regen(true); log('[代码] 已应用'); };
+$('edClose').onclick = () => { $('editor').classList.add('hidden'); renderer.pause(false); regen(true); };
 $('btnMenu').onclick = () => $('menu').classList.remove('hidden');
 $('mClose').onclick = () => $('menu').classList.add('hidden');
-$('mSave').onclick = () => { save(); alert('已保存'); };
-$('mReset').onclick = () => { if (mode === 'client') return alert('客户端不能重置房主的世界'); if (confirm('确定重置整个世界？（代码会保留）')) { localStorage.removeItem(SAVE_W); const peers = hostS ? Object.keys(engine.w.players) : []; loadEngine(); if (hostS) { hostS.e = engine; rebindHost(); } $('menu').classList.add('hidden'); } };
-$('mResetCode').onclick = () => { if (confirm('恢复默认积木程序？当前程序会存入历史版本，可在编辑器里恢复。')) { histPush('恢复默认前', true); ws.clear(); sbmLoadWs(DEFAULT_WS, ws); regen(true); } };
+$('mResetCode').onclick = () => { if (confirm('恢复默认积木程序？当前程序会存入历史版本，可在编辑器里恢复。')) { histPush('恢复默认前', true); ws.clear(); sbmLoadWs(DEFAULT_WS, ws); regen(false); } };
 $('mIntro').onclick = () => { $('menu').classList.add('hidden'); $('intro').classList.remove('hidden'); };
 $('introOk').onclick = () => { $('intro').classList.add('hidden'); localStorage.setItem('sbm_intro', '1'); };
-// 开始界面
-$('startVer').textContent = 'v' + (window.APP_VERSION || 'dev');
-const hideStart = () => $('start').classList.add('hidden');
-$('sPlay').onclick = () => { hideStart(); };
-$('sNet').onclick = () => { hideStart(); $('net').classList.remove('hidden'); };
-$('sSet').onclick = () => { hideStart(); $('menu').classList.remove('hidden'); };
-
 $('ver').textContent = '版本 ' + (window.APP_VERSION || 'dev');
-
-// ===== 联机 =====
-function netStatus(s) { $('netStatus').textContent = s; }
-$('btnNet').onclick = () => $('net').classList.remove('hidden');
-$('nClose').onclick = () => $('net').classList.add('hidden');
-$('nick').onchange = () => { nick = $('nick').value.trim() || nick; localStorage.setItem('sbm_nick', nick); if (engine?.w.players[myPid]) engine.w.players[myPid].name = nick; };
-function rebindHost() { const old = hostS; hostS = new HostSession(engine, transport, myPid); hostS.onLocalLog = log; hostS.onPeers = () => showHostInfo(); if (old) old.clients.forEach((c, id) => hostS.clients.set(id, c)); }
-let hostIps = [];
-function showHostInfo() {
-  const peers = hostS ? hostS.peerNames() : []; netStatus(`房主中 · 端口 ${LAN_PORT} · 已连接 ${peers.length}${peers.length ? '：' + peers.join('、') : ''}`);
-  const is192 = ip => /^192\.168\./.test(ip), tag = ip => is192(ip) ? 'WiFi/热点' : /^10\./.test(ip) ? '局域网/移动网络' : /^172\.(1[6-9]|2\d|3[01])\./.test(ip) ? '虚拟网卡' : '';
-  const sorted = hostIps.slice().sort((a, b) => is192(b) - is192(a));
-  $('ipList').innerHTML = sorted.map(ip => `<div class="ipItem"><span class="ic">${icon('wifi')}</span><span class="lb">${ip}:${LAN_PORT}</span><span class="tag">${tag(ip)}</span></div>`).join('');
-}
-async function stopNet() { $('ipList').innerHTML = ''; if (client) { client.close(); client = null; } if (transport) { await transport.plugin.stop(); } hostS = null; }
-$('nHost').onclick = async () => {
-  transport = transport || nativeTransport(); if (!transport) return alert('开房需要在安卓 App 中运行（浏览器版只能单机/加入）');
-  await stopNet(); if (mode === 'client') { mode = 'solo'; loadEngine(); }
-  try { const r = await transport.plugin.start({ port: LAN_PORT, name: nick }); hostIps = r.ips || []; } catch (e) { return alert('开房失败：' + e.message); }
-  mode = 'host'; rebindHost(); showHostInfo(); setRunUI(); log('[联机] 已开房，其他手机在同一 WiFi/热点下点“搜索”或输入 IP 加入');
-};
-$('nScan').onclick = async () => {
-  const P = lanPlugin(); if (!P) return alert('搜索需要安卓 App；也可手动输入 IP');
-  $('hosts').textContent = '搜索中…'; try { const r = await P.discover({ timeout: 3500 }); $('hosts').textContent = r.hosts.length ? '' : '没找到（可手动输入 IP）';
-    for (const h of r.hosts) { const b = document.createElement('button'); b.innerHTML = `<span class="ic">${icon('login')}</span><span class="lb">加入 ${h.name}（${h.ip}）</span>`; b.onclick = () => join(h.ip + ':' + h.port); $('hosts').appendChild(b); } } catch (e) { $('hosts').textContent = '搜索失败：' + e.message; }
-};
-$('nJoin').onclick = () => { const ip = $('ip').value.trim(); if (ip) { localStorage.setItem('sbm_lastip', ip); join(ip.includes(':') ? ip : ip + ':' + LAN_PORT); } };
-$('ip').value = localStorage.getItem('sbm_lastip') || '';
-async function join(addr) {
-  if (mode !== 'client') save(); await stopNet(); running = false;
-  mode = 'client'; engine = null; renderer.reset();
-  client = new ClientSession('ws://' + addr, myPid, nick); client.code = code; client.badge = myBadge();
-  client.onTick = v => renderer.setView(v, v.dt || 500); client.onLog = log;
-  client.onStatus = s => { netStatus(`客户端 ${addr} · ${s}`); log('[联机] ' + s); };
-  setRunUI(); netStatus('连接中 ' + addr); $('net').classList.add('hidden');
-}
-$('nSolo').onclick = async () => { await stopNet(); mode = 'solo'; running = false; loadEngine(); setRunUI(); netStatus('当前：单机'); };
 
 // 检查器：点选对象，按 tick 刷新
 let sel = null;
@@ -306,7 +260,7 @@ function renderInspect() {
   if (!o) { b += kv('地形', terrainAt(x, y) || '加载中'); }
   else if (sel.kind === 'creep') { t = 'Creep ' + esc(o.name);
     b += kv('所属', pn(o.owner)) + kv('hits', `${o.hits ?? o.body.length * 100} / ${o.hitsMax || o.body.length * 100}`) + storeKV(o.store) + kv('容量', o.cap ?? '-') + kv('fatigue', o.fatigue || 0) + kv('ticksToLive', o.ttl) + kv('身体', `<span class="body">${o.body.map(p => `<span class="part" style="background:${PARTC[p.type || p] || '#666'}"></span>`).join('')}</span>`);
-    if (mode !== 'client' && o.owner === myPid) b += `<pre class="mem">Memory ${esc(JSON.stringify(engine.w.memory[myPid].creeps[o.name] || {}, null, 1))}</pre>`; }
+    if (o.owner === myPid) b += `<button class="insMem" data-mem="${esc(o.name)}">查看 Memory</button><pre class="mem" id="insMem"></pre>`; }
   else if (sel.kind === 'spawn') { t = 'StructureSpawn ' + esc(o.name); b += kv('所属', pn(o.owner)) + kv('hits', `${o.hits ?? 5000} / ${o.hitsMax ?? 5000}`) + kv('能量', `${o.energy} / ${o.cap}`) + kv('生产', o.spawning ? `${esc(o.spawning.name)}（剩 ${o.spawning.left} tick）` : '空闲'); }
   else if (sel.kind === 'source') { t = 'Source'; b += kv('能量', `${o.energy} / ${o.cap}`) + kv('再生', '每 300 tick'); }
   else if (sel.kind === 'controller') { t = 'StructureController'; b += kv('所属', o.owner ? pn(o.owner) : '未占领') + kv('等级 RCL', o.level) + kv('进度', `${o.progress} / ${o.progressTotal}`) + kv('降级倒计时', o.ticksToDowngrade || '-'); }
@@ -316,22 +270,23 @@ function renderInspect() {
   else if (sel.kind === 'resource') { t = 'Resource'; b += kv('resourceType', esc(o.resourceType)) + kv('amount', o.amount); }
   else if (sel.kind === 'tombstone') { t = 'Tombstone ' + esc(o.creepName || ''); b += kv('所属', pn(o.owner)) + storeKV(o.store || { energy: o.energy }) + kv('ticksToDecay', o.decay); }
   else if (sel.kind === 'ruin') { t = 'Ruin'; b += kv('structureType', esc(o.structureType)) + (o.owner ? kv('所属', pn(o.owner)) : '') + storeKV(o.store) + kv('destroyTime', o.destroyTime) + kv('ticksToDecay', o.decay); }
-  else if (sel.kind === 'flag') { t = 'Flag ' + esc(o.name); }
+  else if (sel.kind === 'flag') { t = 'Flag ' + esc(o.name); b += kv('color', ART.FLAG_ZH ? ART.FLAG_ZH[o.color] || o.color : o.color) + kv('secondaryColor', ART.FLAG_ZH ? ART.FLAG_ZH[o.secondaryColor] || o.secondaryColor : o.secondaryColor); }
   const act = insAction(o, sel); if (act) b += `<div class="insAct"><button class="insDanger" data-act="${act[0]}">${act[1]}</button></div>`;
   $('insTitle').innerHTML = t; $('insBody').innerHTML = `<div class="insPos">x ${lx}, y ${ly} · ${roomName(x, y)}</div>` + tabs + b; $('inspect').classList.remove('hidden');
   renderer.select(sel, { x, y });
 }
 // 官方客户端：自己的 creep 可自杀、自己的建筑可摧毁、自己的工地可取消；先确认，再调用官方 API（规则由 API 判定）
-function insAction(o, s) { if (!o || !s || mode === 'client' || !engine || o.owner !== myPid) return null;
-  return { creep: ['suicide', '自杀'], spawn: ['destroy', '摧毁'], structure: ['destroy', '摧毁'], site: ['remove', '取消工地'] }[s.kind] || null; }
-const ACT_ERR = { '-1': '不是你的', '-4': '房间里有敌对 creep，不能摧毁', '-7': '目标无效' };
+function insAction(o, s) { if (!o || !s || !sess || o.owner !== myPid) return null;
+  return { creep: ['suicide', '自杀'], spawn: ['destroy', '摧毁'], structure: ['destroy', '摧毁'], site: ['remove', '取消工地'], flag: ['flag', '移除旗帜'] }[s.kind] || null; }
+// 官方客户端：自杀 / 摧毁 / 取消工地都是发给服务器的手动指令，下个 tick 由官方引擎按规则执行（例如房间里有敌对 creep 时不能摧毁）
 function doInsAction(m) {
-  const s = sel; if (!s) return; const Q = { suicide: ['让这个 creep 自杀？', '自杀'], destroy: ['摧毁这个建筑？', '摧毁'], remove: ['取消这个工地？', '取消工地'] }[m];
-  Shell.dialog(Q[0], '', () => { const A = buildApi(engine, myPid), o = A.Game.getObjectById(s.id); const r = o && typeof o[m] === 'function' ? o[m]() : -7;
-    if (r === 0) { engine.flushIntents(myPid); _snap = null; toastMsg({ suicide: '已自杀', destroy: '已摧毁', remove: '已取消工地' }[m]); renderer.setView(engine.w, 1); renderInspect(); }
-    else toastMsg('无法执行：' + (ACT_ERR[r] || ('错误 ' + r))); }, Q[1]);
+  const s = sel; if (!s || !sess) return; const o = findIn(view(), s); if (!o) return;
+  const Q = { suicide: ['让这个 creep 自杀？', '自杀'], destroy: ['摧毁这个建筑？', '摧毁'], remove: ['取消这个工地？', '取消工地'], flag: ['移除这面旗帜？', '移除'] }[m];
+  Shell.dialog(Q[0], '', () => { (m === 'flag' ? sess.removeFlag(o) : sess.act(m, o)).then(() => toastMsg({ suicide: '已发送自杀指令', destroy: '已发送摧毁指令', remove: '已发送取消指令', flag: '已移除旗帜' }[m] + '，下个 tick 生效'))
+    .catch(e => toastMsg('无法执行：' + e.message)); }, Q[1]);
 }
-$('insBody').addEventListener('click', e => { const ab = e.target.closest('.insDanger'); if (ab) return doInsAction(ab.dataset.act); const bt = e.target.closest('.insTab'); if (!bt || !tileSel) return; tileSel.idx = +bt.dataset.i; renderInspect(); });
+$('insBody').addEventListener('click', e => { const ab = e.target.closest('.insDanger'); if (ab) return doInsAction(ab.dataset.act);
+  const mb = e.target.closest('.insMem'); if (mb && sess) { const out = $('insMem'); out.textContent = '读取中…'; sess.api.memory('creeps.' + mb.dataset.mem).then(r => decodeMem(r.data)).then(d => { out.textContent = 'Memory ' + JSON.stringify(d ?? {}, null, 1); }).catch(er => { out.textContent = er.message; }); return; } const bt = e.target.closest('.insTab'); if (!bt || !tileSel) return; tileSel.idx = +bt.dataset.i; renderInspect(); });
 function tapTile(x, y) {
   const v = view(); if (!v) return;
   if (tileSel && tileSel.x === x && tileSel.y === y && !$('inspect').classList.contains('hidden')) tileSel.idx = (tileSel.idx + 1) % (tileObjs(v, x, y).length + 1);
@@ -346,57 +301,61 @@ renderer.onTap = (x, y) => {
 $('insClose').onclick = () => hideInspect();
 renderer.onTick = () => { if (tileSel && !$('inspect').classList.contains('hidden')) renderInspect(); else if (tileSel) { tileSel = null; sel = null; renderer.select(null, null); } };
 // 状态栏：不覆盖网页
-(function boot() { const host = $('editor'); host.classList.remove('hidden'); host.style.visibility = 'hidden'; initBlockly(); host.classList.add('hidden'); host.style.visibility = ''; loadEngine(); setRunUI(); })();
-document.addEventListener('visibilitychange', () => { if (document.hidden) save(); });
+(function boot() { const host = $('editor'); host.classList.remove('hidden'); host.style.visibility = 'hidden'; initBlockly(); host.classList.add('hidden'); host.style.visibility = ''; setRunUI(); })();
 requestAnimationFrame(loop);
+// 服务器内存：可能是 "gz:" + base64(gzip)
+async function decodeMem(d) {
+  if (typeof d !== 'string') return d; if (!d.startsWith('gz:')) { try { return JSON.parse(d); } catch (e) { return d; } }
+  const bin = Uint8Array.from(atob(d.slice(3)), c => c.charCodeAt(0)); const st = new Blob([bin]).stream().pipeThrough(new DecompressionStream('gzip'));
+  const t = await new Response(st).text(); try { return JSON.parse(t); } catch (e) { return t; }
+}
 // 自动检查更新：启动 20 秒后检查一次，之后游戏运行期间每 30 分钟检查；发现新版本直接弹窗
 setTimeout(() => checkUpdate(false), 20000); setInterval(() => checkUpdate(false), 30 * 60 * 1000);
-const qj = new URLSearchParams(location.search).get('join'); if (qj) join(qj);
-if (new URLSearchParams(location.search).get('run')) { hideStart(); running = true; setSpeed(4, false); setRunUI(); }
-if (qj) hideStart();
 
 // ===== 手动建造（同官方客户端）：选建筑 → 点格子预览 → 放置；点自己的工地可移除 =====
 const ST_ZH = { spawn: 'Spawn', extension: '扩展', road: '道路', constructedWall: '墙', rampart: '城墙', link: '链路', storage: '仓库', tower: '防御塔', observer: '观察者', powerSpawn: '能量中心', extractor: '采矿机', lab: '实验室', terminal: '终端', container: '容器', nuker: '核弹', factory: '工厂' };
 const ERR_ZH = { '-1': '不是你的房间', '-3': '名字已存在', '-7': '位置无效', '-8': '工地数量已达上限', '-10': '参数无效', '-14': 'RCL 不足或房间不归你', '-15': 'GCL 不足' };
 const build = { on: false, type: null, at: null };
 function toastMsg(m) { let t = $('toast'); if (!t) { t = document.createElement('div'); t.id = 'toast'; document.body.appendChild(t); } t.textContent = m; t.classList.add('on'); clearTimeout(toastMsg._t); toastMsg._t = setTimeout(() => t.classList.remove('on'), 1800); }
-function myRoomCtx() { const w = engine.w, sp = w.spawns.find(s => s.owner === myPid); if (!sp) return null; const k = roomKey(sp.x, sp.y), c = ctrlOfRoom(w, k); return { k, lvl: c && c.owner === myPid ? c.level : 0 }; }
+// 当前房间（若是我的）或我的第一个房间：RCL 与已有建筑数（只按服务器发来的对象计算，最终由服务器判定）
+function myRoomCtx() { const v = view(); if (!v) return null; const [rx, ry] = renderer.curRoom(); let k = rx + ',' + ry;
+  const mineC = c => c.owner === myPid; let c = (v.controllers || []).find(c => roomKey(c.x, c.y) === k && mineC(c)); if (!c) { c = (v.controllers || []).find(mineC); if (c) k = roomKey(c.x, c.y); }
+  return { k, lvl: c ? c.level : 0 }; }
+function countStruct(v, t, k) { const inR = o => roomKey(o.x, o.y) === k && o.owner === myPid; return (t === 'spawn' ? v.spawns.filter(inR).length : v.structures.filter(s => s.type === t && inR(s)).length) + v.sites.filter(s => s.type === t && inR(s)).length; }
 function openBuildPicker() {
-  if (mode === 'client') return toastMsg('联机客户端暂不支持手动建造');
-  if (!engine) return; const r = myRoomCtx(); $('bpTitle').textContent = r ? `建造 · RCL ${r.lvl}` : '建造';
-  const w = engine.w; let h = '';
+  const v = view(); if (!v) return toastMsg('还没连接服务器'); const r = myRoomCtx(); $('bpTitle').textContent = r && r.lvl ? `建造 · RCL ${r.lvl}` : '建造';
+  let h = '';
   for (const t of Object.keys(ST_ZH)) { if (!SC.CONTROLLER_STRUCTURES[t]) continue; const lim = r ? SC.CONTROLLER_STRUCTURES[t][r.lvl] || 0 : 0; if (!lim) continue;
-    const used = r ? countStruct(w, myPid, t, r.k) : 0;
+    const used = r ? countStruct(v, t, r.k) : 0;
     const ic = typeof ART !== 'undefined' ? ART.icon(t, { cap: t === 'extension' ? SC.EXTENSION_ENERGY_CAPACITY[r ? r.lvl : 1] || 50 : 50 }) : '';
     h += `<button data-t="${t}" ${used >= lim ? 'disabled' : ''}>${ic ? `<img class="bi" src="${ic}" alt="">` : '<span class="bi"></span>'}<span class="bt"><span class="n">${ST_ZH[t]}</span><span class="d">${used}/${lim > 1000 ? '∞' : lim} · ${SC.CONSTRUCTION_COST[t]} 能量</span></span></button>`; }
-  $('bpList').innerHTML = h; $('bpList').querySelectorAll('button').forEach(b => b.onclick = () => startBuild(b.dataset.t));
+  $('bpList').innerHTML = h || '<p class="note">这个房间不是你的，或还没有 Controller 等级，不能建造</p>'; $('bpList').querySelectorAll('button').forEach(b => b.onclick = () => startBuild(b.dataset.t));
   $('buildPick').classList.remove('hidden'); $('inspect').classList.add('hidden'); $('flagPick').classList.add('hidden');
 }
 function startBuild(t) { build.on = true; build.type = t; build.at = null; $('buildPick').classList.add('hidden'); $('buildBar').classList.remove('hidden'); $('bbOk').disabled = true; $('bbOk').textContent = '放置'; $('bbMsg').textContent = `点地图选择${t === 'flag' ? '旗帜' : ST_ZH[t]}的位置`; $('btnBuild').classList.toggle('on', t !== 'flag'); $('btnFlag').classList.toggle('on', t === 'flag'); }
 function endBuild() { build.on = false; build.at = null; renderer.preview = null; renderer.drawSel(); $('buildBar').classList.add('hidden'); $('btnBuild').classList.remove('on'); $('btnFlag').classList.remove('on'); }
-function apiPos(A, x, y) { return new A.RoomPosition(x % ROOM, y % ROOM, roomName(x, y)); }
+function tileAt(x, y) { const t = roomTiles(Math.floor(x / ROOM), Math.floor(y / ROOM)); return t ? +t[(y % ROOM) * ROOM + (x % ROOM)] : null; }
 function buildTap(x, y) {
-  const w = engine.w, site = w.sites.find(s => s.x === x && s.y === y && s.owner === myPid);
-  if (site) { build.at = { x, y, remove: site.id }; renderer.preview = { x, y, ok: false }; $('bbMsg').textContent = `移除${ST_ZH[site.type] || site.type}工地？`; $('bbOk').textContent = '移除'; $('bbOk').disabled = false; renderer.drawSel(); return; }
+  const v = view(); if (!v) return; const site = v.sites.find(s => s.x === x && s.y === y && s.owner === myPid);
+  if (site && build.type !== 'flag') { build.at = { x, y, remove: site.id, site }; renderer.preview = { x, y, ok: false }; $('bbMsg').textContent = `移除${ST_ZH[site.type] || site.type}工地？`; $('bbOk').textContent = '移除'; $('bbOk').disabled = false; renderer.drawSel(); return; }
   if (build.at && build.at.x === x && build.at.y === y && !build.at.remove) return confirmBuild();
-  const ok = +engine.tile(x, y) !== T_WALL || build.type === 'road' || build.type === 'flag';
-  if (build.type === 'flag' && build.at && build.at.x === x && build.at.y === y) return confirmBuild();
+  const ok = tileAt(x, y) !== T_WALL || build.type === 'road' || build.type === 'flag';
   build.at = { x, y }; renderer.preview = { x, y, ok }; renderer.drawSel();
   $('bbOk').textContent = '放置'; $('bbOk').disabled = false; $('bbMsg').textContent = `${build.type === 'flag' ? '旗帜 ' + flagSt.name : ST_ZH[build.type]} · x ${x % ROOM}, y ${y % ROOM}`;
 }
-function confirmBuild() {
-  const a = build.at; if (!a) return; const A = buildApi(engine, myPid); let r;
-  if (a.remove) { const o = A.Game.getObjectById(a.remove); r = o ? o.remove() : -7; if (r === 0) toastMsg('已移除工地'); }
-  else if (build.type === 'flag') { r = apiPos(A, a.x, a.y).createFlag(flagSt.name, flagSt.c1, flagSt.c2); if (typeof r === 'string') { toastMsg('已放置旗帜 ' + r); r = 0; flagSt.name = nextFlagName(); } }
-  else { r = apiPos(A, a.x, a.y).createConstructionSite(build.type); if (r === 0) toastMsg(`已放置${ST_ZH[build.type]}工地`); }
-  if (r !== 0) { toastMsg('无法放置：' + (ERR_ZH[r] || ('错误 ' + r))); renderer.preview = { x: a.x, y: a.y, ok: false }; }
-  else { renderer.preview = null; renderer.setView(engine.w, 1); }
-  build.at = null; $('bbOk').disabled = true; $('bbOk').textContent = '放置'; renderer.drawSel(); save();
-  if (r === 0) $('bbMsg').textContent = '继续点地图放置，或退出';
+async function confirmBuild() {
+  const a = build.at; if (!a || !sess) return; $('bbOk').disabled = true;
+  try {
+    if (a.remove) { await sess.act('remove', a.site); toastMsg('已发送移除工地指令'); }
+    else if (build.type === 'flag') { await sess.flag(a.x, a.y, flagSt.name, flagSt.c1, flagSt.c2); toastMsg('已放置旗帜 ' + flagSt.name); flagSt.name = nextFlagName(flagSt.name); }
+    else { await sess.build(a.x, a.y, build.type); toastMsg(`已放置${ST_ZH[build.type]}工地`); }
+    renderer.preview = null; $('bbMsg').textContent = '继续点地图放置，或退出';
+  } catch (e) { toastMsg('无法放置：' + e.message); renderer.preview = { x: a.x, y: a.y, ok: false }; }
+  build.at = null; $('bbOk').textContent = '放置'; renderer.drawSel();
 }
 // ===== 旗帜（同官方客户端：独立工具，名字 + 主/副颜色，点地图放置） =====
 const flagSt = { name: 'Flag1', c1: 10, c2: 10 };
-function nextFlagName() { const have = new Set(((engine && engine.w.flags) || []).filter(f => f.owner === myPid).map(f => f.name)); let i = 1; while (have.has('Flag' + i)) i++; return 'Flag' + i; }
+function nextFlagName(used) { const v = view(), have = new Set(((v && v.flags) || []).map(f => f.name)); if (used) have.add(used); let i = 1; while (have.has('Flag' + i)) i++; return 'Flag' + i; }
 function drawFlagPick() {
   const sw = (k) => ART.FLAG.slice(1).map((c, i) => `<button class="fsw${flagSt[k] === i + 1 ? ' on' : ''}" data-k="${k}" data-c="${i + 1}" style="background:${c}" aria-label="${ART.FLAG_ZH[i + 1]}"></button>`).join('');
   $('fpPrev').src = ART.icon('flag', { color: flagSt.c1, secondaryColor: flagSt.c2 }, 48) || '';
@@ -404,12 +363,11 @@ function drawFlagPick() {
   $('flagPick').querySelectorAll('.fsw').forEach(b => b.onclick = () => { flagSt[b.dataset.k] = +b.dataset.c; if (b.dataset.k === 'c1' && !flagSt._c2set) flagSt.c2 = +b.dataset.c; if (b.dataset.k === 'c2') flagSt._c2set = 1; drawFlagPick(); });
 }
 function openFlagPick() {
-  if (mode === 'client') return toastMsg('联机客户端暂不支持放置旗帜');
-  if (!engine) return; flagSt.name = nextFlagName(); $('fpName').value = flagSt.name; drawFlagPick();
+  if (!sess) return toastMsg('还没连接服务器'); flagSt.name = nextFlagName(); $('fpName').value = flagSt.name; drawFlagPick();
   $('flagPick').classList.remove('hidden'); $('buildPick').classList.add('hidden'); $('inspect').classList.add('hidden');
 }
 $('fpName').oninput = () => { flagSt.name = $('fpName').value.trim().slice(0, 100); };
-$('fpOk').onclick = () => { flagSt.name = ($('fpName').value.trim() || nextFlagName()).slice(0, 100); if (engine.w.flags.some(f => f.owner === myPid && f.name === flagSt.name)) return toastMsg('名字已存在'); $('flagPick').classList.add('hidden'); startBuild('flag'); };
+$('fpOk').onclick = () => { flagSt.name = ($('fpName').value.trim() || nextFlagName()).slice(0, 100); if ((view()?.flags || []).some(f => f.name === flagSt.name)) return toastMsg('名字已存在'); $('flagPick').classList.add('hidden'); startBuild('flag'); };
 $('fpClose').onclick = () => $('flagPick').classList.add('hidden');
 $('btnFlag').onclick = () => build.on && build.type === 'flag' ? endBuild() : ($('flagPick').classList.contains('hidden') ? (build.on && endBuild(), openFlagPick()) : $('flagPick').classList.add('hidden'));
 $('btnBuild').onclick = () => build.on ? endBuild() : ($('buildPick').classList.contains('hidden') ? openBuildPicker() : $('buildPick').classList.add('hidden'));
@@ -476,16 +434,15 @@ $('wmCanvas').addEventListener('click', e => {
 });
 $('wmGo').onclick = () => {
   if (!wm.sel || $('wmGo').disabled) return; const [rx, ry] = wm.sel; $('wmap').classList.add('hidden');
-  if (mode === 'client') client.gen(rx, ry); else { ensureNear(engine.w, rx, ry, 0); renderer.setView(engine.w, 1); _snap = null; }
-  renderer.fitRoom(rx, ry);
+  sess && sess.ensureTerrain(rx + ',' + ry).catch(e => toastMsg(e.message));
+  renderer.fitRoom(rx, ry); watchRooms();
   if (!wm.pick) return;
   build.on = true; build.type = 'spawn1'; build.at = null; $('buildBar').classList.remove('hidden'); $('bbOk').disabled = true; $('bbOk').textContent = '放置 Spawn1'; $('bbCancel').textContent = '返回地图';
   $('bbMsg').textContent = `点 ${roomNameXY(rx, ry)} 里的空地放置 Spawn1`; wm.room = [rx, ry];
 };
 function localSpawnCheck(x, y) {
   if (Math.floor(x / ROOM) !== wm.room[0] || Math.floor(y / ROOM) !== wm.room[1]) return '请在所选房间内放置';
-  if (mode !== 'client') return engine.checkSpawnAt(myPid, x, y);
-  const rm = client.rooms && client.rooms[wm.room.join(',')]; if (!rm) return '地形加载中…'; const lx = x % ROOM, ly = y % ROOM, T = (a, b) => rm.tiles[b * ROOM + a];
+  const rm = sess && sess.rooms[wm.room.join(',')]; if (!rm) return '地形加载中…'; const lx = x % ROOM, ly = y % ROOM, T = (a, b) => rm.tiles[b * ROOM + a];
   if (lx < 1 || ly < 1 || lx > 48 || ly > 48) return '不能放在房间边缘'; if (T(lx, ly) === T_WALL) return '不能放在墙上';
   for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) { const X = lx + dx, Y = ly + dy; if ((X === 0 || Y === 0 || X === 49 || Y === 49) && T(X, Y) !== T_WALL) return '不能紧挨出口'; }
   return null;
@@ -494,14 +451,13 @@ function spawnTap(x, y) {
   const err = localSpawnCheck(x, y); build.at = { x, y }; renderer.preview = { x, y, ok: !err }; renderer.drawSel();
   $('bbMsg').textContent = err ? err : `Spawn1 · x ${x % ROOM}, y ${y % ROOM}`; $('bbOk').disabled = !!err;
 }
-function spawnDone() { endBuild(); $('bbCancel').textContent = '退出'; wm.auto = false; toastMsg('Spawn1 已放下，Controller 已占领（RCL 1）'); if (!running && mode !== 'client') { running = true; setRunUI(); } }
-function confirmSpawn() {
-  const a = build.at; if (!a) return;
-  if (mode === 'client') { client.onSpawnRes = err => err ? toastMsg('无法放置：' + err) : spawnDone(); client.spawnAt(a.x, a.y); return; }
-  const err = engine.placeSpawnAt(myPid, a.x, a.y); if (err) return toastMsg('无法放置：' + err);
-  _snap = null; renderer.setView(engine.w, 1); hostS && hostS.pushAll(); save(); spawnDone();
+function spawnDone() { endBuild(); $('bbCancel').textContent = '退出'; wm.auto = false; toastMsg('Spawn1 已放下，Controller 已占领（RCL 1）');
+  if (code && code !== lastUploaded) applyCode(); }
+async function confirmSpawn() {
+  const a = build.at; if (!a || !sess) return; $('bbOk').disabled = true;
+  try { await sess.placeSpawn(a.x, a.y, 'Spawn1'); spawnDone(); } catch (e) { toastMsg('无法放置：' + e.message); $('bbOk').disabled = false; }
 }
-window.doRespawn = () => { endBuild(); wm.auto = false; if (mode === 'client') client.respawn(); else { engine.respawn(myPid); _snap = null; renderer.reset(); renderer.setView(engine.w, 1); hostS && hostS.pushAll(); save(); } toastMsg('已重新出生，请选择新的出生点'); };
+window.doRespawn = async () => { if (!sess) return; endBuild(); wm.auto = false; try { await sess.respawn(); renderer.reset(); toastMsg('已重新出生，请选择新的出生点'); } catch (e) { toastMsg('重新出生失败：' + e.message); } };
 addEventListener('resize', () => { if (!$('wmap').classList.contains('hidden')) drawWorldMap(); });
 
 
@@ -514,7 +470,7 @@ function roomEnergy(v, kk) { // 当前房间（若是我的）否则我的第一
   for (const s of v.structures || []) if (s.type === 'extension' && inR(s)) { a += s.energy || 0; c += s.energyCapacity || 0; }
   return [a, c];
 }
-function roomTiles(rx, ry) { const k = rx + ',' + ry; return mode === 'client' ? client?.rooms?.[k]?.tiles : engine?.w.rooms[k]?.tiles; }
+function roomTiles(rx, ry) { return sess?.rooms?.[rx + ',' + ry]?.tiles; }
 function edgeOpen(rx, ry, dx, dy) {
   const v = view(); if (!v) return false; const nx = rx + dx, ny = ry + dy; if (nx < 0 || ny < 0 || nx >= v.S || ny >= v.S) return false;
   const t = roomTiles(rx, ry); if (!t) return true;
@@ -527,13 +483,12 @@ function updateRoomNav(v) {
   if ($('rbName').textContent !== lbl) $('rbName').textContent = lbl;
 }
 function gotoRoom(rx, ry) { needRoom(rx, ry); renderer.fitRoom(rx, ry); updateRoomNav(view()); }
-const _asked = new Set();
-function needRoom(rx, ry) { const k = rx + ',' + ry; if (mode === 'client') { if (!_asked.has(k)) { _asked.add(k); client.gen(rx, ry); } } else if (engine && !engine.w.rooms[k]) { ensureRoom(engine.w, rx, ry); _snap = null; renderer.setView(engine.w, 1); } }
+function needRoom(rx, ry) { if (sess) sess.ensureTerrain(rx + ',' + ry).catch(() => {}); }
 renderer.onNeedRoom = needRoom;
 renderer.onLod = () => { updateRoomNav(view()); const m = renderer.lod === 'mini'; setLabel('btnView', m ? 'home' : 'map', m ? '我的房间' : '全图'); };
 // 右侧工具栏「全图 / 我的房间」切换（替代原右上角两个按钮）
 $('btnView').onclick = () => { const v = view(); if (!v) return; if (renderer.lod === 'mini') goHome(); else renderer.fitWorld(v.S); };
-function goHome() { const v = view(), sp = v && v.spawns.find(s => s.owner === myPid); if (sp) gotoRoom(Math.floor(sp.x / ROOM), Math.floor(sp.y / ROOM)); else toastMsg('还没有房间'); };
+function goHome() { const v = view(); const k = v && (Object.keys(v.owned || {}).find(k => v.owned[k] === myPid) || (sess && sess.home && sess.kOf(sess.home))); if (k) gotoRoom(...k.split(',').map(Number)); else toastMsg('还没有房间'); };
 $('rbSpawn').onclick = () => { wm.auto = false; openWorldMap(true); };
 
 // 世界地图：双指缩放 / 拖动；点房间选择，「前往」进入
@@ -576,7 +531,7 @@ function roomInfoHTML() {
   const pc = o && v.players[o], badgeH = o === myPid && window.Shell ? Shell.badge(JSON.parse(localStorage.getItem('sbm_profile') || '{}').badge, 36) : `<span class="pdot" style="background:${pc ? '#' + (pc.color >>> 0).toString(16).padStart(6, '0') : '#444'}"></span>`;
   let h = `<div class="ri"><div class="riHead">${badgeH}<div><div class="riName">${roomNameXY(rx, ry)}</div><div class="riSub">${TZ[t]} · ${o ? esc(pc?.name || o) + (o === myPid ? '（我）' : '') : '无主'}</div></div></div>
     <div class="riBtns"><button class="primary" id="riZoom">放大进入房间</button><button id="riWorld">全图</button></div>`;
-  if (!gen) h += `<p class="note">尚未探索：放大进入后生成地形。</p>`;
+  if (!gen) h += `<p class="note">${sess && sess._statusMap && sess._statusMap[k] && sess._statusMap[k] !== 'normal' ? '这个房间不在服务器的世界里' : '地形加载中…'}</p>`;
   if (ctrl) { const p = ctrl.level && ctrl.level < 8 ? ctrl.progress / (ctrl.progressTotal || 1) : ctrl.level ? 1 : 0;
     h += `<h4>Controller</h4>${kvr('等级', ctrl.level ? 'RCL ' + ctrl.level : '未占领')}${ctrl.level ? kvr('升级进度', `${ctrl.progress} / ${ctrl.progressTotal || '-'}`) + `<div class="bar"><i style="width:${(p * 100).toFixed(1)}%"></i></div>` + kvr('降级倒计时', ctrl.ticksToDowngrade ?? '-') : ''}
       ${kvr('安全模式', ctrl.safeMode ? '生效中（剩 ' + ctrl.safeMode + '）' : '未开启' + (ctrl.safeModeAvailable ? ' · 可用 ' + ctrl.safeModeAvailable : ''))}${kvr('预定', ctrl.reservation ? esc(v.players[ctrl.reservation.username || ctrl.reservation.owner]?.name || '其他玩家') + ' · ' + (ctrl.reservation.ticksToEnd ?? '') : '无')}`; }
@@ -585,7 +540,7 @@ function roomInfoHTML() {
   if (gen) h += `<h4>资源</h4>${kvr('能量源', srcs.length + ' 个' + (srcs.length ? '（' + srcs.map(s => s.energy + '/' + s.cap).join('，') + '）' : ''))}${kvr('矿物', mins.length ? mins.map(m => esc(m.type) + ' · ' + m.amount).join('，') : '无')}`;
   if (gen) h += `<h4>单位与建筑</h4>${kvr('creep', `${cr.length}（我的 ${my}，其他 ${cr.length - my}）`)}${kvr('工地', sites.length)}${Object.entries(cnt).map(([a, b]) => kvr(ST_ZH[a] || a, b)).join('') || kvr('建筑', '无')}`;
   h += `<h4>出口</h4>${kvr('相邻房间', ex.length ? ex.join(' · ') : '无')}`;
-  h += `<h4>运行</h4>${kvr('Game.time', v.time)}${kvr('本机 tick 耗时', mode === 'client' ? '房主计算' : tickMs.toFixed(2) + ' ms')}${kvr('世界', v.S + '×' + v.S + ' 房间')}</div>`;
+  h += `<h4>运行</h4>${kvr('Game.time', v.time)}${kvr('服务器', esc(srvLabel()))}${kvr('世界', v.S + '×' + v.S + ' 房间')}</div>`;
   return h;
 }
 document.addEventListener('click', e => { if (e.target.id === 'riZoom' && infoRoom) { gotoRoom(...infoRoom); $('panel').classList.add('hidden'); } if (e.target.id === 'riWorld') { const v = view(); v && renderer.fitWorld(v.S); } });
@@ -603,7 +558,8 @@ function layersHTML() {
 function renderPanel(force) {
   if ($('panel').classList.contains('hidden')) return;
   if (panelTab === 'room') $('pnBody').innerHTML = roomInfoHTML();
-  else if (panelTab === 'memory' && force) $('pnBody').innerHTML = mode === 'client' ? '<p>内存在房主上，客户端暂不可查看。</p>' : `<div class="mem">${memHTML(engine.w.memory[myPid] || {})}</div>`;
+  else if (panelTab === 'memory' && force) { $('pnBody').innerHTML = '<p class="note">读取中…</p>'; if (!sess) $('pnBody').innerHTML = '<p>还没连接服务器</p>';
+    else sess.api.memory('').then(r => decodeMem(r.data)).then(d => { if (panelTab === 'memory') $('pnBody').innerHTML = `<div class="mem">${memHTML(d || {})}</div>`; }).catch(e => { $('pnBody').innerHTML = `<p>${esc(e.message)}</p>`; }); }
   else if (panelTab === 'layers' && force) { $('pnBody').innerHTML = layersHTML(); $('pnBody').querySelectorAll('[data-ov]').forEach(i => i.onchange = () => {
     renderer.setOverlay(i.dataset.ov, i.checked); localStorage.setItem('sbm_ov', JSON.stringify(renderer.ov)); }); }
   else if (panelTab === 'console') renderConsole();
@@ -619,22 +575,20 @@ function renderConsole() {
 $('cnFind').oninput = renderConsole;
 document.querySelectorAll('[data-cf]').forEach(b => b.onclick = () => { cnFilter = b.dataset.cf; document.querySelectorAll('[data-cf]').forEach(x => x.classList.toggle('on', x === b)); renderConsole(); });
 // 控制台输入：在本机世界里以自己的身份执行一行 JS（Game / Memory / RoomPosition / PathFinder 与常量可用）
+// 控制台输入：发给服务器在你的账号下执行（POST /api/user/console），结果在下一个 tick 回到控制台
 function runCmd() {
   const src = $('cnCmd').value.trim(); if (!src) return; log('> ' + src, 'cmd');
-  if (mode === 'client') return log('客户端不能在房主世界执行命令', 'err');
-  try { const A = buildApi(engine, myPid); const f = new Function(...Object.keys(A), `"use strict"; return (${src});`); let r = f(...Object.values(A));
-    const seen = new WeakSet(); log(r && typeof r === 'object' ? (JSON.stringify(r, (k, v) => { if (k === 'room' && v && v.name) return '[room ' + v.name + ']'; if (v && typeof v === 'object') { if (seen.has(v)) return '[循环]'; seen.add(v); } return v; }, 1) || String(r)).slice(0, 4000) : String(r), 'res');
-    _snap = null; } catch (e) { log(e.message, 'err'); }
-  $('cnCmd').value = '';
+  if (!sess) return log('还没连接服务器', 'err');
+  sess.runConsole(src).catch(e => log(e.message, 'err')); $('cnCmd').value = '';
 }
 $('cnRun').onclick = runCmd; $('cnCmd').addEventListener('keydown', e => { if (e.key === 'Enter') runCmd(); });
 (() => { let ov = {}; try { ov = JSON.parse(localStorage.getItem('sbm_ov')) || {}; } catch (e) {} ov = Object.assign({ names: true }, ov); for (const k in ov) renderer.setOverlay(k, ov[k]); })();
 
 // 全局信息：原 HUD 上的性能 / 世界数据集中到这里
 function globalHTML() {
-  const v = view(), me = v && v.players[myPid];
+  const v = view(), me = sess && sess.me;
   const R = (k, x) => `<div class="gi"><span>${k}</span><b>${x}</b></div>`;
-  return `<div class="glob">${R('模式', mode === 'solo' ? '单机' : mode === 'host' ? '房主' : '客户端')}${R('状态', running ? '运行中' : '已暂停')}${R('运行速度', speed + 'x（每 tick ' + Math.round(500 / speed) + ' ms）')}${R('当前 tick', v ? v.time : '-')}${R('每 tick 计算耗时', tickMs.toFixed(1) + ' ms')}${R('渲染帧率', renderer.fps.toFixed(0) + ' FPS')}${R('世界大小', v ? v.S + '×' + v.S + ' 房间' : '-')}${R('玩家数', v ? Object.keys(v.players).length : '-')}${R('GCL 点数', me ? Math.floor(me.gcl || 0) : '-')}${me && me.bucket != null ? R('CPU bucket', Math.floor(me.bucket)) : ''}${R('版本', 'V' + (window.APP_VERSION || 'dev'))}</div>`;
+  return `<div class="glob">${R('服务器', esc(srvLabel()))}${R('连接', esc(netState))}${R('玩家', me ? esc(me.username) : '-')}${R('当前 tick', v ? v.time : '-')}${R('CPU 上个 tick', cpuInfo ? cpuInfo.cpu + ' ms' : '-')}${R('Memory 大小', cpuInfo ? (cpuInfo.memory / 1024).toFixed(1) + ' KB' : '-')}${me && me.cpu != null ? R('CPU 上限', me.cpu) : ''}${R('GCL 点数', me ? Math.floor(me.gcl || 0) : '-')}${R('渲染帧率', renderer.fps.toFixed(0) + ' FPS')}${R('显示范围', v ? v.S + '×' + v.S + ' 房间' : '-')}${R('版本', 'V' + (window.APP_VERSION || 'dev'))}</div>`;
 }
 setInterval(() => { if (!$('panel').classList.contains('hidden') && panelTab === 'global') $('pnBody').innerHTML = globalHTML(); }, 1000);
 
@@ -654,9 +608,7 @@ setInterval(() => { if (!$('panel').classList.contains('hidden') && panelTab ===
   L('history', 85, () => inEd() && vis('histP'), () => $('histP').classList.add('hidden'));
   L('flyout', 80, () => inEd() && !!(fly && fly.isVisible()), () => closeFlyout());
   L('editor', 70, inEd, () => $('edClose').click());
-  L('speedPop', 66, () => inGame() && vis('speedPop'), () => $('speedPop').classList.add('hidden'));
   L('intro', 65, () => vis('intro'), () => $('introOk').click());
-  L('net', 65, () => vis('net'), () => $('nClose').click());
   L('menu', 65, () => vis('menu'), () => $('mClose').click());
   L('wmap', 60, () => inGame() && vis('wmap'), () => $('wmClose').click());
   L('flagPick', 55, () => inGame() && vis('flagPick'), () => $('fpClose').click());

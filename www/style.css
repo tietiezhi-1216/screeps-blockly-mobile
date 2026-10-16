@@ -255,3 +255,5 @@ pre.mem{margin:var(--sp-1) 0 0;max-height:120px;overflow:auto;background:#0008;p
 #flagPick .fsw{aspect-ratio:1;min-height:22px;border:2px solid transparent;border-radius:3px;padding:0}
 #flagPick .fsw.on{border-color:#5973FF;outline:1px solid #fff}
 #fpOk{margin-top:8px;width:100%;height:34px;border:0;border-radius:4px;background:#5973FF;color:#fff;font-size:13px}
+.insMem{margin-top:var(--sp-2);background:#2a2d34;color:#ddd;border:0;border-radius:var(--r-s);padding:5px 12px;font-size:var(--fs-s)}
+#btnRun.busy{opacity:.55;pointer-events:none}

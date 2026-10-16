@@ -9,6 +9,7 @@ const R = '__r'; // 上一个动作的结果（模块级变量，跨回合保留
 // 生成的程序：变量 / 函数 / 结果放在模块顶层（跨回合保留），积木程序本身放进官方的 module.exports.loop（每回合执行一次）
 JS.finish = (function (orig) { return function (code) {
   if (code.includes(R)) this.definitions_['__r'] = `var ${R}; // 上一个动作的结果`;
+  if ((code + Object.values(this.definitions_).join('\n')).includes('__loopGuard()')) this.definitions_['__loopGuard'] = 'function __loopGuard() { // 循环保护：本回合 CPU 快用完时停下，免得整段代码超时\n  if (Game.cpu.getUsed() > Game.cpu.tickLimit * 0.9) throw new Error(\'循环太久，本回合 CPU 快用完了\');\n}';
   const body = code.trim() ? 'module.exports.loop = function () {\n' + this.prefixLines(code, this.INDENT) + '};\n' : '';
   return orig.call(this, body);
 }; })(JS.finish);

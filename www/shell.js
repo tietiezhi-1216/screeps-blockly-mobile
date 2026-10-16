@@ -1,4 +1,4 @@
-// 应用外壳：首页 / 个人中心 / 统计 / 存档 / 代码片段 / 设置 / 关于（扁平 Screeps 网页风格）
+// 应用外壳：首页 / 登录服务器 / 个人中心 / 代码片段 / 设置 / 关于（扁平 Screeps 网页风格）
 (() => {
   const S = $('start'), LS = localStorage, esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const J = (k, d) => { try { return JSON.parse(LS.getItem(k)) ?? d; } catch (e) { return d; } };
@@ -26,39 +26,66 @@
   const row = (act, ic, label, val = '', cls = '') => `<button class="shRow ${cls}" data-act="${act}" data-icon="${ic}"><span class="lb">${label}</span><span class="v">${val}</span>${act.startsWith('go:') ? `<span class="ic chev">${icon('chevron-right')}</span>` : ''}</button>`;
   const sec = t => `<div class="shSec">${t}</div>`;
 
+  const online = () => typeof sess !== 'undefined' && !!sess;
   pages.home = () => {
-    const p = prof();
+    const p = prof(), c = window.srvCfg ? srvCfg() : null, on = online();
     return `<div class="home"><div class="brand"><img src="art/logo.png" alt=""><div class="bt">Screeps <b>World</b></div></div>
-    <button class="pcard" data-act="go:profile">${badge(p.badge, 44)}<div class="pc"><div class="pn">${esc(nick)}</div><div class="ps">RCL ${Stats.get().rclMax} · ${fmt(Stats.get().ticks)} tick</div></div><span class="ic chev">${icon('chevron-right')}</span></button>
-    <div class="grid hq">${[['总 tick', Stats.get().ticks], ['creep', Stats.get().creeps], ['能量', Stats.get().energy]].map(([k, v]) => `<div class="cell"><div class="k">${k}</div><div class="n">${fmt(v)}</div></div>`).join('')}</div>
+    <button class="pcard" data-act="${on ? 'go:profile' : 'go:login'}">${badge(on ? (sess.me.badge || p.badge) : p.badge, 44)}<div class="pc"><div class="pn">${on ? esc(sess.me.username) : '未登录'}</div><div class="ps">${esc(on ? srvLabel(c) : c ? '上次：' + srvLabel(c) : '连接你的私服或官方服务器')}</div></div><span class="ic chev">${icon('chevron-right')}</span></button>
     <div class="menu">
-      <button id="sPlay" class="primary big" data-act="play" data-icon="player-play"><span class="lb">${startGame.done ? '返回游戏' : '开始游戏'}</span></button>
-      <button id="sNet" class="big" data-act="net" data-icon="broadcast"><span class="lb">局域网联机</span></button>
+      <button id="sPlay" class="primary big" data-act="play" data-icon="player-play"><span class="lb">${on ? '进入游戏' : c && (c.password || c.token) ? '连接并进入' : '登录服务器'}</span></button>
+      <button class="big" data-act="go:login" data-icon="server"><span class="lb">${on ? '切换服务器' : '服务器与账号'}</span></button>
       <button class="big" data-act="go:profile" data-icon="user"><span class="lb">个人中心</span></button>
       <button id="sSet" class="big" data-act="go:settings" data-icon="settings"><span class="lb">设置</span></button>
       <button class="big" data-act="go:about" data-icon="info-circle"><span class="lb">关于</span></button>
     </div><div id="startVer" class="foot">版本 ${esc(window.APP_VERSION || 'dev')}</div></div>`;
   };
 
-  // 个人中心：对照官方网页客户端账户页（徽章 + 名字 + GCL 进度条；概览 / 房间 / 统计 三个标签）
+  // 登录：私服（地址 + 用户名/密码，screepsmod-auth）或官方服务器（Auth Token + shard）
+  let lk = null, lerr = '', lbusy = false, ldraft = {}; // ldraft：填了但还没连上的表单，出错重绘时保留
+  pages.login = () => {
+    const c = (window.srvCfg && srvCfg()) || {}; lk = lk || c.kind || 'private'; const P = lk === 'private', d = ldraft[lk] || (c.kind === lk ? c : {}), v = k => esc(d[k] ?? '');
+    const f = (id, label, val, type = 'text', ph = '', extra = '') => `<label class="lf"><span>${label}</span><input id="${id}" type="${type}" value="${val}" placeholder="${ph}" autocomplete="off" autocapitalize="off" spellcheck="false" ${extra}></label>`;
+    return head('服务器与账号') + `<div class="shBody login">
+      <div class="seg2"><button class="${P ? 'on' : ''}" data-act="lkind" data-k="private">私服</button><button class="${P ? '' : 'on'}" data-act="lkind" data-k="official">官方服务器</button></div>
+      ${P ? `${f('lHost', '服务器地址', v('host'), 'text', '例如 192.168.1.10:21025 或 https://你的域名')}
+        ${f('lUser', '用户名或邮箱', v('username'))}${f('lPass', '密码', v('password'), 'password')}
+        ${f('lSrvPw', '服务器密码（没有就留空）', v('serverPassword'), 'password')}
+        <p class="note">私服需要安装 screepsmod-auth。第一次用可以点「注册新账号」。</p>`
+      : `${f('lToken', 'Auth Token', v('token'), 'password', '在 screeps.com 账号设置 → Auth Tokens 生成')}
+        <label class="lf"><span>Shard</span><select id="lShard">${['shard0', 'shard1', 'shard2', 'shard3'].map(x => `<option ${((lk === 'official' && d.shard) || 'shard3') === x ? 'selected' : ''}>${x}</option>`).join('')}</select></label>
+        <p class="note">官方服务器需要你自己的 Screeps 账号（World 需订阅）。Token 有限额：上传代码每天最多 240 次。</p>`}
+      ${lerr ? `<p class="lerr">${esc(lerr)}</p>` : ''}
+      <button class="primary wide" data-act="login" data-icon="login" ${lbusy ? 'disabled' : ''}><span class="lb">${lbusy ? '连接中…' : '连接'}</span></button>
+      ${P ? `<button class="wide" data-act="register" data-icon="user-plus" ${lbusy ? 'disabled' : ''}><span class="lb">注册新账号</span></button>` : ''}
+      ${online() ? `<button class="wide danger" data-act="logout" data-icon="logout"><span class="lb">退出登录</span></button>` : ''}
+      </div>`;
+  };
+  const readLogin = () => { const g = id => ($(id) ? $(id).value.trim() : '');
+    return lk === 'private' ? { kind: 'private', host: g('lHost'), username: g('lUser'), password: $('lPass') ? $('lPass').value : '', serverPassword: $('lSrvPw') ? $('lSrvPw').value : '' }
+      : { kind: 'official', token: g('lToken'), shard: g('lShard') || 'shard3' }; };
+  async function doLogin(cfg) {
+    ldraft[cfg.kind] = cfg; lbusy = true; lerr = ''; if (S.dataset.page === 'login') show('login', false);
+    try { await connectServer(cfg); lbusy = false; ldraft = {}; toast('已连接'); startGame(); }
+    catch (e) { lbusy = false; lerr = e.message || String(e); if (S.dataset.page !== 'login') show('login'); else show('login', false); }
+  }
+
+  // 个人中心：对照官方网页客户端账户页（徽章 + 名字 + GCL 进度条；概览 / 房间）
   let ptab = 'overview';
   const gclInfo = pts => { const M = SC.GCL_MULTIPLY, P = SC.GCL_POW, lv = Math.floor(Math.pow((pts || 0) / M, 1 / P)) + 1, base = Math.pow(lv - 1, P) * M, next = Math.pow(lv, P) * M; return { lv, cur: (pts || 0) - base, need: next - base }; };
-  const myRooms = () => { const v = typeof view === 'function' ? view() : null; if (!v) return []; return (v.controllers || []).filter(c => c.owner === myPid).map(c => ({ name: roomName(c.x, c.y), lvl: c.level, p: c.progress, t: c.progressTotal,
-    sp: v.spawns.filter(s => s.owner === myPid && roomName(s.x, s.y) === roomName(c.x, c.y)).length, cr: v.creeps.filter(k => k.owner === myPid && roomName(k.x, k.y) === roomName(c.x, c.y)).length })); };
+  const myRooms = () => { const v = typeof view === 'function' ? view() : null; if (!v || !sess) return []; return Object.keys(v.owned || {}).filter(k => v.owned[k] === myPid).map(k => { const [rx, ry] = k.split(',').map(Number), mi = sess.mapInfo[k], c = (v.controllers || []).find(c => roomKey(c.x, c.y) === k);
+    return { name: roomNameXY(rx, ry), lvl: c ? c.level : (mi && mi.own ? mi.own.level : 0), p: c ? c.progress : 0, t: c ? c.progressTotal : 0, sp: v.spawns.filter(s => s.owner === myPid && roomKey(s.x, s.y) === k).length, cr: v.creeps.filter(x => x.owner === myPid && roomKey(x.x, x.y) === k).length }; }); };
   pages.profile = () => {
-    const p = prof(), s = Stats.get(), v = typeof view === 'function' ? view() : null, me = v && v.players[myPid], g = gclInfo(me ? me.gcl : 0), rooms = myRooms();
+    if (!online()) return head('个人中心') + `<div class="shBody"><p class="note">登录服务器后可以看到你的账号、GCL 和房间。</p>${row('go:login', 'login', '登录服务器')}${sec('徽章')}${row('go:badge', 'palette', '徽章')}</div>`;
+    const me = sess.me, v = view(), g = gclInfo(me.gcl || 0), rooms = myRooms();
     const tile = (k, n, ic) => `<div class="cell"><div class="k"><span class="ic">${icon(ic)}</span>${k}</div><div class="n">${n}</div></div>`;
-    const tabs = [['overview', '概览'], ['rooms', '房间'], ['stats', '统计']].map(([k, t]) => `<button class="tab${ptab === k ? ' on' : ''}" data-act="ptab" data-t="${k}">${t}</button>`).join('');
+    const tabs = [['overview', '概览'], ['rooms', '房间']].map(([k, t]) => `<button class="tab${ptab === k ? ' on' : ''}" data-act="ptab" data-t="${k}">${t}</button>`).join('');
     let body = '';
-    if (ptab === 'overview') body = `<div class="grid">${tile('房间', rooms.length, 'home')}${tile('creep', v ? v.creeps.filter(c => c.owner === myPid).length : 0, 'bug')}${tile('最高 RCL', Math.max(s.rclMax, ...rooms.map(r => r.lvl), 0), 'trophy')}${tile('世界', v ? v.S + '×' + v.S : '-', 'map')}${tile('总 tick', fmt(s.ticks), 'clock')}${tile('采集能量', fmt(s.energy), 'bolt')}</div>
-      ${sec('玩家')}${row('editName', 'edit', '昵称', esc(nick))}${row('go:badge', 'palette', '徽章')}${row('worldMap', 'map', '世界地图')}${row('respawn', 'refresh', '重新出生', '', 'danger')}
-      ${sec('更多')}${row('go:worlds', 'world', '存档管理', J('sbm_worlds', []).length + ' 个')}${row('go:snippets', 'code', '代码片段库', J('sbm_snips', []).length + ' 个')}${row('go:settings', 'settings', '设置')}`;
-    else if (ptab === 'rooms') body = rooms.length ? `<div class="rlist">${rooms.map(r => `<div class="rrow"><div class="rn">${esc(r.name)}</div><div class="rl">RCL <b>${r.lvl}</b></div><div class="rbar"><i style="width:${r.lvl >= 8 ? 100 : Math.round(100 * r.p / (r.t || 1))}%"></i></div><div class="rs">${r.sp} Spawn · ${r.cr} creep</div></div>`).join('')}</div>`
-      : `${row('worldMap', 'map', '世界地图')}`;
-    else body = `<div class="grid">${[['总运行 tick', s.ticks, 'clock'], ['生产 creep', s.creeps, 'bug'], ['采集能量', s.energy, 'bolt'], ['最高 RCL', s.rclMax, 'trophy'], ['建成建筑', s.built, 'building'], ['存档', J('sbm_worlds', []).length, 'world']].map(([k, n, ic]) => tile(k, fmt(n), ic)).join('')}</div>
-      ${row('statReset', 'eraser', '清零统计', '', 'danger')}`;
+    if (ptab === 'overview') body = `<div class="grid">${tile('房间', rooms.length, 'home')}${tile('creep', v ? v.creeps.filter(c => c.owner === myPid).length : 0, 'bug')}${tile('最高 RCL', Math.max(0, ...rooms.map(r => r.lvl)), 'trophy')}${tile('CPU', me.cpu ?? '-', 'cpu')}${tile('tick', v ? fmt(v.time) : '-', 'clock')}${tile('服务器', sess.official ? '官方' : '私服', 'server')}</div>
+      ${sec('玩家')}${row('go:badge', 'palette', '徽章')}${row('worldMap', 'map', '世界地图')}${row('respawn', 'refresh', '重新出生', '', 'danger')}
+      ${sec('更多')}${row('go:snippets', 'code', '代码片段库', J('sbm_snips', []).length + ' 个')}${row('go:login', 'server', '服务器与账号')}${row('go:settings', 'settings', '设置')}`;
+    else body = rooms.length ? `<div class="rlist">${rooms.map(r => `<div class="rrow"><div class="rn">${esc(r.name)}</div><div class="rl">RCL <b>${r.lvl}</b></div><div class="rbar"><i style="width:${r.lvl >= 8 ? 100 : Math.round(100 * r.p / (r.t || 1))}%"></i></div><div class="rs">${r.sp} Spawn · ${r.cr} creep</div></div>`).join('')}</div>` : `${row('worldMap', 'map', '世界地图')}`;
     return head('个人中心') + `<div class="shBody acct">
-      <div class="acHead">${badge(p.badge, 76)}<div class="pc"><div class="pn">${esc(nick)}</div>
+      <div class="acHead">${badge(me.badge || prof().badge, 76)}<div class="pc"><div class="pn">${esc(me.username)}</div>
         <div class="gcl"><span class="gl">GCL <b>${g.lv}</b></span><div class="gbar"><i style="width:${Math.min(100, 100 * g.cur / g.need).toFixed(1)}%"></i></div><span class="gn">${fmt(Math.floor(g.cur))} / ${fmt(Math.ceil(g.need))}</span></div></div></div>
       <div class="tabs">${tabs}</div>${body}</div>`;
   };
@@ -76,19 +103,6 @@
   };
   S.addEventListener('change', e => { if (e.target.classList.contains('bparam') && draft) { draft.param = +e.target.value; const y = S.scrollTop; show('badge', false); S.scrollTop = y; } });
 
-  pages.stats = () => {
-    const s = Stats.get(), L = [['总运行 tick', s.ticks, 'clock'], ['生产 creep', s.creeps, 'bug'], ['采集能量', s.energy, 'bolt'], ['最高 RCL', s.rclMax, 'trophy'], ['建成建筑', s.built, 'building']];
-    return head('详细统计') + `<div class="shBody">${sec('累计数据 · 自 ' + dt(s.since))}${L.map(([k, v, ic]) => row('none', ic, k, `<b>${v}</b>`, 'static')).join('')}
-      ${row('statReset', 'eraser', '清零统计', '', 'danger')}</div>`;
-  };
-
-  pages.worlds = () => {
-    const L = J('sbm_worlds', []);
-    return head('存档管理') + `<div class="shBody">${sec('当前世界')}${row('wSave', 'device-floppy', '保存当前世界为新存档')}${row('wImport', 'file-import', '导入 JSON 存档')}
-      ${sec('已保存 · ' + L.length)}${L.length ? L.map((w, i) => `<div class="item"><div class="it"><div class="in">${esc(w.name)}</div><div class="is">TICK ${w.time} · ${dt(w.ts)}</div></div>
-        <button class="sm" data-act="wLoad" data-i="${i}" data-icon="player-play"></button><button class="sm" data-act="wExport" data-i="${i}" data-icon="file-export"></button><button class="sm danger" data-act="wDel" data-i="${i}" data-icon="trash"></button></div>`).join('') : ''}</div>`;
-  };
-
   pages.snippets = () => {
     const L = J('sbm_snips', []);
     return head('代码片段库') + `<div class="shBody">${sec('当前程序')}${row('snSave', 'device-floppy', '把当前积木保存为片段')}${row('snImport', 'file-import', '导入片段 JSON')}
@@ -98,10 +112,10 @@
 
   const st = () => J('sbm_settings', { speed: 1, sound: false, lang: 'zh' });
   pages.settings = () => {
-    const s = st();
-    return head('设置') + `<div class="shBody">${sec('通用')}${row('none', 'language', '语言', '简体中文', 'static')}${row('sound', 'volume-off', '音效', s.sound ? '开' : '关')}
-      ${sec('游戏')}${row('defSpeed', 'player-track-next', '默认运行速度', s.speed + 'x')}${row('edDark', 'moon', '代码编辑器夜间模式', window.edDark && window.edDark() ? '开' : '关')}${row('speedPick', 'player-track-next', '当前运行速度', speed + 'x')}${row('net', 'broadcast', '局域网联机')}${row('resetCode', 'arrow-back-up', '恢复默认积木')}
-      ${sec('数据')}${row('saveNow', 'device-floppy', '立即保存世界')}${row('respawn', 'refresh', '重新出生', '', 'danger')}${row('resetWorld', 'refresh', '重置世界', '', 'danger')}${row('clearAll', 'trash', '清除全部数据', '', 'danger')}</div>`;
+    return head('设置') + `<div class="shBody">${sec('通用')}${row('none', 'language', '语言', '简体中文', 'static')}
+      ${sec('服务器')}${row('go:login', 'server', '服务器与账号', esc(window.srvLabel ? srvLabel() : ''))}
+      ${sec('代码')}${row('edDark', 'moon', '代码编辑器夜间模式', window.edDark && window.edDark() ? '开' : '关')}${row('resetCode', 'arrow-back-up', '恢复默认积木')}
+      ${sec('数据')}${row('respawn', 'refresh', '重新出生', '', 'danger')}${row('clearAll', 'trash', '清除本机数据', '', 'danger')}</div>`;
   };
 
   pages.about = () => head('关于') + `<div class="shBody"><div class="aboutTop"><img src="art/logo.png" alt=""><div class="bt">Screeps <b>World</b></div></div>
@@ -129,42 +143,43 @@
 
   const saveList = (k, L) => LS.setItem(k, JSON.stringify(L));
   const countBlocks = j => { let n = 0; const walk = o => { if (o && typeof o === 'object') { if (o.type && o.id) n++; Object.values(o).forEach(walk); } }; walk(j); return n; };
-  function startGame() { hide(); const s = st(); startGame.done = 1; setSpeed(s.speed || 1, false); }
+  function startGame() {
+    if (!online()) { const c = window.srvCfg && srvCfg(); if (c && (c.password || c.token)) { if (!lbusy) doLogin(c); show('login'); } else show('login'); return; }
+    hide(); startGame.done = 1; }
 
   const acts = {
     play: startGame,
-    net() { hide(); $('net').classList.remove('hidden'); },
-    editName() { ask('修改昵称', nick, v => { if (!v) return; nick = v.slice(0, 16); LS.setItem('sbm_nick', nick); $('nick').value = nick; if (engine?.w.players[myPid]) engine.w.players[myPid].name = nick; show('profile', false); }); },
+    lkind(b) { const r = readLogin(); ldraft[r.kind] = r; lk = b.dataset.k; lerr = ''; show('login', false); },
+    login() { const c = readLogin(); doLogin(c); },
+    async register() { const c = readLogin(); if (!c.host || !c.username || !c.password) { lerr = '注册需要填写服务器地址、用户名和密码'; return show('login', false); }
+      if (c.password.length < 8) { lerr = '密码至少 8 位'; return show('login', false); }
+      lbusy = true; lerr = ''; show('login', false);
+      try { const a = new ScreepsApi(c, { storage: LS }); await a.version(); await a.register(c.username, c.password, /@/.test(c.username) ? c.username : undefined); lbusy = false; toast('注册成功，正在登录'); doLogin(c); }
+      catch (e) { lbusy = false; lerr = '注册失败：' + e.message; show('login', false); } },
+    logout() { if (!confirm('退出登录？')) return; window.logout(); startGame.done = 0; show('home'); },
     btype(b) { draft.type = +b.dataset.t; const y = S.scrollTop; show('badge', false); S.scrollTop = y; },
     bflip() { draft.flip = !draft.flip; const y = S.scrollTop; show('badge', false); S.scrollTop = y; },
     bcol(b) { draft[b.dataset.k] = +b.dataset.c; const y = S.scrollTop; show('badge', false); S.scrollTop = y; },
-    bsave() { const p = prof(); p.badge = draft; draft = null; saveList('sbm_profile', p); if (engine?.w.players[myPid]) { engine.w.players[myPid].badge = p.badge; _snap = null; } if (typeof client !== 'undefined' && client && client.setBadge) client.setBadge(p.badge); if (typeof renderer !== 'undefined' && engine && mode !== 'client') { renderer.setView(engine.w, 1); if (typeof hostS !== 'undefined' && hostS) hostS.pushAll(); } toast('徽章已保存'); back(); },
+    async bsave() { const p = prof(); p.badge = draft; draft = null; saveList('sbm_profile', p);
+      // 同步到服务器（官方 POST /api/user/badge，颜色用十六进制）
+      if (online()) { const C = ScreepsBadge.colors, hx = i => typeof i === 'string' ? i : C[i] || '#808080', b = { type: p.badge.type, color1: hx(p.badge.color1), color2: hx(p.badge.color2), color3: hx(p.badge.color3), param: p.badge.param, flip: !!p.badge.flip };
+        try { await sess.api.post('/api/user/badge', { badge: b }); sess.me.badge = b; if (sess.users[myPid]) sess.users[myPid].badge = b; sess.buildView(); toast('徽章已保存到服务器'); } catch (e) { toast('徽章已保存在本机，同步到服务器失败：' + e.message); } }
+      else toast('徽章已保存'); back(); },
     ptab(b) { ptab = b.dataset.t; show('profile', false); },
-    worldMap() { hide(); window.openWorldMap && window.openWorldMap(false); },
-    respawn() { if (!confirm('重新出生？你的所有 creep、建筑和房间都会被清除，然后在世界地图上重新选择出生点。')) return; window.doRespawn && window.doRespawn(); hide(); },
-    statReset() { if (confirm('清零全部统计？')) { Stats.reset(); show('stats', false); } },
-    wSave() { if (mode === 'client') return toast('客户端没有本地世界'); save(); ask('存档名称', '世界 ' + dt(Date.now()), name => { const L = J('sbm_worlds', []); L.unshift({ name: name || '未命名', ts: Date.now(), time: engine.w.time, data: engine.saveData() }); try { saveList('sbm_worlds', L); toast('已保存'); } catch (e) { toast('存储空间不足'); } show('worlds', false); }); },
-    wLoad(b) { const w = J('sbm_worlds', [])[b.dataset.i]; if (!w || !confirm(`载入「${w.name}」？当前世界未保存的进度会丢失。`)) return; if (mode === 'client') return toast('请先回到单机'); LS.setItem(SAVE_W, w.data); loadEngine(); if (hostS) { hostS.e = engine; rebindHost(); } toast('已载入'); startGame(); },
-    wExport(b) { const w = J('sbm_worlds', [])[b.dataset.i]; w && exportText(w.name, JSON.stringify({ kind: 'screeps-world-save', name: w.name, ts: w.ts, world: JSON.parse(w.data) })); },
-    wDel(b) { const L = J('sbm_worlds', []); if (!confirm(`删除「${L[b.dataset.i].name}」？`)) return; L.splice(b.dataset.i, 1); saveList('sbm_worlds', L); show('worlds', false); },
-    wImport() { importText('导入存档', j => { const w = j.world || j; if (!w || !w.players) throw new Error('不是世界存档'); const L = J('sbm_worlds', []); L.unshift({ name: j.name || '导入的世界', ts: Date.now(), time: w.time || 0, data: JSON.stringify(w) }); saveList('sbm_worlds', L); toast('已导入'); show('worlds', false); }); },
+    worldMap() { if (!online()) return toast('还没连接服务器'); hide(); startGame.done = 1; window.openWorldMap && window.openWorldMap(false); },
+    respawn() { if (!online()) return toast('还没连接服务器'); if (!confirm('重新出生？服务器上你的所有 creep、建筑和房间都会被清除，然后在世界地图上重新选择出生点。')) return; window.doRespawn && window.doRespawn(); hide(); },
     snSave() { const j = Blockly.serialization.workspaces.save(ws); ask('片段名称', '我的程序', name => { const L = J('sbm_snips', []); L.unshift({ name: name || '未命名', ts: Date.now(), blocks: countBlocks(j), ws: j }); saveList('sbm_snips', L); toast('已保存'); show('snippets', false); }); },
-    snLoad(b) { const s = J('sbm_snips', [])[b.dataset.i]; if (!s || !confirm(`用「${s.name}」替换当前积木？`)) return; window.histPush && histPush('载入片段前', true); ws.clear(); sbmLoadWs(s.ws, ws); regen(true); toast('已载入到编辑器（原程序已存入历史版本）'); },
+    snLoad(b) { const s = J('sbm_snips', [])[b.dataset.i]; if (!s || !confirm(`用「${s.name}」替换当前积木？`)) return; window.histPush && histPush('载入片段前', true); ws.clear(); sbmLoadWs(s.ws, ws); regen(false); toast('已载入到编辑器（原程序已存入历史版本），点「上传」生效'); },
     snExport(b) { const s = J('sbm_snips', [])[b.dataset.i]; s && exportText(s.name, JSON.stringify({ kind: 'screeps-blockly-snippet', name: s.name, ws: s.ws })); },
     snDel(b) { const L = J('sbm_snips', []); if (!confirm(`删除「${L[b.dataset.i].name}」？`)) return; L.splice(b.dataset.i, 1); saveList('sbm_snips', L); show('snippets', false); },
     snImport() { importText('导入片段', j => { const w = j.ws || j; if (!w.blocks) throw new Error('不是积木程序'); const L = J('sbm_snips', []); L.unshift({ name: j.name || '导入的片段', ts: Date.now(), blocks: countBlocks(w), ws: w }); saveList('sbm_snips', L); toast('已导入'); show('snippets', false); }); },
     async chkUpd(b) { if (b.dataset.busy) return; const v = b.querySelector('.v'); b.dataset.busy = '1'; b.disabled = true; v.textContent = '检查中…';
       const r = await (window.checkUpdate ? checkUpdate('about') : 'fail'); delete b.dataset.busy; b.disabled = false;
       v.textContent = r === 'new' ? '有新版本 ' + (window.UPDATE_REL ? window.UPDATE_REL.tag_name : '') : r === 'latest' ? '已是最新版本' : '检查失败，请稍后重试'; },
-    sound() { const s = st(); s.sound = !s.sound; saveList('sbm_settings', s); toast('当前版本暂无音效'); show('settings', false); },
-    defSpeed() { setSpeed(speed >= 8 ? 1 : speed * 2); show('settings', false); },
     edDark() { window.setEdDark(!window.edDark()); show('settings', false); },
-    speedPick() { setSpeed(speed >= 8 ? 1 : speed * 2); show('settings', false); },
     intro() { hide(); $('intro').classList.remove('hidden'); },
     resetCode() { $('mResetCode').click(); },
-    saveNow() { save(); toast('已保存'); },
-    resetWorld() { $('mReset').click(); },
-    clearAll() { if (!confirm('清除全部数据？包括世界、积木、存档、片段、统计和个人资料，无法恢复。')) return; const keep = LS.getItem('sbm_pid'); LS.clear(); if (keep) LS.setItem('sbm_pid', keep); location.reload(); },
+    clearAll() { if (!confirm('清除本机数据？包括积木、片段、服务器账号和个人资料，无法恢复（服务器上的世界不受影响）。')) return; LS.clear(); location.reload(); },
   };
   S.addEventListener('click', e => { const b = e.target.closest('[data-act^="open:"]'); if (b) openUrl(b.dataset.act.slice(5)); });
 
@@ -177,6 +192,8 @@
   const hwBack = () => { stack.pop(); if (!stack.length || stack[0] !== 'home') stack.unshift('home'); show(stack[stack.length - 1], false); };
   const closeDlg = () => { const L = document.querySelectorAll('.shDlg'); if (!L.length) return false; L[L.length - 1].remove(); };
   window.Shell = { show, hide, badge, hwBack, closeDlg, dialog, page: () => S.classList.contains('hidden') ? null : S.dataset.page };
+  // 启动时如果记住了账号，后台自动连接（失败不打扰，点「连接并进入」会显示原因）
+  { const c = window.srvCfg && srvCfg(); if (c && (c.password || c.token) && !new URLSearchParams(location.search).get('nologin')) { lbusy = true; connectServer(c).then(() => { lbusy = false; if (S.dataset.page === 'home' && !S.classList.contains('hidden')) show('home', false); }).catch(e => { lbusy = false; lerr = e.message || String(e); if (S.dataset.page === 'home' && !S.classList.contains('hidden')) show('home', false); }); } }
   if (new URLSearchParams(location.search).get('page')) { stack = ['home']; show(new URLSearchParams(location.search).get('page')); }
   else if (!S.classList.contains('hidden')) show('home');
 })();

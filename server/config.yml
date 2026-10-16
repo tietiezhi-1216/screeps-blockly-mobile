@@ -1,0 +1,22 @@
+# screeps-launcher 配置。Steam 密钥通过环境变量 STEAM_KEY 传入（见 .env），不要写在这里。
+# 依赖偶尔会出不兼容的新版本，下面按 screeps-launcher README 固定几个包的版本。
+pinnedPackages:
+  ssri: 8.0.1
+  cacache: 15.3.0
+  passport-steam: 1.0.17
+  minipass-fetch: 2.1.2
+  express-rate-limit: 6.7.0
+version: latest
+mods:
+  # 顺序有讲究：screepsmod-auth 2.10 要排在 screepsmod-mongo 前面加载，否则启动时报错、密码登录不可用
+  - screepsmod-auth         # 用户名/密码登录，手机 App 靠它登录
+  - screepsmod-mongo        # 用 MongoDB + Redis 存储（必需）
+  - screepsmod-admin-utils  # 管理命令 + serverConfig
+bots:
+  simplebot: screepsbot-zeswarm
+serverConfig:
+  welcomeText: |
+    <h1 style="text-align:center">Screeps 私服</h1>
+  tickRate: 1000            # 每 tick 最短毫秒数
+  auth:
+    allowRegistration: true # 允许在 App 里注册；只给自己用可改成 false

@@ -21,10 +21,10 @@ async function run(scenario) {
   await pg.setRequestInterception(true);
   pg.on('request', r => r.url().includes('api.github.com') ? r.respond({ status: 200, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify({ tag_name: 'v9.9.9', body: '测试版本', assets: [{ name: 'x.apk', size: 3500000, digest: 'sha256:ab', browser_download_url: 'https://github.com/x/releases/download/v9.9.9/x.apk' }] }) }) : r.continue());
   pg.on('pageerror', e => console.log('PAGEERROR', e.message));
-  await pg.goto('http://localhost:8765/index.html'); await new Promise(r => setTimeout(r, 3000));
-  const silent = await pg.evaluate(() => !document.getElementById('upd') && !!document.querySelector('#sSet .updDot,#btnMenu .updDot')); // 自动检查：只显示蓝点，不弹窗
+  await pg.goto('http://localhost:8765/index.html'); await new Promise(r => setTimeout(r, 1500)); await pg.evaluate(() => checkUpdate(false)); await new Promise(r => setTimeout(r, 500)); // 启动 20 秒后的自动检查，这里直接触发
+  const silent = await pg.evaluate(() => !!(Upd.el && !Upd.el.classList.contains('hidden')) && !!document.querySelector('#btnMenu .updDot')); // 自动检查发现新版本：弹出更新窗口 + 菜单按钮蓝点
   await pg.evaluate(() => checkUpdate(true)); await new Promise(r => setTimeout(r, 800));
-  const visible = silent && await pg.$eval('#upd', e => !e.classList.contains('hidden'));
+  const visible = silent && await pg.evaluate(() => !!Upd.el && !Upd.el.classList.contains('hidden'));
   await pg.click('.uuGo'); await new Promise(r => setTimeout(r, 200)); await pg.screenshot({ path: `/tmp/upd-${scenario}-1.png` });
   if (scenario === 'fail') { await new Promise(r => setTimeout(r, 300)); const msg = await pg.$eval('.uuMsg', e => e.textContent); console.log(scenario, 'after fail:', msg); await pg.screenshot({ path: '/tmp/upd-fail-2.png' }); await pg.click('.uuGo'); }
   await new Promise(r => setTimeout(r, 1500));

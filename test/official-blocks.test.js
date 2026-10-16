@@ -1,8 +1,14 @@
 // 官方 API 积木（对齐 docs.screeps.com/api）：覆盖率、中文显示、无打包助手、每块都能生成可运行代码、
-// 结果码、变量跨回合保留、带参数/返回值的函数、自定义身份、旧存档转换、入门程序在引擎里跑通
+// 结果码、变量跨回合保留、带参数/返回值的函数、自定义身份、旧存档转换、入门程序能直接作为官方 main 模块运行
+// （App 不再有本地引擎；这里用最小的 Game/Memory 桩按官方方式 require 模块并调用 loop，真实运行见 online-ui.cjs 连私服的测试）
 const fs = require('fs'), vm = require('vm'), path = require('path');
 const W = p => fs.readFileSync(path.join(__dirname, '../www', p), 'utf8');
-vm.runInThisContext(W('screeps-const.js') + W('worldgen.js') + W('engine.js') + W('engine-ext.js'));
+vm.runInThisContext(W('screeps-const.js') + W('geo.js'));
+// 按官方运行方式加载 main 模块：模块顶层只跑一次，之后每回合调用 module.exports.loop()
+const runMain = (code, ticks, G = {}) => { const Memory = G.Memory || {}, logs = []; const ctx = vm.createContext(Object.assign({}, SC_GLOBALS(), { Memory, Game: G.Game || { time: 1, creeps: {}, spawns: {}, rooms: {}, flags: {}, cpu: { getUsed: () => 0, tickLimit: 500, limit: 20, bucket: 10000 } }, console: { log: (...a) => logs.push(a.join(' ')) } }));
+  const mod = { exports: {} }; vm.runInContext('(function (module, exports) {\n' + code + '\n})', ctx)(mod, mod.exports);
+  for (let i = 0; i < ticks; i++) { ctx.Game.time++; mod.exports.loop(); } return { Memory, logs, mod }; };
+function SC_GLOBALS() { const o = {}; for (const k of Object.getOwnPropertyNames(globalThis)) if (/^[A-Z][A-Z0-9_]+$/.test(k)) o[k] = globalThis[k]; return o; }
 const LS = {}; global.localStorage = { getItem: k => (k in LS ? LS[k] : null), setItem: (k, v) => { LS[k] = String(v); }, removeItem: k => { delete LS[k]; } };
 let toasts = []; global.toastMsg = m => toasts.push(m);
 global.window = globalThis; global.Blockly = require('blockly'); Blockly.JavaScript = require('blockly/javascript').javascriptGenerator;
@@ -51,7 +57,7 @@ for (const e of Object.values(AB.CAT).flat()) { if (e.kind !== 'block') continue
   const ws = new Blockly.Workspace(); const b = Blockly.serialization.blocks.append(Object.assign({}, e, { kind: undefined }), ws);
   if (e.type === 'controls_flow_statements') { const lp = ws.newBlock('controls_whileUntil'); lp.getInput('DO').connection.connect(b.previousConnection); }
   else if (b.outputConnection) { const s = ws.newBlock('w_log'); s.getInput('A0').connection.connect(b.outputConnection); }
-  const code = gen(ws); try { compileUser(code); } catch (err) { assert(false, e.type + ' 编译失败: ' + err.message + '\n' + code); } n++; }
+  const code = gen(ws); try { new Function('module', 'exports', 'require', code); } catch (err) { assert(false, e.type + ' 编译失败: ' + err.message + '\n' + code); } n++; }
 assert(n > 400, `抽屉里 ${n} 块积木都能生成可编译的代码`);
 
 // ---- 生成的代码就是官方 API；动作结果存进「上一个动作的结果」；可不填的参数不传 ----
@@ -69,8 +75,8 @@ assert(n > 400, `抽屉里 ${n} 块积木都能生成可编译的代码`);
     { type: 'math_change', fields: { VAR: { name: '计数' } }, inputs: { DELTA: { block: { type: 'math_number', fields: { NUM: 1 } } } },
       next: { block: { type: 'w_mem_set', inputs: { A0: { block: { type: 'text', fields: { TEXT: '结果' } } }, A1: { block: { type: 'procedures_callreturn', extraState: { name: '加倍', params: ['数'] }, inputs: { ARG0: { block: { type: 'variables_get', fields: { VAR: { name: '计数' } } } } } } } } } } }] } }, ws);
   const code = gen(ws); assert(/function 加倍\(数\)/.test(code) && /return 数 \* 2/.test(code), '函数带参数和返回值，名字保留中文');
-  const e = new Engine(newWorld(3)); e.addPlayer('p1', 'T'); e.setCode('p1', code); for (let i = 0; i < 3; i++) e.tick();
-  assert((e.w.memory.p1 || {}).结果 === 6, '变量跨回合保留（第 3 回合 计数=3 → 加倍=6）：' + JSON.stringify(e.w.memory.p1 && e.w.memory.p1.结果)); }
+  const r = runMain(code, 3);
+  assert(r.Memory.结果 === 6, '变量跨回合保留（第 3 回合 计数=3 → 加倍=6）：' + JSON.stringify(r.Memory.结果)); }
 
 // ---- 自定义身份与身体部件面板 ----
 { const ws = new Blockly.Workspace(); sbmSetRoles([]);
@@ -95,12 +101,11 @@ assert(n > 400, `抽屉里 ${n} 块积木都能生成可编译的代码`);
   assert(ws.getAllBlocks(false).every(b => AB.BLOCKS[b.type] || /^(controls|logic|math|text|lists|variables|procedures)(_|$)/.test(b.type)), '入门程序只用新积木');
   assert(/spawnCreep\(/.test(code) && /harvest\(/.test(code) && /upgradeController\(/.test(code) && /function 去升级控制器\(兵\)/.test(code), '入门程序：孵化、采集、升级，带一个函数');
   assert(describeProgram(ws).some(l => /采集者/.test(l)), '程序说明是中文');
-  const e = new Engine(newWorld(7)); e.addPlayer('p1', 'T'); const w = e.w; e.setCode('p1', code);
-  const logs = []; e.onLog = (pid, s) => logs.push(s);
-  const ctrl = () => w.controllers.find(c => c.owner === 'p1'); let max = 0, p0 = null;
-  for (let i = 0; i < 1500; i++) { e.tick(); max = Math.max(max, w.creeps.filter(c => c.owner === 'p1').length); if (i === 0) p0 = ctrl() && (ctrl().progress || 0); }
-  const errs = logs.filter(s => /错误|Error/i.test(s)); assert(!errs.length, '运行没有报错 ' + (errs[0] || ''));
-  const roles = Object.values((w.memory.p1 || {}).creeps || {}).map(m => m.role);
-  assert(max >= 5 && ['采集者', '升级者', '建造者'].every(r => roles.includes(r)), `孵化了三种身份的兵：最多 ${max} 个`);
-  const c = ctrl(); assert(c && (c.level > 1 || c.progress > p0), `控制器在升级：等级 ${c.level} 进度 ${c.progress}`); }
+  assert(/module\.exports\.loop = function/.test(code), '入门程序是官方 main 模块（module.exports.loop）');
+  let err = null; try { runMain(code, 3); } catch (e) { err = e; }
+  assert(!err, '入门程序按官方方式加载并跑 3 回合没有报错（没有引用本地才有的辅助函数）' + (err ? '：' + err.message : ''));
+  // 循环保护：只用官方 Game.cpu，CPU 快用完时抛错停下
+  const g = { time: 1, creeps: {}, spawns: {}, rooms: {}, flags: {}, cpu: { getUsed: () => 499, tickLimit: 500 } }; let thrown = null;
+  if (/__loopGuard\(\)/.test(code)) { try { runMain(code, 1, { Game: Object.assign(g, { creeps: { a: { memory: {}, store: { getUsedCapacity: () => 0 } } } }) }); } catch (e) { thrown = e; }
+    assert(thrown && /CPU/.test(thrown.message), '循环保护在 CPU 快用完时停下：' + (thrown && thrown.message)); } }
 console.log('ok - official-blocks');

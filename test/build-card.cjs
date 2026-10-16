@@ -5,15 +5,19 @@ const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css
 const srv = http.createServer((q, r) => { const f = path.join(ROOT, decodeURIComponent(q.url.split('?')[0])); if (!f.startsWith(ROOT) || !fsx.existsSync(f) || fsx.statSync(f).isDirectory()) { r.writeHead(404); return r.end(); } r.writeHead(200, { 'Content-Type': MIME[path.extname(f)] || 'application/octet-stream' }); fsx.createReadStream(f).pipe(r); });
 let PORT;
 const OUT = process.env.OUT || '/workspace/shots-buildcard'; let fails = 0;
+const FS = require('./fake-server.js'), FX = require('./fixtures/pserver.json');
 const ok = (c, m) => { console.log((c ? 'ok - ' : 'FAIL - ') + m); if (!c) fails++; };
 require('fs').mkdirSync(OUT, { recursive: true });
 async function run(b, vw, vh, tag) {
   const pg = await b.newPage(); await pg.setViewport({ width: vw, height: vh, deviceScaleFactor: 2.6, isMobile: true, hasTouch: true });
   await pg.evaluateOnNewDocument(() => { localStorage.setItem('sbm_intro', '1'); const F = window.fetch; window.fetch = (u, o) => String(u).includes('api.github.com') ? Promise.reject(new Error('x')) : F(u, o); });
-  await pg.goto(`http://localhost:${PORT}/index.html`); await W(1500); await pg.tap('#sPlay'); await W(800);
-  await pg.evaluate(() => { document.querySelectorAll('.shDlg').forEach(d => d.remove()); document.getElementById('introOk')?.click(); $('wmap').classList.add('hidden'); if (!engine.w.spawns.find(s => s.owner === myPid)) engine.placeSpawn(myPid); }); await W(300);
+  await pg.evaluateOnNewDocument(FS.install, FX); // 离线回放的私服
+  await pg.goto(`http://localhost:${PORT}/index.html`); await W(1500); for (let n = 0; n < 50 && !(await pg.evaluate(() => !!sess)); n++) await W(200);
+  await pg.tap('#sPlay'); await W(800);
+  await pg.evaluate(() => { document.querySelectorAll('.shDlg').forEach(d => d.remove()); document.getElementById('introOk')?.click(); $('wmap').classList.add('hidden'); });
+  for (let n = 0; n < 30 && !(await pg.evaluate(() => (view().controllers || []).some(c => c.owner === myPid))); n++) await W(200);
   for (let lvl = 1; lvl <= 8; lvl++) {
-    const m = await pg.evaluate(L => { const r = myRoomCtx(); const c = ctrlOfRoom(engine.w, r.k); c.level = L; openBuildPicker();
+    const m = await pg.evaluate(L => { const r = myRoomCtx(); const c = view().controllers.find(c => c.owner === myPid); sess._room(r.k, { objects: { [c.id]: { level: L } } }); sess.buildView(); openBuildPicker();
       const out = []; const btns = [...document.querySelectorAll('#bpList button')];
       for (const b of btns) { const R = b.getBoundingClientRect(), cs = getComputedStyle(b);
         const ic = b.querySelector('.bi').getBoundingClientRect();

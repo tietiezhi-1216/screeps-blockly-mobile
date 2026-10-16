@@ -53,4 +53,13 @@ assert(spot2 && w.creeps.includes(v), '有第二个相邻空位用于群伤测�
   const kx = k.x, ky = k.y; k.fatigue = 99; w.eventLog = {}; e.tick(); const L4 = w.eventLog[roomKey(kx, ky)] || [];
   const r4 = L4.filter(x => x.objectId === k.id && x.event === SC.EVENT_ATTACK);
   assert(r4.length === 1 && r4[0].data.attackType === SC.EVENT_ATTACK_TYPE_RANGED && r4[0].data.targetId === 'v3' && r4[0].data.damage === 100, '3 格目标：只 rangedAttack 100（massDamage=1 ≤ 13）'); }
+// 存档 / 读档（JSON）：Keeper 的 ttl=Infinity 存成 null；读档后 Keeper 不能被当成寿终（v1.9.4 真机 bug：每次重开 App 所有 Keeper 消失 300 tick）
+{ const e1 = new Engine(newWorld(7)); e1.addPlayer('p1', 'T'); e1.w.zones = {}; ensureRoom(e1.w, 4, 4); for (let i = 0; i < 302; i++) e1.tick();
+  const n0 = e1.w.creeps.filter(c => c.owner === KEEPER).length; assert(n0 > 0, 'Keeper 已从 lair 生成（' + n0 + ' 个）');
+  const e2 = new Engine(JSON.parse(e1.saveData())); const ks = e2.w.creeps.filter(c => c.owner === KEEPER);
+  assert(ks.length === n0 && ks.every(c => c.ttl === Infinity && c.noAge), '读档后 Keeper 恢复为不衰老');
+  const tb0 = e2.w.tombstones.length; for (let i = 0; i < 5; i++) e2.tick();
+  assert(e2.w.creeps.filter(c => c.owner === KEEPER).length === n0 && e2.w.tombstones.length === tb0, '读档后 Keeper 不会在第一个 tick 寿终');
+  const k0 = ks[0]; k0.hits = 0; e2.tick(); const tb = e2.w.tombstones.find(t => t.creepName === k0.name);
+  assert(tb && !(tb.store.energy > 0) && Number.isFinite(tb.store.energy || 0), 'Keeper 被击杀的墓碑不按无限寿命掉能量'); }
 console.log('ALL PASS');

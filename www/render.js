@@ -82,7 +82,7 @@ class Renderer {
   }
   // 官方 creep：深色圆体；每种身体部件一段弧，弧长 = 数量/50 × 360°；MOVE 在后方（朝向的反面），其余部件在前方居中依次排列；TOUGH 为外圈。
   // 贴图朝上（前方 = 上），渲染时整体旋转到移动方向。中心是主人徽章，携带的能量为徽章外的一圈黄色。
-  npcTex() { return this.tex('o:creepNpc', 1, 1, g => g.drawImage(ART.tint('creep-npc'), -.5, -.5, 1, 1)); }
+  npcTex() { return this.tex('npcCreep', 1, 1, g => ART.npcShape(g, 1)); } // 官方 creep-npc 几何直接矢量绘制：不依赖贴图加载，Keeper / Invader 永远可见
   static faceAngle(x, y, tx, ty) { return Math.atan2(ty - y, tx - x) + Math.PI / 2; } // 贴图正面在上方（-y），旋转后指向 (tx,ty)
   creepTex(body, mine, color) {
     const key = 'creep4' + body.join(',') + mine + color;

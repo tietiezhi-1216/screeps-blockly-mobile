@@ -100,6 +100,8 @@ class Engine {
   constructor(world) {
     if (!world || world.gen !== WORLD_GEN) world = newWorld(world && world.seed); // 旧格式存档无法兼容 → 新世界
     this._objVer = 0; this.w = world; this.fns = {}; this.onLog = null; this.events = [];
+    // 存档用 JSON：Source Keeper 的 ttl=Infinity 会被存成 null，读档后 null <= 0 会让所有 Keeper 在第一个 tick 被当成寿终（v1.9.4 及以前的 bug）。读档时恢复
+    for (const c of world.creeps || []) if (c.noAge || c.owner === KEEPER) { c.noAge = true; c.ttl = Infinity; }
     ensureAll(world);
     for (const pid in world.players) { if (!world.players[pid].badge) world.players[pid].badge = defaultBadge(pid); this.setCode(pid, world.players[pid].code || ''); }
   }
@@ -310,7 +312,7 @@ class Engine {
       if (!c.noAge) c.ttl--; // Keeper 不衰老（官方无 ageTime）
     }
     this.applyHits();
-    for (const c of w.creeps.slice()) if (!c.spawning && (c.ttl <= 0 || c.hits <= 0)) this.killCreep(c, SC.CREEP_CORPSE_RATE);
+    for (const c of w.creeps.slice()) if (!c.spawning && ((!c.noAge && c.ttl <= 0) || c.hits <= 0)) this.killCreep(c, SC.CREEP_CORPSE_RATE);
     this.tickKeepers(); this.tickZones(); this.tickSpawns(); this.tickSources(); this.tickControllers(); this.tickStructures(); this.tickGround();
     this._o = null;
   }
@@ -344,7 +346,7 @@ class Engine {
   killCreep(c, rate) {
     const w = this.w; w.creeps = w.creeps.filter(x => x !== c); this._o = null; this._objVer++;
     const ts = { kind: 'tombstone', id: 'tb' + (w.nextId++), x: c.x, y: c.y, owner: c.owner, creepName: c.name, creepBody: c.body.slice(), deathTime: w.time, decayAt: w.time + c.body.length * SC.TOMBSTONE_DECAY_PER_PART, store: Object.assign({}, c.store) };
-    if (rate > 0) { const life = c.body.includes('claim') ? SC.CREEP_CLAIM_LIFE_TIME : SC.CREEP_LIFE_TIME; const e = Math.floor(bodyCost(c.body) * rate * Math.max(0, c.ttl) / life); if (e > 0) ts.store.energy = (ts.store.energy || 0) + e; }
+    if (rate > 0) { const life = c.body.includes('claim') ? SC.CREEP_CLAIM_LIFE_TIME : SC.CREEP_LIFE_TIME; const e = c.noAge || !Number.isFinite(c.ttl) ? 0 : Math.floor(bodyCost(c.body) * rate * Math.max(0, c.ttl) / life); if (e > 0) ts.store.energy = (ts.store.energy || 0) + e; }
     const cont = w.structures.find(s => s.type === 'container' && s.x === c.x && s.y === c.y);
     if (cont) for (const r in ts.store) { const a = Math.min(ts.store[r], freeFor(w, cont, r)); if (a > 0) { cont.store[r] = (cont.store[r] || 0) + a; ts.store[r] -= a; } }
     w.tombstones.push(ts); this.log(c.owner, c.name, c.ttl <= 0 ? '寿终' : '死亡'); this.events.push({ t: 'die', x: c.x, y: c.y });

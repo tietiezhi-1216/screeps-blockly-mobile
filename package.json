@@ -1,10 +1,10 @@
 {
   "name": "screeps-blockly-mobile",
-  "version": "1.9.4",
+  "version": "1.9.5",
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "node test/official-blocks.test.js && node test/fly-drag.cjs && node test/lan.test.js && node test/controller.test.js && node test/api.test.js && node test/api2.test.js && node test/ruin.test.js && node test/api3.test.js && node test/ext.test.js && node test/ext2.test.js && node test/powers.test.js && node test/keeper.test.js && node test/zones.test.js && node test/runtime.test.js && node test/combat.test.js && node test/structures.test.js && node test/runtime2.test.js && node test/mechanics.test.js && node test/vision.test.js && node test/npc.test.js && node test/face.test.js && node test/exit-path.test.js && node test/spawnpick.test.js && node test/back-nav.cjs && node test/editor-layout.cjs && node test/no-dev-info.cjs && node test/inspect.cjs && node test/build-card.cjs",
+    "test": "node test/official-blocks.test.js && node test/fly-drag.cjs && node test/lan.test.js && node test/controller.test.js && node test/api.test.js && node test/api2.test.js && node test/ruin.test.js && node test/api3.test.js && node test/ext.test.js && node test/ext2.test.js && node test/powers.test.js && node test/keeper.test.js && node test/zones.test.js && node test/runtime.test.js && node test/combat.test.js && node test/structures.test.js && node test/runtime2.test.js && node test/mechanics.test.js && node test/vision.test.js && node test/npc.test.js && node test/face.test.js && node test/exit-path.test.js && node test/spawnpick.test.js && node test/back-nav.cjs && node test/editor-layout.cjs && node test/no-dev-info.cjs && node test/inspect.cjs && node test/build-card.cjs && node test/obj-art.cjs",
     "host": "node test/host-server.js",
     "test:native": "node test/native-stub.cjs",
     "test:update": "node test/update-stub.cjs",

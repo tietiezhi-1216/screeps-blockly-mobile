@@ -1,15 +1,27 @@
-// 官方客户端对象外观（screeps/renderer 的 metadata/src/objects/*.metadata.js + metadata/images/*.svg，ISC 许可，见 art/obj/LICENSE.txt）。
+// 官方客户端对象外观（screeps/renderer 的 metadata/src/objects/*.metadata.js + metadata/images/*.svg → 预栅格化 PNG，ISC 许可，见 art/obj/LICENSE.txt）。
 // 尺寸单位：格（官方 metadata 里 100 = 1 格）。贴图按官方 tint 着色：自己的建筑用玩家色（默认白），他人 #FF7777。
 const ART = (() => {
   const NAMES = ['extension', 'extension-border50', 'extension-border100', 'extension-border200', 'tower-base', 'tower-rotatable', 'tower-rotatable-npc', 'storage', 'storage-border', 'link', 'link-border', 'link-energy', 'extractor', 'lab', 'terminal', 'terminal-border', 'terminal-arrows', 'factory', 'factory-border', 'factory-lvl0', 'nuker', 'nuker-border', 'controller', 'controller-level', 'invaderCore', 'powerBank', 'flag', 'flag-secondary', 'creep-npc', 'ruin', 'tombstone', 'tombstone-border', 'nuke', 'deposit-biomass', 'deposit-biomass-fill', 'deposit-metal', 'deposit-metal-fill', 'deposit-mist', 'deposit-mist-fill', 'deposit-silicon', 'deposit-silicon-fill'];
-  const img = {}, cbs = []; let n = 0, ok = false;
-  NAMES.forEach(k => { const i = new Image(); i.onload = i.onerror = () => { if (++n === NAMES.length) { ok = true; cbs.splice(0).forEach(f => { try { f(); } catch (e) {} }); } }; i.src = 'art/obj/' + k + '.svg'; img[k] = i; });
+  // 加载预先栅格化的 PNG（scripts/raster-art.cjs 由官方 SVG 生成）：Android WebView 里 SVG 当 <img> 解码不可靠，PNG 与 glow.png 同一条加载路径。
+  // 每张图显式 256×256，decode() 完成才算就绪；加载失败的记进 failed（测试会检查），失败的图层改画后备图形，对象不会变成看不见。
+  const img = {}, cbs = [], failed = []; let n = 0, ok = false;
+  const done = () => { if (++n === NAMES.length) { ok = true; cbs.splice(0).forEach(f => { try { f(); } catch (e) {} }); } };
+  NAMES.forEach(k => { const i = new Image(256, 256); let fin = false; const end = good => { if (fin) return; fin = true; if (!good) { i._bad = true; failed.push(k); } done(); };
+    i.onload = () => (i.decode ? i.decode().then(() => end(i.naturalWidth > 0), () => end(i.naturalWidth > 0)) : end(i.naturalWidth > 0)); i.onerror = () => end(false);
+    i.src = 'art/obj/' + k + '.png'; img[k] = i; });
+  const usable = k => { const i = img[k]; return !!(i && !i._bad && i.complete && i.naturalWidth > 0); };
   const tinted = new Map();
+  // 着色贴图只在原图可用时缓存；原图还没加载好时返回空画布但不缓存（v1.9.4 以前会把空画布永久缓存）
   function tint(k, col) { const key = k + '|' + col; let c = tinted.get(key); if (c) return c; const i = img[k]; c = document.createElement('canvas'); c.width = c.height = 256; const g = c.getContext('2d');
-    try { g.drawImage(i, 0, 0, 256, 256); if (col) { g.globalCompositeOperation = 'multiply'; g.fillStyle = col; g.fillRect(0, 0, 256, 256); g.globalCompositeOperation = 'destination-in'; g.drawImage(i, 0, 0, 256, 256); } } catch (e) {}
+    if (!usable(k)) return c;
+    try { g.drawImage(i, 0, 0, 256, 256); if (col) { g.globalCompositeOperation = 'multiply'; g.fillStyle = col; g.fillRect(0, 0, 256, 256); g.globalCompositeOperation = 'destination-in'; g.drawImage(i, 0, 0, 256, 256); } } catch (e) { return c; }
     tinted.set(key, c); return c; }
+  // 官方 creep-npc.svg 的同一几何（100 见方：五边形，填充 #f93842，描边 #300000 宽 12），直接用矢量画，不依赖贴图
+  function npcShape(g, size = 1) { g.save(); g.scale(size / 100, size / 100); g.beginPath(); g.moveTo(-30, 15); g.lineTo(0, -35); g.lineTo(30, 15); g.lineTo(20, 35); g.lineTo(-20, 35); g.closePath(); g.lineJoin = 'miter'; g.lineWidth = 12; g.strokeStyle = '#300000'; g.stroke(); g.fillStyle = '#f93842'; g.fill(); g.restore(); }
+  // 贴图不可用时的后备：按图层大小画一个描边圆（玩家色 / 灰），保证对象看得见
+  function fallback(g, size, col, dx, dy) { g.save(); g.beginPath(); g.arc(dx, dy, size * .34, 0, Math.PI * 2); g.fillStyle = '#111111'; g.fill(); g.lineWidth = size * .06; g.strokeStyle = col || '#9e9e9e'; g.stroke(); g.restore(); }
   // 画一层官方贴图：size 格见方，中心在 (dx, dy)
-  function L(g, k, size, col, dx = 0, dy = 0, alpha = 1) { if (!ok || !img[k] || !img[k].naturalWidth) return; g.save(); g.globalAlpha = alpha; g.drawImage(tint(k, col), dx - size / 2, dy - size / 2, size, size); g.restore(); }
+  function L(g, k, size, col, dx = 0, dy = 0, alpha = 1) { if (!ok) return; if (!usable(k)) { if (!/-(border|fill|arrows|lvl0|energy|secondary|level)/.test(k)) fallback(g, size, col, dx, dy); return; } g.save(); g.globalAlpha = alpha; g.drawImage(tint(k, col), dx - size / 2, dy - size / 2, size, size); g.restore(); }
   const circle = (g, r, fill, stroke, lw, a = 1) => { g.save(); g.globalAlpha = a; g.beginPath(); g.arc(0, 0, r, 0, Math.PI * 2); if (fill) { g.fillStyle = fill; g.fill(); } if (stroke) { g.strokeStyle = stroke; g.lineWidth = lw; g.stroke(); } g.restore(); };
   const rrect = (g, w, h, r, fill, stroke, lw) => { g.beginPath(); g.roundRect ? g.roundRect(-w / 2, -h / 2, w, h, r) : g.rect(-w / 2, -h / 2, w, h); if (fill) { g.fillStyle = fill; g.fill(); } if (stroke) { g.strokeStyle = stroke; g.lineWidth = lw; g.stroke(); } };
   const MIN = { L: ['#89F4A5', '#3F6147'], U: ['#88D6F7', '#1B617F'], K: ['#9370FF', '#331A80'], Z: ['#F2D28B', '#594D33'], X: ['#FF7A7A', '#4F2626'], O: ['#CCCCCC', '#4D4D4D'], H: ['#CCCCCC', '#4D4D4D'] };
@@ -33,7 +45,7 @@ const ART = (() => {
       case 'powerSpawn': return { key: k, w: 1.6, h: 1.6, draw: g => { circle(g, .75, '#222222', '#cccccc', .07); circle(g, .68, '#222222', '#f41f33', .10); circle(g, .59, '#181818'); circle(g, .38, '#555555'); } };
       case 'nuker': return { key: k, w: 3, h: 3, draw: g => { L(g, 'nuker-border', 3, pc, 0, -.4); L(g, 'nuker', 3, null, 0, -.4); } };
       case 'controller': { const lv = o.level || 0, lit = o.owner ? (o.mine === false ? '#ff7777' : null) : null; return { key: 'ctrl' + lv + (lit || ''), w: 2, h: 2, draw: g => { L(g, 'controller', 2, '#000000');
-        for (let i = 0; i < lv; i++) { g.save(); g.rotate(i * Math.PI / 4); if (ok && img['controller-level'].naturalWidth) g.drawImage(tint('controller-level', lit), -.5, -1, 1, 1); g.restore(); }
+        for (let i = 0; i < lv; i++) { g.save(); g.rotate(i * Math.PI / 4); if (ok && usable('controller-level')) g.drawImage(tint('controller-level', lit), -.5, -1, 1, 1); g.restore(); }
         circle(g, .37, '#222222'); circle(g, .40, null, '#080808', .10); } }; }
       case 'constructionSite': return { key: 'site' + pc, w: .6, h: .6, draw: g => circle(g, .2, null, pc, .1, .4) };
       case 'source': return { key: 'source', w: 1, h: 1, draw: g => rrect(g, .4, .4, .15, '#111111', '#595026', .15) };
@@ -63,5 +75,5 @@ const ART = (() => {
     if (type === 'extension') circle(g, (a.size || .68) * .32, '#ffe56d');
     if (type === 'source') rrect(g, .6, .6, .15, '#ffe56d');
     const u = c.toDataURL(); icons.set(key, u); return u; }
-  return { spec, icon, tint, ready: f => ok ? f() : cbs.push(f), get ok() { return ok; }, FLAG, FLAG_ZH, MIN };
+  return { spec, icon, tint, npcShape, usable, NAMES, failed, ready: f => ok ? f() : cbs.push(f), get ok() { return ok; }, FLAG, FLAG_ZH, MIN };
 })();

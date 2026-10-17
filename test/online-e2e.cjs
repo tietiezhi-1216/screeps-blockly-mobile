@@ -48,6 +48,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     for (const c of cr) { const p = lastCreeps[c._id]; if (p && (p.x !== c.x || p.y !== c.y)) seenMove = true; lastCreeps[c._id] = { x: c.x, y: c.y }; } });
   api.subscribe(`user:${me._id}/console`, d => { if (d.messages && d.messages.log.length) logs++; });
   for (let i = 0; i < 120 && !seenMove; i++) await sleep(1000);
+  for (let i = 0; i < 20 && !logs; i++) await sleep(1000); // 控制台消息每 tick 推一次，creep 先动了也要再等一会儿
   const crs = Object.values(objs).filter(o => o.type === 'creep' && o.user === me._id);
   ok(Object.values(objs).some(o => o.type === 'spawn' && o.user === me._id), '房间订阅里有自己的 Spawn');
   ok(crs.length > 0, 'creep 出生：' + crs.map(c => c.name).join(','));

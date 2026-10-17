@@ -28,7 +28,7 @@
       const st = s => this.onStatus && this.onStatus(s);
       st('连接服务器…'); await this.api.version();
       st('登录…'); this.me = await this.api.login(); this.users[this.me._id] = { username: this.me.username, badge: this.me.badge };
-      const ws = await this.api.worldSize(), W = ws.width || 0;
+      const ws = await this.api.worldSize(), W = ws.width || 0; this.worldW = W;
       const ws2 = await this.api.worldStatus(); this.needsSpawn = ws2.status !== 'normal';
       // 我的房间：决定显示窗口（私服小世界显示全部；官方大世界只显示我周围 11×11）
       let home = null; try { const r = await this.api.get('/api/user/rooms', { id: this.me._id }); const L = r.shards ? (r.shards[this.cfg.shard] || []) : (r.rooms || []); home = L[0] || null; } catch (e) {}
@@ -41,7 +41,7 @@
       if (!this.official) { const ks = this.allNames().filter(k => this.mapInfo[k]); if (ks.length) { const P = ks.map(k => k.split(',').map(Number)), x0 = Math.min(...P.map(p => p[0])), y0 = Math.min(...P.map(p => p[1])), n = Math.max(Math.max(...P.map(p => p[0])) - x0, Math.max(...P.map(p => p[1])) - y0) + 1;
         if (n < this.S) { G.WORLD_O.x += x0; G.WORLD_O.y += y0; this.S = n; this.mapInfo = {}; await this.refreshMap(); } } }
       if (!this.official) { st('读取地形…'); await this.loadAllTerrain(); }
-      else if (home) await this.ensureTerrain(this.kOf(home));
+      else if (home) await this.ensureTerrain(this.kOf(home), true);
       try { const t = await this.api.time(); this.time = t.time; } catch (e) {}
       st('建立实时连接…'); this.api.onStatus = s => this.onStatus && this.onStatus(s);
       await this.api.connect();
@@ -51,7 +51,15 @@
       this.buildView(); st('已连接');
       return this;
     }
-    stop() { clearInterval(this._mapT); this.api.close(); }
+    stop() { clearInterval(this._mapT); clearTimeout(this._etT); this._etT = null; this._etq = []; this.api.close(); }
+    // 官方大世界：世界地图上选了游戏窗口（11×11）以外的房间 → 窗口挪到以它为中心（地图状态、地形、订阅全部重来）
+    needsRecenter(name) { const k = this.kOf(name); if (!k || !this.official) return false; const [rx, ry] = k.split(',').map(Number); return rx < 1 || ry < 1 || rx > this.S - 2 || ry > this.S - 2; }
+    async recenter(name) {
+      const p = G.parseRealName(name); if (!p) return; const R = (this.S - 1) / 2;
+      this.watch([]); G.WORLD_O.x = p[0] - R; G.WORLD_O.y = p[1] - R;
+      this.rooms = {}; this.roomObjs = {}; this.roomFlags = {}; this.roomVis = {}; this.mapInfo = {}; this._pos = {}; this.roomsVer++;
+      await this.refreshMap(); await this.ensureTerrain(this.kOf(name), true).catch(e => this._err(e)); this.buildView();
+    }
     allNames() { const L = []; for (let ry = 0; ry < this.S; ry++) for (let rx = 0; rx < this.S; rx++) L.push(rx + ',' + ry); return L; }
     async refreshMap() {
       const ks = this.allNames(), names = ks.map(k => this.nameOf(k)), res = {};
@@ -61,7 +69,18 @@
       this._statusMap = stat; this.roomsVer++; this.buildView();
     }
     async loadAllTerrain() { const ks = this.allNames().filter(k => this.mapInfo[k]); for (let i = 0; i < ks.length; i += 12) await Promise.all(ks.slice(i, i + 12).map(k => this.ensureTerrain(k).catch(() => {}))); }
-    async ensureTerrain(k) {
+    // 官方：地形接口每小时 360 次、全部接口每分钟 120 次。游戏画面缩小时会一下子要很多房间的地形 →
+    // 非急需的（onNeedRoom）排队，每 3 秒最多 1 间、只保留最近 24 个请求、限额紧张时不再取；急需的（家、选中、订阅的房间）直接取。
+    ensureTerrain(k, urgent) {
+      if (!this.official || urgent || !k || this.rooms[k]) return this._terrain(k);
+      const q = this._etq = this._etq || []; if (!q.includes(k)) { q.push(k); if (q.length > 24) q.shift(); }
+      if (!this._etT) { const pump = () => { this._etT = null; const k2 = q.pop(); if (!k2) return;
+          if (this.api.rateLeft('GET /api/game/room-terrain') > 60 && this.api.rateLeft('*') > 40) this._terrain(k2).catch(() => {});
+          if (q.length) this._etT = setTimeout(pump, 3000); };
+        this._etT = setTimeout(pump, 0); }
+      return Promise.resolve();
+    }
+    async _terrain(k) {
       if (!k || this.rooms[k] || !this.inWorld(k)) return; const n = this.nameOf(k), ck = 'sbm_terr_' + (this.official ? (this.cfg.shard || '') : this.api.base()) + '_' + n;
       let s = null; try { s = this.storage && this.storage.getItem(ck); } catch (e) {}
       if (!s) { if (this._tPend && this._tPend.has(k)) return; (this._tPend = this._tPend || new Set()).add(k);
@@ -73,7 +92,7 @@
     watch(keys) {
       const want = new Set(keys.filter(k => k && this.inWorld(k)).slice(0, this.official ? 3 : 9));
       for (const [k, off] of this.watched) if (!want.has(k)) { off(); this.watched.delete(k); delete this.roomObjs[k]; delete this.roomVis[k]; this._dirty(); }
-      for (const k of want) if (!this.watched.has(k)) { this.ensureTerrain(k).catch(e => this._err(e)); const n = this.nameOf(k);
+      for (const k of want) if (!this.watched.has(k)) { this.ensureTerrain(k, true).catch(e => this._err(e)); const n = this.nameOf(k);
         this.roomObjs[k] = {}; this.watched.set(k, this.api.subscribe(this.api.roomChannel(n), (d, ch, err) => { if (!err) this._room(k, d); })); }
     }
     _room(k, d) {

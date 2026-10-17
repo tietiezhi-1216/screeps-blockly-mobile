@@ -90,7 +90,9 @@ case "${1:-install}" in
     dc stop screeps
     dc exec -T mongo mongorestore --quiet --drop --archive --gzip < "backups/mongo-$t.archive.gz"
     if [ -f "backups/redis-$t.rdb" ]; then dc stop redis; dc cp "backups/redis-$t.rdb" redis:/data/dump.rdb; dc start redis; fi
-    dc start screeps; wait_up ;;
+    dc start screeps; wait_up
+    # 只恢复了 MongoDB（没有 Redis 备份）时，Redis 里没有地形缓存，玩家代码会跑不起来：重建一次
+    cli 'map.updateTerrainData()' >/dev/null && say "地形缓存已重建" ;;
   upgrade)
     need_docker; say "先备份…"; "$0" backup
     say "更新镜像…"; dc pull

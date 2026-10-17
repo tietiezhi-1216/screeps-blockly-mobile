@@ -375,70 +375,114 @@ $('bpClose').onclick = () => $('buildPick').classList.add('hidden');
 $('bbOk').onclick = () => build.type === 'spawn1' ? confirmSpawn() : confirmBuild(); $('bbCancel').onclick = () => { const sp = build.type === 'spawn1'; endBuild(); if (sp) { wm.auto = false; openWorldMap(true); } };
 
 // ===== 世界地图 / 选择出生点（同官方：先选空闲房间，再点格子放 Spawn1） =====
-const wm = { sel: null, auto: false, pick: false };
-const WM_COL = { free: '#3d4a3a', close: '#5a2b2b', mine: '#6dc1ff', owned: '#c46b6b', highway: '#1d1d1d', center: '#4a4325', keeper: '#4a2a2a' };
-function wmData() { const v = view(); if (!v) return null; return { S: v.S, owned: v.owned || {}, players: v.players }; }
-// 世界地图上每个房间都画出地形（官方：地形全世界可见），状态色半透明叠在上面
-const _wmT = new Map();
-function wmTerrain(rx, ry) {
-  const e = renderer.roomSp && renderer.roomSp.get(rx + ',' + ry); if (!e || !e.tiles) return null; const c0 = _wmT.get(rx + ',' + ry); if (c0 && c0.t === e.tiles) return c0.c;
-  const c = document.createElement('canvas'); c.width = c.height = 50; const g = c.getContext('2d'), im = g.createImageData(50, 50);
-  for (let i = 0; i < 2500; i++) { const t = +e.tiles[i], col = t === T_WALL ? [17, 17, 17] : t === T_SWAMP ? [41, 43, 30] : [43, 43, 43]; im.data.set([col[0], col[1], col[2], 255], i * 4); }
-  g.putImageData(im, 0, 0); _wmT.set(rx + ',' + ry, { t: e.tiles, c }); return c;
-}
-const WM_MK = { source: '#ffe56d', mineral: '#ffffff', controller: '#c8c8c8', lair: '#e5484d', portal: '#6dd3ff' };
+const wm = { sel: null, auto: false, pick: false, data: null };
+// 世界地图（同官方地图）：每个看得见的房间都画地形缩略图；归属 = 玩家徽章 + 淡淡的玩家色，预定 = 小徽章；
+// 新手区 / 重生区画外框；放大后订阅 roomMap2 画能量源、矿物、Controller、Keeper 巢穴、传送门、道路和各玩家对象。
+// 不画图例、不预先标房间号（选中房间后底栏才显示房间名和状态）。数据由 worldmap.js 按视野懒加载。
+function wmMap() { if (!sess) return null; if (!wm.data || wm.data.s !== sess) { wm.data && wm.data.close(); wm.data = new WorldMap(sess, { storage: localStorage }); wm.data.onChange = () => { if (!$('wmap').classList.contains('hidden')) wmRedraw(); }; } return wm.data; }
+let _wmRAF = 0; function wmRedraw() { if (_wmRAF) return; _wmRAF = requestAnimationFrame(() => { _wmRAF = 0; drawWorldMap(); }); }
 let _wmIdx = null, _wmIdxV = null;
-function wmIdx(v) { if (_wmIdxV !== v.roomsVer + ':' + (v.sources || []).length + ':' + (v.structures || []).length) { _wmIdx = wmIndex(v); _wmIdxV = v.roomsVer + ':' + (v.sources || []).length + ':' + (v.structures || []).length; } return _wmIdx; }
+function wmIdx(v) { const key = v.roomsVer + ':' + (v.sources || []).length + ':' + (v.structures || []).length; if (_wmIdxV !== key) { _wmIdx = wmIndex(v); _wmIdxV = key; } return _wmIdx; }
+const WM_TC = [[43, 43, 43], [0, 0, 0], [35, 37, 19]]; // 官方地图缩略图配色：平原 / 墙 / 沼泽
+const _wmT = new Map();
+function wmTilesCanvas(n, tiles) {
+  const c0 = _wmT.get(n); if (c0 && c0.t === tiles) return c0.c;
+  const c = document.createElement('canvas'); c.width = c.height = 50; const g = c.getContext('2d'), im = g.createImageData(50, 50);
+  for (let i = 0; i < 2500; i++) { const col = WM_TC[+tiles[i]] || WM_TC[0]; im.data.set([col[0], col[1], col[2], 255], i * 4); }
+  g.putImageData(im, 0, 0); _wmT.set(n, { t: tiles, c }); if (_wmT.size > 1500) _wmT.delete(_wmT.keys().next().value); return c;
+}
+const _wmB = new Map(); // 玩家徽章图（官方 ScreepsBadge）
+function wmBadge(id) {
+  const u = sess && sess.users[id], b = u && u.badge; if (!b || typeof ScreepsBadge === 'undefined') return null; const key = id + JSON.stringify(b); let e = _wmB.get(key); if (e) return e.ok ? e.img : null;
+  const img = new Image(); e = { img, ok: false }; _wmB.set(key, e); img.onload = () => { e.ok = true; wmRedraw(); };
+  const s = ScreepsBadge.svg(b, 64); img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(s.includes('xmlns') ? s : s.replace('<svg', '<svg xmlns="http://www.w3.org/2000/svg"')); return null;
+}
+const wmHex = id => '#' + (colorOf(id) >>> 0).toString(16).padStart(6, '0');
+const WM_MK = { s: '#ffe56d', m: '#ffffff', c: '#c8c8c8', k: '#e5484d', p: '#6dd3ff', pb: '#f41f33', d: '#a8d5ff', r: '#4a4a4a', w: '#151515' };
+const WM_ZONE = { novice: '#7ac143', respawn: '#4fa3f7' };
+function wmInit() {
+  const M = wmMap(), c = $('wmCanvas'), r = c.getBoundingClientRect(), b = M.bounds(), W = Math.min(r.width - 16, r.height - 16);
+  const n0 = wm.pick || !renderer.curRoom ? (sess.home || roomNameXY((sess.S - 1) / 2, (sess.S - 1) / 2)) : roomNameXY(...renderer.curRoom()), p0 = parseRealName(n0) || [b.x0, b.y0];
+  if (sess.official) { wm.fit = W / 11; wm.cs0 = W / 25; wm.cx = p0[0] + .5; wm.cy = p0[1] + .5; }
+  else { const S = b.x1 - b.x0 + 1; wm.fit = W / S; wm.cs0 = wm.fit; wm.cx = b.x0 + S / 2; wm.cy = b.y0 + S / 2; }
+  wm.cs = wm.fit;
+}
+function wmClamp() { const M = wm.data, b = M.bounds(); wm.cs = Math.max(wm.cs0, Math.min(wm.fit * 5, wm.cs)); wm.cx = Math.max(b.x0, Math.min(b.x1 + 1, wm.cx)); wm.cy = Math.max(b.y0, Math.min(b.y1 + 1, wm.cy)); }
 function drawWorldMap() {
-  const d = wmData(), v = view(), c = $('wmCanvas'); if (!d) return; const r = c.getBoundingClientRect(), dpr = Math.min(2, devicePixelRatio || 1);
-  c.width = r.width * dpr; c.height = r.height * dpr; const g = c.getContext('2d'); g.scale(dpr, dpr); g.fillStyle = '#141414'; g.fillRect(0, 0, r.width, r.height);
-  const cs = Math.floor(Math.min(r.width - 16, r.height - 16) / d.S * (wm.z || 1)), ox = (r.width - cs * d.S) / 2 + (wm.px || 0), oy = (r.height - cs * d.S) / 2 + (wm.py || 0); wm.geo = { cs, ox, oy, S: d.S };
-  const idx = wmIdx(v), k = (cs - 2) / 50;
-  for (let ry = 0; ry < d.S; ry++) for (let rx = 0; rx < d.S; rx++) {
-    const st = roomStatus(d.S, d.owned, rx, ry, myPid), x = ox + rx * cs, y = oy + ry * cs, o = d.owned[rx + ',' + ry];
-    if (x > r.width || y > r.height || x + cs < 0 || y + cs < 0) continue;
-    const tc = wmTerrain(rx, ry); if (tc) { g.imageSmoothingEnabled = cs < 50; g.drawImage(tc, x + 1, y + 1, cs - 2, cs - 2); } else { g.fillStyle = '#2b2b2b'; g.fillRect(x + 1, y + 1, cs - 2, cs - 2); }
-    // 资源标记（官方地图配色：能量源黄、矿物白、Controller 灰、Keeper 巢穴红、传送门青）
-    const e = idx.get(rx + ',' + ry), dot = (p, col, rr) => { g.fillStyle = col; g.beginPath(); g.arc(x + 1 + (p.x + .5) * k, y + 1 + (p.y + .5) * k, rr, 0, 7); g.fill(); };
-    if (e) { const rr = Math.max(1.5, k * 1.6);
-      e.lairs.forEach(p => dot(p, WM_MK.lair, rr)); e.portals.forEach(p => dot(p, WM_MK.portal, rr));
-      if (e.controller) { const cc = e.controller.owner && d.players[e.controller.owner] ? '#' + (d.players[e.controller.owner].color >>> 0).toString(16).padStart(6, '0') : WM_MK.controller; g.fillStyle = cc; const q = rr * 1.1; g.fillRect(x + 1 + (e.controller.x + .5) * k - q, y + 1 + (e.controller.y + .5) * k - q, q * 2, q * 2); }
-      e.sources.forEach(p => dot(p, WM_MK.source, rr));
-      e.minerals.forEach(p => { dot(p, WM_MK.mineral, rr); if (cs >= 70) { g.fillStyle = '#fff'; g.font = `bold ${Math.round(Math.min(12, cs / 8))}px sans-serif`; g.fillText(p.type, x + 1 + (p.x + 1.5) * k + rr, y + 1 + (p.y + .5) * k + 4); } });
-    }
-    // 只区分能否选择：不可选的房间压暗（扁平，无图例）；他人占领的房间叠一层玩家色
-    if (wm.pick ? st !== 'free' : st === 'out') { g.fillStyle = 'rgba(10,10,10,.62)'; g.fillRect(x + 1, y + 1, cs - 2, cs - 2); }
-    if ((st === 'owned' || st === 'mine') && d.players[o]) { g.fillStyle = '#' + (d.players[o].color >>> 0).toString(16).padStart(6, '0'); g.globalAlpha = .28; g.fillRect(x + 1, y + 1, cs - 2, cs - 2); g.globalAlpha = 1; }
-    if (wm.sel && wm.sel[0] === rx && wm.sel[1] === ry) { g.strokeStyle = '#fff'; g.lineWidth = 2; g.strokeRect(x + 2, y + 2, cs - 4, cs - 4); g.lineWidth = 1; }
-    const [cx, cy] = renderer.curRoom(); if (!wm.pick && cx === rx && cy === ry) { g.strokeStyle = '#5973ff'; g.setLineDash([4, 3]); g.strokeRect(x + 3, y + 3, cs - 6, cs - 6); g.setLineDash([]); }
+  const M = wmMap(), c = $('wmCanvas'); if (!M) return; if (wm.cs == null) wmInit(); wmClamp();
+  const r = c.getBoundingClientRect(), dpr = Math.min(2, devicePixelRatio || 1); c.width = r.width * dpr; c.height = r.height * dpr;
+  const g = c.getContext('2d'); g.scale(dpr, dpr); g.fillStyle = '#0b0b0b'; g.fillRect(0, 0, r.width, r.height);
+  const cs = wm.cs, ox = r.width / 2 - wm.cx * cs, oy = r.height / 2 - wm.cy * cs; wm.geo = { cs, ox, oy };
+  const names = visibleRooms(wm.geo, r.width, r.height, 0); M.view(visibleRooms(wm.geo, r.width, r.height, 1), cs >= 22);
+  const v = view(), idx = v ? wmIdx(v) : new Map(), k = cs / 50, zones = new Map(), cur = sess && !wm.pick ? roomNameXY(...renderer.curRoom()) : null;
+  for (const n of names) {
+    const [X, Y] = parseRealName(n), x = ox + X * cs, y = oy + Y * cs; if (!M.inBounds(X, Y)) continue;
+    const t = M.terrain(n); g.imageSmoothingEnabled = cs < 50;
+    if (t && t.img) g.drawImage(t.img, x, y, cs, cs); else if (t && t.tiles) g.drawImage(wmTilesCanvas(n, t.tiles), x, y, cs, cs); else { g.fillStyle = '#1c1c1c'; g.fillRect(x, y, cs, cs); }
+    const st = M.status(n, myPid), s = M.stat(n), z = M.zone(n); if (z) zones.set(n, z);
+    if (st === 'out') { g.fillStyle = 'rgba(0,0,0,.72)'; g.fillRect(x, y, cs, cs); continue; }
+    // 房间对象（roomMap2）；没有订阅数据时退回到已打开房间的快照
+    const d = cs >= 22 && M.objects(n), sq = (L, col, q) => { if (!L) return; g.fillStyle = col; for (const [px, py] of L) g.fillRect(x + px * k, y + py * k, q, q); };
+    if (d) { sq(d.r, WM_MK.r, Math.max(1, k)); sq(d.w, WM_MK.w, Math.max(1, k));
+      for (const key in d) if (!WM_MK[key] && Array.isArray(d[key])) sq(d[key], wmHex(key === '2' ? '__invader' : key === '3' ? '__keeper' : key), Math.max(1.5, k * 1.2)); }
+    const dot = (px, py, col, rr) => { g.fillStyle = col; g.beginPath(); g.arc(x + (px + .5) * k, y + (py + .5) * k, rr, 0, 7); g.fill(); }, rr = Math.max(1.5, k * 1.6);
+    if (d) { for (const key of ['k', 'p', 'pb', 'd', 'm', 's']) for (const [px, py] of d[key] || []) dot(px, py, WM_MK[key], rr);
+      for (const [px, py] of d.c || []) { const q = rr * 1.1; g.fillStyle = WM_MK.c; g.fillRect(x + (px + .5) * k - q, y + (py + .5) * k - q, q * 2, q * 2); } }
+    else if (cs >= 22) { const kk = parseRoomName(n), e = kk && idx.get(kk[0] + ',' + kk[1]); if (e) { e.lairs.forEach(p => dot(p.x, p.y, WM_MK.k, rr)); e.portals.forEach(p => dot(p.x, p.y, WM_MK.p, rr)); e.minerals.forEach(p => dot(p.x, p.y, WM_MK.m, rr)); e.sources.forEach(p => dot(p.x, p.y, WM_MK.s, rr));
+      if (e.controller) { const q = rr * 1.1; g.fillStyle = WM_MK.c; g.fillRect(x + (e.controller.x + .5) * k - q, y + (e.controller.y + .5) * k - q, q * 2, q * 2); } } }
+    // 归属：占领 = 大徽章，预定 = 半透明小徽章（同官方地图）
+    const o = s && s.own && s.own.user ? String(s.own.user) : null;
+    if (o) { const lv = s.own.level > 0, R = cs * (lv ? .22 : .14), cxx = x + cs / 2, cyy = y + cs / 2;
+      g.fillStyle = wmHex(o); g.globalAlpha = lv ? .16 : .08; g.fillRect(x, y, cs, cs); g.globalAlpha = lv ? 1 : .6;
+      const bi = cs >= 10 && wmBadge(o); if (bi) { g.save(); g.beginPath(); g.arc(cxx, cyy, R, 0, 7); g.clip(); g.drawImage(bi, cxx - R, cyy - R, R * 2, R * 2); g.restore(); }
+      else { g.fillStyle = wmHex(o); g.beginPath(); g.arc(cxx, cyy, Math.max(2, R * .8), 0, 7); g.fill(); }
+      g.globalAlpha = 1; }
+    if (wm.pick && st !== 'free' && st !== 'unknown') { g.fillStyle = 'rgba(0,0,0,.3)'; g.fillRect(x, y, cs, cs); }
   }
+  // 新手区 / 重生区外框：只画区域边界
+  g.lineWidth = Math.max(1.5, cs / 40);
+  for (const [n, z] of zones) { const [X, Y] = parseRealName(n), x = ox + X * cs, y = oy + Y * cs, e = g.lineWidth / 2, nb = (dx, dy) => { const m = nameOfReal(X + dx, Y + dy); return zones.has(m) ? zones.get(m) : M.zone(m); };
+    g.strokeStyle = WM_ZONE[z]; g.beginPath();
+    if (nb(0, -1) !== z) { g.moveTo(x, y + e); g.lineTo(x + cs, y + e); } if (nb(0, 1) !== z) { g.moveTo(x, y + cs - e); g.lineTo(x + cs, y + cs - e); }
+    if (nb(-1, 0) !== z) { g.moveTo(x + e, y); g.lineTo(x + e, y + cs); } if (nb(1, 0) !== z) { g.moveTo(x + cs - e, y); g.lineTo(x + cs - e, y + cs); } g.stroke(); }
+  g.lineWidth = 1;
+  if (wm.sel) { const [X, Y] = parseRealName(wm.sel); g.strokeStyle = '#fff'; g.lineWidth = 2; g.strokeRect(ox + X * cs + 1, oy + Y * cs + 1, cs - 2, cs - 2); g.lineWidth = 1; }
+  if (cur) { const [X, Y] = parseRealName(cur); g.strokeStyle = '#5973ff'; g.setLineDash([4, 3]); g.strokeRect(ox + X * cs + 3, oy + Y * cs + 3, cs - 6, cs - 6); g.setLineDash([]); }
   $('wmInfo').textContent = '';
 }
+const WM_ZONE_ZH = { novice: '新手区', respawn: '重生区' };
+function wmSummary(n) {
+  const M = wm.data, d = M && M.objects(n); if (d) { const parts = [`能量源 ${(d.s || []).length}`]; parts.push((d.m || []).length ? '有矿物' : '无矿物'); parts.push((d.c || []).length ? 'Controller' : '无 Controller'); if ((d.k || []).length) parts.push(`Keeper 巢穴 ${d.k.length}`); if ((d.p || []).length) parts.push('传送门'); return parts.join(' · '); }
+  const kk = parseRoomName(n); if (kk && sess && sess.inWorld(kk.join(','))) { const v = view(); if (v) { const e = wmIdx(v).get(kk.join(',')); if (e) return wmRoomSummary(wmIdx(v), kk[0], kk[1]); } }
+  return '';
+}
 function wmShowSel() {
-  const bar = document.querySelector('#wmap .wmBar'); if (!wm.sel) { bar.classList.add('hidden'); $('wmGo').disabled = true; return; }
-  const [rx, ry] = wm.sel, d = wmData(), st = roomStatus(d.S, d.owned, rx, ry, myPid), ok = wmSelectable(st, wm.pick);
-  $('wmSelName').textContent = roomNameXY(rx, ry); $('wmSelSt').textContent = wmStatusText(st, d.players[d.owned[rx + ',' + ry]]?.name); $('wmSelSt').className = ok ? 'ok' : 'no';
-  $('wmSelInfo').textContent = wmRoomSummary(wmIdx(view()), rx, ry); $('wmGo').disabled = !ok; bar.classList.remove('hidden');
+  const bar = document.querySelector('#wmap .wmBar'); if (!wm.sel || !wm.data) { bar.classList.add('hidden'); $('wmGo').disabled = true; return; }
+  const n = wm.sel, M = wm.data, st = M.status(n, myPid), s = M.stat(n), o = s && s.own && s.own.user, z = M.zone(n), ok = wmSelectable(st, wm.pick);
+  $('wmSelName').textContent = n; $('wmSelSt').textContent = wmStatusText(st, o && sess.users[o] && sess.users[o].username) + (z ? ' · ' + WM_ZONE_ZH[z] : ''); $('wmSelSt').className = ok ? 'ok' : 'no';
+  $('wmSelInfo').textContent = wmSummary(n); $('wmGo').disabled = !ok; bar.classList.remove('hidden');
 }
 function openWorldMap(pick) {
-  wm.pick = !!pick; wm.auto = true; wm.sel = null; $('wmTitle').textContent = pick ? '选择出生房间' : '世界地图'; $('wmClose').style.display = pick ? 'none' : '';
-  $('wmGo').textContent = pick ? '进入房间' : '前往'; wmShowSel();
-  wm.z = 1; wm.px = 0; wm.py = 0; wm.last = null; $('wmap').classList.remove('hidden'); requestAnimationFrame(drawWorldMap);
+  wm.pick = !!pick; wm.auto = true; wm.sel = null; $('wmTitle').textContent = pick ? '选择出生房间' : '世界地图'; $('wmClose').style.display = pick && sess && sess.needsSpawn ? 'none' : '';
+  $('wmGo').textContent = pick ? '进入房间' : '前往'; wm.cs = null; wm.last = null; $('wmap').classList.remove('hidden'); wmShowSel(); requestAnimationFrame(drawWorldMap);
 }
 window.openWorldMap = openWorldMap;
-$('wmClose').onclick = () => $('wmap').classList.add('hidden');
+function wmClose() { $('wmap').classList.add('hidden'); wm.data && wm.data.close(); }
+$('wmClose').onclick = wmClose;
 $('wmCanvas').addEventListener('click', e => {
-  const G = wm.geo; if (!G) return; const r = $('wmCanvas').getBoundingClientRect(), rx = Math.floor((e.clientX - r.left - G.ox) / G.cs), ry = Math.floor((e.clientY - r.top - G.oy) / G.cs);
-  if (rx < 0 || ry < 0 || rx >= G.S || ry >= G.S) { wm.sel = null; wmShowSel(); return drawWorldMap(); }
-  wm.sel = [rx, ry]; wmShowSel(); if (!wm.pick && wm.last && wm.last[0] === rx && wm.last[1] === ry) return $('wmGo').click(); wm.last = [rx, ry]; drawWorldMap();
+  const G = wm.geo; if (!G || !wm.data) return; const r = $('wmCanvas').getBoundingClientRect(), X = Math.floor((e.clientX - r.left - G.ox) / G.cs), Y = Math.floor((e.clientY - r.top - G.oy) / G.cs);
+  if (!wm.data.inBounds(X, Y)) { wm.sel = null; wmShowSel(); return drawWorldMap(); }
+  const n = nameOfReal(X, Y); wm.sel = n; wmShowSel(); if (!wm.pick && wm.last === n && !$('wmGo').disabled) return $('wmGo').click(); wm.last = n; drawWorldMap();
 });
-$('wmGo').onclick = () => {
-  if (!wm.sel || $('wmGo').disabled) return; const [rx, ry] = wm.sel; $('wmap').classList.add('hidden');
-  sess && sess.ensureTerrain(rx + ',' + ry).catch(e => toastMsg(e.message));
+$('wmGo').onclick = async () => {
+  if (!wm.sel || $('wmGo').disabled || !sess) return; const n = wm.sel; wmClose();
+  if (sess.needsRecenter(n)) { try { toastMsg('正在读取 ' + n + ' 附近的地图…'); await sess.recenter(n); renderer.reset(); } catch (e) { return toastMsg(e.message); } }
+  const [rx, ry] = parseRoomName(n);
+  sess.ensureTerrain(rx + ',' + ry, true).catch(e => toastMsg(e.message));
   renderer.fitRoom(rx, ry); watchRooms();
   if (!wm.pick) return;
   build.on = true; build.type = 'spawn1'; build.at = null; $('buildBar').classList.remove('hidden'); $('bbOk').disabled = true; $('bbOk').textContent = '放置 Spawn1'; $('bbCancel').textContent = '返回地图';
-  $('bbMsg').textContent = `点 ${roomNameXY(rx, ry)} 里的空地放置 Spawn1`; wm.room = [rx, ry];
+  $('bbMsg').textContent = `点 ${n} 里的空地放置 Spawn1`; wm.room = [rx, ry];
 };
 function localSpawnCheck(x, y) {
   if (Math.floor(x / ROOM) !== wm.room[0] || Math.floor(y / ROOM) !== wm.room[1]) return '请在所选房间内放置';
@@ -491,18 +535,19 @@ $('btnView').onclick = () => { const v = view(); if (!v) return; if (renderer.lo
 function goHome() { const v = view(); const k = v && (Object.keys(v.owned || {}).find(k => v.owned[k] === myPid) || (sess && sess.home && sess.kOf(sess.home))); if (k) gotoRoom(...k.split(',').map(Number)); else toastMsg('还没有房间'); };
 $('rbSpawn').onclick = () => { wm.auto = false; openWorldMap(true); };
 
-// 世界地图：双指缩放 / 拖动；点房间选择，「前往」进入
+// 世界地图：双指缩放 / 拖动（以手指为中心缩放）；点房间选择，「前往」进入
 (function mapGestures() {
   const c = $('wmCanvas'), pts = new Map(); let d0 = 0, z0 = 1, moved = 0;
-  wm.z = 1; wm.px = 0; wm.py = 0;
-  c.addEventListener('pointerdown', e => { pts.set(e.pointerId, [e.clientX, e.clientY]); moved = 0; if (pts.size === 2) { const [a, b] = [...pts.values()]; d0 = Math.hypot(a[0] - b[0], a[1] - b[1]); z0 = wm.z; } });
-  c.addEventListener('pointermove', e => { const p = pts.get(e.pointerId); if (!p) return;
-    if (pts.size === 1) { wm.px += e.clientX - p[0]; wm.py += e.clientY - p[1]; moved += Math.abs(e.clientX - p[0]) + Math.abs(e.clientY - p[1]); }
+  const zoomAt = (f, px, py) => { if (wm.cs == null) return; const r = c.getBoundingClientRect(), ax = px - r.left - r.width / 2, ay = py - r.top - r.height / 2, cs0 = wm.cs;
+    wm.cs = Math.max(wm.cs0, Math.min(wm.fit * 5, wm.cs * f)); wm.cx += ax / cs0 - ax / wm.cs; wm.cy += ay / cs0 - ay / wm.cs; };
+  c.addEventListener('pointerdown', e => { pts.set(e.pointerId, [e.clientX, e.clientY]); moved = 0; if (pts.size === 2) { const [a, b] = [...pts.values()]; d0 = Math.hypot(a[0] - b[0], a[1] - b[1]); z0 = wm.cs; } });
+  c.addEventListener('pointermove', e => { const p = pts.get(e.pointerId); if (!p || wm.cs == null) return;
+    if (pts.size === 1) { wm.cx -= (e.clientX - p[0]) / wm.cs; wm.cy -= (e.clientY - p[1]) / wm.cs; moved += Math.abs(e.clientX - p[0]) + Math.abs(e.clientY - p[1]); }
     pts.set(e.pointerId, [e.clientX, e.clientY]);
-    if (pts.size === 2) { const [a, b] = [...pts.values()]; wm.z = Math.max(1, Math.min(5, z0 * Math.hypot(a[0] - b[0], a[1] - b[1]) / d0)); moved = 99; }
-    drawWorldMap(); });
+    if (pts.size === 2) { const [a, b] = [...pts.values()]; zoomAt(z0 * Math.hypot(a[0] - b[0], a[1] - b[1]) / d0 / wm.cs, (a[0] + b[0]) / 2, (a[1] + b[1]) / 2); moved = 99; }
+    wmRedraw(); });
   const up = e => { pts.delete(e.pointerId); }; c.addEventListener('pointerup', up); c.addEventListener('pointercancel', up);
-  c.addEventListener('wheel', e => { wm.z = Math.max(1, Math.min(5, wm.z * (e.deltaY < 0 ? 1.15 : 0.87))); drawWorldMap(); e.preventDefault(); }, { passive: false });
+  c.addEventListener('wheel', e => { zoomAt(e.deltaY < 0 ? 1.15 : 0.87, e.clientX, e.clientY); wmRedraw(); e.preventDefault(); }, { passive: false });
   c.addEventListener('click', e => { if (moved > 10) e.stopImmediatePropagation(); }, true);
 })();
 

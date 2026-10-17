@@ -195,3 +195,29 @@ body.barMin{--lbar:0px}
 .login .wide+.wide{margin-top:10px}
 .login .wide.danger{background:var(--danger)}
 .login .wide:not(.primary):not(.danger){background:var(--btn)}
+/* v2.0.1 顶部/两侧安全区统一：所有全屏页与浮层的标题栏都避开挖孔/状态栏。
+   --sfT/--sfL/--sfR = max(CSS env / 原生注入, 兜底最小值)。有的 WebView 的 env() 恒为 0、原生注入也可能没来得及，
+   竖屏顶部至少留 24px；横屏挖孔在左右两侧，两侧至少留 24px（顶部按实际值）。 */
+:root{--sfT:max(var(--sat),24px);--sfL:var(--sal);--sfR:var(--sar);--top:var(--sfT)}
+@media (orientation:landscape){:root{--sfT:var(--sat);--sfL:max(var(--sal),24px);--sfR:max(var(--sar),24px)}}
+/* 壳层页面（服务器与账号、登录、设置、个人中心、关于…）标题栏 */
+.shHead,#start.shell .shHead{height:calc(48px + var(--sfT))!important;padding:var(--sfT) calc(8px + var(--sfR)) 0 calc(8px + var(--sfL))!important}
+#start.shell .shBody{padding-left:max(12px,var(--sfL))!important;padding-right:max(12px,var(--sfR))!important}
+#start.shell .home{padding-top:calc(var(--sfT) + 20px)!important;padding-left:max(20px,var(--sfL))!important;padding-right:max(20px,var(--sfR))!important}
+/* 世界地图 / 选择出生点 */
+#wmap .wmHead{padding:calc(12px + var(--sfT)) calc(14px + var(--sfR)) 12px calc(14px + var(--sfL))!important}
+#wmap .wmBar{padding-left:calc(14px + var(--sfL))!important;padding-right:calc(14px + var(--sfR))!important}
+/* 游戏页 HUD、积木页左上操作按钮 */
+@media (orientation:portrait){#hud{padding-top:var(--sfT)!important}}
+@media (orientation:landscape){
+  #hud{left:var(--sfL)!important;top:var(--sat)!important}
+  #roomBar{left:var(--sfL)!important}
+  #panel,#inspect,#buildPick,#flagPick{padding-top:var(--sat)!important}
+  #log{top:calc(28px + var(--sat))!important;left:var(--sfL)!important}
+}
+#edTools{top:calc(8px + var(--sfT))!important;left:calc(8px + var(--sfL))!important;max-height:calc(100% - 16px - var(--sfT))}
+/* 确认/输入弹窗居中，但小屏上也不压到挖孔 */
+.shDlg{padding:var(--sfT) var(--sfR) var(--sab) var(--sfL);box-sizing:border-box}
+/* 积木页里的全屏浮层：历史版本 / 代码预览 */
+#histP .hh,#prevP .hh{padding-top:calc(8px + var(--sfT))!important;padding-left:calc(12px + var(--sfL))!important;padding-right:calc(12px + var(--sfR))!important}
+#histP .hl{padding-left:calc(12px + var(--sfL));padding-right:calc(12px + var(--sfR))}

@@ -61,7 +61,8 @@
       const h = { 'Content-Type': 'application/json; charset=utf-8' };
       if (this.token && opt.auth !== false) { h['X-Token'] = this.token; }
       if (this.cfg.serverPassword) h['X-Server-Password'] = this.cfg.serverPassword;
-      let r; try { r = await this.fetch(this.base() + path + q, { method, headers: h, body: method === 'GET' ? undefined : JSON.stringify(body || {}) }); }
+      let r; try { const go = () => this.fetch(this.base() + path + q, { method, headers: h, body: method === 'GET' ? undefined : JSON.stringify(body || {}) });
+        try { r = await go(); } catch (e) { if (method !== 'GET') throw e; await new Promise(res => setTimeout(res, 800)); r = await go(); } } // 只读请求遇到网络抖动重试一次
       catch (e) { throw new ApiError(this.official ? '连不上官方服务器，请检查网络' : '连不上服务器，请检查地址、端口和网络', 0); }
       const nt = r.headers && r.headers.get && r.headers.get('x-token'); if (nt && !this.official) this.token = nt; // 私服每次请求会刷新 token
       if (r.status === 429) throw new ApiError('请求太频繁，服务器限流，请稍后再试', 429);

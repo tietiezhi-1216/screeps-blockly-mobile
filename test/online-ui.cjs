@@ -83,7 +83,7 @@ const until = async (pg, fn, ms = 15000, arg) => { const t = Date.now(); while (
   await W(800); await pg.screenshot({ path: path.join(SHOTS, 'spawn-pick.png') });
   // 由地图自己的规则决定能不能出生（wmShowSel 会禁用不可出生房间的按钮）
   const room = await pg.evaluate(() => { for (const k in sess.mapInfo) { const m = sess.mapInfo[k]; if (!m || m.status !== 'normal' || m.own) continue;
-      wm.sel = k.split(',').map(Number); wmShowSel(); if (!$('wmGo').disabled) { $('wmGo').click(); return k; } } return null; });
+      wm.sel = sess.nameOf(k); wmShowSel(); if (!$('wmGo').disabled) { $('wmGo').click(); return k; } } return null; });
   ok(room, '选中一个可出生的房间：' + room);
   const tile = room && await until(pg, k => { if (!sess.rooms[k]) return null; const [rx, ry] = k.split(',').map(Number); for (let y = 20; y < 40; y++) for (let x = 20; x < 40; x++) { const X = rx * 50 + x, Y = ry * 50 + y; if (!localSpawnCheck(X, Y)) return { X, Y }; } return null; }, 10000, room);
   ok(tile, '在房间里找到能放 Spawn 的空地');

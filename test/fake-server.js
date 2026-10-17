@@ -44,3 +44,53 @@ exports.nodeDeps = function (FX) {
     setTimeout(() => { ws.readyState = 1; ws.onmessage && ws.onmessage({ data: 'o' }); }, 5); }
   return { fetch, WebSocket, storage: { getItem: k => LS[k] ?? null, setItem: (k, v) => { LS[k] = String(v); }, removeItem: k => { delete LS[k]; } }, req };
 };
+// ---- 官方服务器回放（test/fixtures/official.json，由 record-official-fixture.cjs 从 screeps.com 只读录制、已脱敏）----
+// 地址 https://screeps.com；需要 X-Token；map-stats 按请求的房间从录制的全集里挑；roomMap2 / room 频道按录制回放。
+// 官方地图 CDN 的缩略图不走 fetch（<img>），浏览器测试里用 puppeteer 的请求拦截回放：officialCdn(page, FX)。
+exports.OFFICIAL_CFG = { kind: 'official', token: 'FAKE-TOKEN', shard: 'shard3' };
+function officialHandler(FX, log) {
+  return (u, m, body, hdr) => {
+    const U = new URL(u); log && log({ m, p: U.pathname, q: Object.fromEntries(U.searchParams), body });
+    if (U.pathname !== '/api/version' && !hdr['X-Token'] && !hdr['x-token']) return [401, '{"error":"unauthorized"}'];
+    if (U.pathname === '/api/game/map-stats') { const st = {}, us = {}; for (const n of (body && body.rooms) || []) { const s = FX.mapStats.stats[n]; if (s) { st[n] = s; const o = s.own && s.own.user; if (o && FX.mapStats.users[o]) us[o] = FX.mapStats.users[o]; } }
+      return [200, JSON.stringify({ ok: 1, stats: st, users: us, gameTime: 1 })]; }
+    let k = m + ' ' + U.pathname; if (U.pathname === '/api/game/room-terrain') k += '?' + U.searchParams.get('room');
+    const e = FX.http[k]; if (e) return [e.status, e.body];
+    if (m === 'POST') return [200, '{"ok":1}'];
+    return [404, 'Not Found'];
+  };
+}
+function officialWS(FX, push0) { // 返回 send 处理
+  return (c, push) => { if (c.startsWith('auth ')) push(['auth ok']); else if (c.startsWith('subscribe ')) { const ch = c.slice(10); (FX.ws[ch] || []).forEach((x, i) => setTimeout(() => push([JSON.stringify([ch, x])]), 30 + i * 200)); } };
+}
+exports.installOfficial = function (FX, fns) {
+  // 在页面里执行：fns 是 [officialHandler, officialWS] 的源码
+  const H = (0, eval)('(' + fns[0] + ')')(FX, x => window.__req.push(x)), WSH = (0, eval)('(' + fns[1] + ')')(FX);
+  window.__req = []; const RF = window.fetch.bind(window);
+  window.fetch = async (u, o = {}) => { const s = String(u); if (!/^https:\/\/screeps\.com\//.test(s)) return RF(u, o); let body = null; try { body = o.body ? JSON.parse(o.body) : null; } catch (e) {}
+    const [st, t] = H(s, (o.method || 'GET').toUpperCase(), body, o.headers || {}); return new Response(t, { status: st, headers: { 'Content-Type': 'application/json' } }); };
+  const RWS = window.WebSocket;
+  window.WebSocket = function (u) { if (!/^wss:\/\/screeps\.com/.test(String(u))) return new RWS(u);
+    const ws = { readyState: 0, send(d) { const [c] = JSON.parse(d); window.__req.push({ ws: c }); WSH(c, push); }, close() { ws.readyState = 3; ws.onclose && ws.onclose({}); } };
+    const push = a => ws.readyState === 1 && ws.onmessage && ws.onmessage({ data: 'a' + JSON.stringify(a) });
+    setTimeout(() => { ws.readyState = 1; ws.onopen && ws.onopen({}); ws.onmessage && ws.onmessage({ data: 'o' }); }, 20); return ws; };
+  window.WebSocket.OPEN = 1;
+  localStorage.setItem('sbm_server', JSON.stringify({ kind: 'official', token: 'FAKE-TOKEN', shard: FX.shard }));
+};
+exports.officialFns = [officialHandler.toString(), officialWS.toString()];
+exports.officialCdn = async function (page, FX, opt = {}) {
+  await page.setRequestInterception(true); const hits = [];
+  page.on('request', q => { const u = q.url(); const m = /d3os7yery2usni\.cloudfront\.net\/map\/([^/]+)\/([^/.]+)\.png/.exec(u);
+    if (!m) return q.continue(); hits.push(m[2]); const b = !opt.fail && FX.png[m[2]];
+    return b ? q.respond({ status: 200, contentType: 'image/png', body: Buffer.from(b, 'base64') }) : q.respond({ status: 404, body: '' }); });
+  return hits;
+};
+exports.nodeDepsOfficial = function (FX) {
+  const LS = {}, req = [], H = officialHandler(FX, x => req.push(x)), WSH = officialWS(FX);
+  const fetch = async (u, o = {}) => { let body = null; try { body = o.body ? JSON.parse(o.body) : null; } catch (e) {} const [st, t] = H(u, (o.method || 'GET').toUpperCase(), body, o.headers || {});
+    return { status: st, headers: { get: () => null }, text: async () => t }; };
+  function WebSocket() { const ws = this; ws.readyState = 0; const push = a => ws.readyState === 1 && ws.onmessage && ws.onmessage({ data: 'a' + JSON.stringify(a) });
+    ws.send = d => { const [c] = JSON.parse(d); req.push({ ws: c }); WSH(c, push); }; ws.close = () => { ws.readyState = 3; ws.onclose && ws.onclose({}); };
+    setTimeout(() => { ws.readyState = 1; ws.onmessage && ws.onmessage({ data: 'o' }); }, 5); }
+  return { fetch, WebSocket, storage: { getItem: k => LS[k] ?? null, setItem: (k, v) => { LS[k] = String(v); }, removeItem: k => { delete LS[k]; } }, req, LS };
+};

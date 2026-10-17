@@ -5,9 +5,11 @@ const WM_STATUS_ZH = {
   close: '离其他玩家太近，不可出生', owned: '已被其他玩家占领，不可出生',
   highway: '高速公路，没有 Controller，不可出生', center: '扇区中心，没有 Controller，不可出生',
   keeper: 'Source Keeper 房间，没有 Controller，不可出生', out: '超出世界范围',
+  reserved: '已被其他玩家预定，不可出生', unknown: '正在读取房间状态…',
 };
 function wmStatusText(st, ownerName) {
   if (st === 'owned' && ownerName) return `已被 ${ownerName} 占领，不可出生`;
+  if (st === 'reserved' && ownerName) return `已被 ${ownerName} 预定，不可出生`;
   return WM_STATUS_ZH[st] || '不可出生';
 }
 const wmSelectable = (st, pick) => pick ? st === 'free' : st !== 'out';

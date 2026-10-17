@@ -1,13 +1,15 @@
 {
   "name": "screeps-blockly-mobile",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "node test/official-blocks.test.js && node test/online-view.test.js && node test/spawnpick.test.js && node test/fly-drag.cjs && node test/back-nav.cjs && node test/no-dev-info.cjs && node test/inspect.cjs && node test/build-card.cjs && node test/obj-art.cjs && node test/native-http.cjs",
+    "test": "node test/official-blocks.test.js && node test/online-view.test.js && node test/spawnpick.test.js && node test/fly-drag.cjs && node test/back-nav.cjs && node test/no-dev-info.cjs && node test/inspect.cjs && node test/build-card.cjs && node test/obj-art.cjs && node test/native-http.cjs && node test/editor-layout.cjs && node test/safe-area.cjs && node test/worldmap.test.js && node test/worldmap-ui.cjs",
     "test:online": "node test/online-e2e.cjs && node test/online-ui.cjs",
     "test:update": "node test/update-stub.cjs",
-    "record-fixture": "node test/record-fixture.cjs"
+    "record-fixture": "node test/record-fixture.cjs",
+    "record-official-fixture": "node test/record-official-fixture.cjs",
+    "test:official": "node test/official-live.cjs"
   },
   "keywords": [],
   "author": "",

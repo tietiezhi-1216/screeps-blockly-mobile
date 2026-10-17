@@ -113,7 +113,6 @@
   const st = () => J('sbm_settings', { speed: 1, sound: false, lang: 'zh' });
   pages.settings = () => {
     return head('设置') + `<div class="shBody">${sec('通用')}${row('none', 'language', '语言', '简体中文', 'static')}
-      ${sec('主题')}<div class="thPick">${Object.entries(window.Theme ? Theme.PRESETS : {}).map(([id, t]) => `<button class="${Theme.get() === id ? 'on' : ''}" data-act="theme" data-t="${id}"><i style="background:${t.primary}"></i>${t.name}</button>`).join('')}</div>
       ${sec('服务器')}${row('go:login', 'server', '服务器与账号', esc(window.srvLabel ? srvLabel() : ''))}
       ${sec('代码')}${row('edDark', 'moon', '代码编辑器夜间模式', window.edDark && window.edDark() ? '开' : '关')}${row('resetCode', 'arrow-back-up', '恢复默认积木')}
       ${sec('数据')}${row('respawn', 'refresh', '重新出生', '', 'danger')}${row('clearAll', 'trash', '清除本机数据', '', 'danger')}</div>`;
@@ -158,7 +157,6 @@
       try { const a = new ScreepsApi(c, { storage: LS }); await a.version(); await a.register(c.username, c.password, /@/.test(c.username) ? c.username : undefined); lbusy = false; toast('注册成功，正在登录'); doLogin(c); }
       catch (e) { lbusy = false; lerr = '注册失败：' + e.message; show('login', false); } },
     logout() { if (!confirm('退出登录？')) return; window.logout(); startGame.done = 0; show('home'); },
-    theme(b) { Theme.set(b.dataset.t); const y = S.scrollTop; show('settings', false); S.scrollTop = y; },
     btype(b) { draft.type = +b.dataset.t; const y = S.scrollTop; show('badge', false); S.scrollTop = y; },
     bflip() { draft.flip = !draft.flip; const y = S.scrollTop; show('badge', false); S.scrollTop = y; },
     bcol(b) { draft[b.dataset.k] = +b.dataset.c; const y = S.scrollTop; show('badge', false); S.scrollTop = y; },

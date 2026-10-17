@@ -48,10 +48,10 @@ async function scen(b, S) {
   await pg.goto(`http://localhost:${PORT}/index.html`); await W(1200);
   for (let i = 0; i < 50 && !(await pg.evaluate(() => !!sess)); i++) await W(200);
   const lim = { t: Math.max(S.ins.t || 0, S.min.t || 0), l: Math.max(S.ins.l || 0, S.min.l || 0), r: Math.max(S.ins.r || 0, S.min.r || 0) };
-  // 截图时画出模拟的挖孔：半透明红色安全区 + 黑色摄像头
+  // 截图时只画出模拟的摄像头（黑点）
   const mark = () => pg.evaluate(ins => { let m = document.getElementById('__cut'); if (m) m.remove(); m = document.createElement('div'); m.id = '__cut'; m.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:2147483647';
-    if (ins.t) m.innerHTML = `<div style="position:absolute;left:0;right:0;top:0;height:${ins.t}px;background:#ff303040"></div><div style="position:absolute;top:${ins.t / 2 - 12}px;left:calc(50% - 12px);width:24px;height:24px;border-radius:50%;background:#000"></div>`;
-    if (ins.l) m.innerHTML = `<div style="position:absolute;top:0;bottom:0;left:0;width:${ins.l}px;background:#ff303040"></div><div style="position:absolute;left:${ins.l / 2 - 12}px;top:calc(50% - 12px);width:24px;height:24px;border-radius:50%;background:#000"></div>`;
+    if (ins.t) m.innerHTML = `<div style="position:absolute;top:${ins.t / 2 - 12}px;left:calc(50% - 12px);width:24px;height:24px;border-radius:50%;background:#000"></div>`;
+    if (ins.l) m.innerHTML = `<div style="position:absolute;left:${ins.l / 2 - 12}px;top:calc(50% - 12px);width:24px;height:24px;border-radius:50%;background:#000"></div>`;
     document.body.appendChild(m); }, S.ins);
   const shot = async name => { if (!S.shots) return; await mark(); await pg.screenshot({ path: path.join(OUT, `${name}-${S.tag.split('-')[0]}.png`) }); await pg.evaluate(() => document.getElementById('__cut')?.remove()); };
   const cover = async (what, sel, full = true) => { const r = await pg.evaluate(COVER, sel, lim, full); ok(r && !r.err && !r.bad.length, `${S.tag} ${what} 标题栏底色盖住安全区（${r.bg || r.err}）${r.bad && r.bad.length ? ' ' + r.bad.join('; ') : ''}`); };

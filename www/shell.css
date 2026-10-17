@@ -221,7 +221,7 @@ body.barMin{--lbar:0px}
 /* 积木页里的全屏浮层：历史版本 / 代码预览 */
 #histP .hh,#prevP .hh{padding-top:calc(8px + var(--sfT))!important;padding-left:calc(12px + var(--sfL))!important;padding-right:calc(12px + var(--sfR))!important}
 #histP .hl{padding-left:calc(12px + var(--sfL));padding-right:calc(12px + var(--sfR))}
-/* v2.0.2 主题：所有页面的标题栏 = 主题色（--theme-bar）通栏，连上方状态栏/挖孔安全区一起填满；文字图标 = --theme-on-bar。
+/* v2.0.2 起：所有页面的标题栏 = 官方蓝（--theme-bar，配色固定）通栏，连上方状态栏/挖孔安全区一起填满；文字图标 = --theme-on-bar。
    安全区是标题栏自己的内边距，所以底色天然覆盖到屏幕顶边（横屏时也覆盖左右挖孔）。 */
 .shHead,#start.shell .shHead{background:var(--theme-bar)!important;color:var(--theme-on-bar)!important;border-bottom:0!important}
 .shHead .shTitle,.shHead .shBack,.shHead .ic,.shHead .lb{color:var(--theme-on-bar)!important}
@@ -247,12 +247,6 @@ body.barMin{--lbar:0px}
 .pnTabs button{color:rgba(255,255,255,.72)!important}
 .pnTabs button.on{color:var(--theme-on-bar)!important;border-bottom-color:var(--theme-on-bar)!important}
 .pnHead button,.pnHead .ic{color:var(--theme-on-bar)!important}
-/* 主题选择（设置） */
-.thPick{display:flex;flex-wrap:wrap;gap:10px;padding:10px 4px 6px}
-.thPick button{display:flex;flex-direction:column;align-items:center;gap:6px;width:56px;padding:0;background:transparent!important;border:0!important;color:var(--sw-muted);font-size:12px}
-.thPick button i{display:block;width:36px;height:36px;border-radius:50%;box-sizing:border-box;border:2px solid transparent}
-.thPick button.on{color:var(--sw-text)}
-.thPick button.on i{border-color:#fff;box-shadow:inset 0 0 0 3px var(--sw-bg)}
 @media (orientation:landscape){
   /* 横屏：标题栏通栏铺满（含左右挖孔），里面的内容仍和下面 720px 内容列对齐 */
   #start.shell .shHead{max-width:none!important;margin-left:0!important;margin-right:0!important;padding-left:max(calc(8px + var(--sfL)),calc(50vw - 352px))!important;padding-right:max(calc(8px + var(--sfR)),calc(50vw - 352px))!important}

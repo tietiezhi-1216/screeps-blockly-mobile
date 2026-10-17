@@ -447,7 +447,7 @@ function drawWorldMap() {
     if (nb(-1, 0) !== z) { g.moveTo(x + e, y); g.lineTo(x + e, y + cs); } if (nb(1, 0) !== z) { g.moveTo(x + cs - e, y); g.lineTo(x + cs - e, y + cs); } g.stroke(); }
   g.lineWidth = 1;
   if (wm.sel) { const [X, Y] = parseRealName(wm.sel); g.strokeStyle = '#fff'; g.lineWidth = 2; g.strokeRect(ox + X * cs + 1, oy + Y * cs + 1, cs - 2, cs - 2); g.lineWidth = 1; }
-  if (cur) { const [X, Y] = parseRealName(cur); g.strokeStyle = '#5973ff'; g.setLineDash([4, 3]); g.strokeRect(ox + X * cs + 3, oy + Y * cs + 3, cs - 6, cs - 6); g.setLineDash([]); }
+  if (cur) { const [X, Y] = parseRealName(cur); g.strokeStyle = Theme.color(); g.setLineDash([4, 3]); g.strokeRect(ox + X * cs + 3, oy + Y * cs + 3, cs - 6, cs - 6); g.setLineDash([]); }
   $('wmInfo').textContent = '';
 }
 const WM_ZONE_ZH = { novice: '新手区', respawn: '重生区' };
@@ -667,4 +667,12 @@ setInterval(() => { if (!$('panel').classList.contains('hidden') && panelTab ===
     toast: m => toastMsg(m),
     exit: () => { const A = window.Capacitor?.Plugins?.App; if (A && A.exitApp) A.exitApp(); else toastMsg('（网页版无法退出应用）'); },
   });
+})();
+// v2.0.2 底部工具栏选中态：对应面板打开时按钮高亮（颜色走主题变量）
+(function barActive() {
+  const M = { btnLog: ['panel'], btnBuild: ['buildPick', 'buildBar'], btnFlag: ['flagPick'], btnView: ['wmap'], btnCode: ['editor'] };
+  const open = id => { const e = $(id); return !!e && !e.classList.contains('hidden'); };
+  const sync = () => { for (const k in M) { const b = $(k); if (b) b.classList.toggle('on', M[k].some(open)); } };
+  const mo = new MutationObserver(sync); for (const ids of Object.values(M)) for (const id of ids) { const e = $(id); if (e) mo.observe(e, { attributes: true, attributeFilter: ['class'] }); }
+  sync();
 })();

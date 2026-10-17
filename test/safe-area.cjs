@@ -29,6 +29,16 @@ const CHECK = (sel, lim) => {
   }
   return { n: seen.length, bad };
 };
+// 标题栏底色是否通栏盖住了安全区：栏贴顶（全宽的栏还要贴左右），底色 = --theme-bar，安全区里取样点落在栏上
+const COVER = (sel, lim, full) => {
+  const e = [...document.querySelectorAll(sel)].find(x => x.getClientRects().length && getComputedStyle(x).visibility !== 'hidden'); if (!e) return { err: '找不到 ' + sel };
+  const r = e.getBoundingClientRect(), bg = getComputedStyle(e).backgroundColor, pr = document.createElement('i'); pr.style.cssText = 'position:fixed;color:var(--theme-bar)'; document.body.appendChild(pr); const want = getComputedStyle(pr).color; pr.remove();
+  const pts = [[Math.max(1, lim.l / 2), Math.max(1, lim.t / 2)]]; if (full) pts.push([innerWidth / 2, Math.max(1, lim.t / 2)], [innerWidth - Math.max(1, lim.r / 2), Math.max(1, lim.t / 2)]);
+  const pe = e.style.pointerEvents; e.style.pointerEvents = 'auto'; // 游戏顶栏本身不接收点击，取样时临时打开
+  const miss = pts.filter(([x, y]) => { const h = document.elementFromPoint(x, y); return !h || !(h === e || e.contains(h)); }); e.style.pointerEvents = pe;
+  const bad = []; if (r.top > 0.5) bad.push('top=' + r.top); if (full && (r.left > 0.5 || r.right < innerWidth - 0.5)) bad.push('l/r=' + r.left + '/' + r.right); if (bg !== want) bad.push('bg ' + bg + '≠' + want); if (miss.length) bad.push('安全区取样点不在栏上 ' + JSON.stringify(miss));
+  return { bad, h: Math.round(r.height), bg };
+};
 async function scen(b, S) {
   const pg = await b.newPage(); await pg.setViewport({ width: S.vw, height: S.vh, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
   await pg.evaluateOnNewDocument(() => { localStorage.setItem('sbm_intro', '1'); const F = window.fetch; window.fetch = (u, o) => String(u).includes('api.github.com') ? Promise.reject(new Error('x')) : F(u, o); });
@@ -44,29 +54,30 @@ async function scen(b, S) {
     if (ins.l) m.innerHTML = `<div style="position:absolute;top:0;bottom:0;left:0;width:${ins.l}px;background:#ff303040"></div><div style="position:absolute;left:${ins.l / 2 - 12}px;top:calc(50% - 12px);width:24px;height:24px;border-radius:50%;background:#000"></div>`;
     document.body.appendChild(m); }, S.ins);
   const shot = async name => { if (!S.shots) return; await mark(); await pg.screenshot({ path: path.join(OUT, `${name}-${S.tag.split('-')[0]}.png`) }); await pg.evaluate(() => document.getElementById('__cut')?.remove()); };
+  const cover = async (what, sel, full = true) => { const r = await pg.evaluate(COVER, sel, lim, full); ok(r && !r.err && !r.bad.length, `${S.tag} ${what} 标题栏底色盖住安全区（${r.bg || r.err}）${r.bad && r.bad.length ? ' ' + r.bad.join('; ') : ''}`); };
   const check = async (what, sel) => { const r = await pg.evaluate(CHECK, sel, lim); ok(r.n > 0 && !r.bad.length, `${S.tag} ${what}：${r.n} 个顶部控件都在安全区外 ${r.bad.length ? JSON.stringify(r.bad.slice(0, 4)) : ''}`); };
   // 1) 壳层页面
   for (const [pgName, label] of [['home', '首页'], ['login', '服务器与账号'], ['settings', '设置'], ['profile', '个人中心'], ['about', '关于'], ['snippets', '代码片段'], ['badge', '徽章']]) {
     await pg.evaluate(n => { document.querySelectorAll('.shDlg').forEach(d => d.remove()); Shell.show(n); }, pgName); await W(250);
-    await check(label, pgName === 'home' ? '#start .home' : '#start .shHead');
+    await check(label, pgName === 'home' ? '#start .home' : '#start .shHead'); if (pgName !== 'home') await cover(label, '#start .shHead');
     if (pgName !== 'home') { const t = await pg.evaluate(() => document.querySelector('#start .shHead')?.textContent.trim()); ok(!!t, `${S.tag} ${label} 标题：${t}`); }
     if (['home', 'login', 'settings', 'profile'].includes(pgName)) await shot(pgName);
   }
   // 2) 世界地图 / 选择出生点
   await pg.evaluate(() => { Shell.hide && Shell.hide(); openWorldMap(true); }); await W(1500);
-  await check('选择出生点', '#wmap .wmHead'); await shot('spawn-pick');
+  await check('选择出生点', '#wmap .wmHead'); await cover('选择出生点', '#wmap .wmHead'); await shot('spawn-pick');
   await pg.evaluate(() => { $('wmap').classList.add('hidden'); }); await W(200);
   // 3) 游戏页 HUD + 控制台
   await pg.evaluate(() => { document.querySelectorAll('.shDlg').forEach(d => d.remove()); if (!$('start').classList.contains('hidden')) Shell.hide(); }); await W(400);
-  await check('游戏 HUD', '#hud'); if (S.vw > S.vh) await check('房间导航', '#roomBar'); await shot('game');
+  await check('游戏 HUD', '#hud'); await cover('游戏顶栏', '#hud', S.vw < S.vh); if (S.vw > S.vh) await check('房间导航', '#roomBar'); await shot('game');
   await pg.evaluate(() => $('btnLog').click()); await W(500);
   await check('控制台/房间面板', '#panel'); await shot('console');
   await pg.evaluate(() => $('panel').classList.add('hidden'));
   // 4) 积木页 + 历史 / 预览
   await pg.evaluate(() => $('btnCode').click()); await W(600);
-  await check('积木页左上操作按钮', '#edTools'); await shot('editor');
-  await pg.evaluate(() => $('edHist').click()); await W(300); await check('历史版本', '#histP .hh'); await shot('history');
-  await pg.evaluate(() => $('histP').classList.add('hidden')); await pg.evaluate(() => $('edPreview').click()); await W(300); await check('代码预览', '#prevP .hh');
+  await check('积木页左上操作按钮', '#edTools'); await check('积木页标题栏', '#edHead'); await cover('积木页', '#edHead'); await shot('editor');
+  await pg.evaluate(() => $('edHist').click()); await W(300); await check('历史版本', '#histP .hh'); await cover('历史版本', '#histP .hh'); await shot('history');
+  await pg.evaluate(() => $('histP').classList.add('hidden')); await pg.evaluate(() => $('edPreview').click()); await W(300); await check('代码预览', '#prevP .hh'); await cover('代码预览', '#prevP .hh');
   await pg.close();
 }
 (async () => {

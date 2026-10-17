@@ -9,7 +9,7 @@ const Upd = {
   ui_: null, el: null, rel: null, apk: null, path: null, busy: false, waitingPerm: false,
   ui() {
     if (this.ui_) return this.ui_;
-    this.ui_ = UpdateUI.create({ accent: '#5973FF', onUpdate: () => this.path ? this.tryInstall() : this.start(),
+    this.ui_ = UpdateUI.create({ accent: 'var(--theme-primary, #5973FF)', onUpdate: () => this.path ? this.tryInstall() : this.start(),
       onLater: () => { if (this.busy) { const P = nativePlugin('AppUpdater'); P && P.cancel(); this.busy = false; } } });
     this.el = this.ui_.el;
     const P = nativePlugin('AppUpdater');

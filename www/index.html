@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
-<title>Screeps World</title><link rel="icon" href="favicon.png"><link rel="stylesheet" href="style.css"><link rel="stylesheet" href="shell.css"><link rel="stylesheet" href="update-ui.css"></head>
+<title>Screeps World</title><link rel="icon" href="favicon.png"><link rel="stylesheet" href="style.css"><link rel="stylesheet" href="shell.css"><link rel="stylesheet" href="update-ui.css"><meta name="theme-color" content="#5973FF"><script src="theme.js"></script></head>
 <body>
 <div id="stage"></div>
 <div id="hud"></div>
@@ -26,6 +26,7 @@
 <div class="wmBar hidden"><div id="wmSel"><b id="wmSelName"></b><span id="wmSelSt"></span><span id="wmSelInfo"></span></div><button id="wmGo" class="primary" disabled>进入房间</button></div></div>
 <div id="inspect" class="hidden"><div class="insHead"><span id="insTitle"></span><button id="insClose" data-icon="x" class="iconbtn"></button></div><div id="insBody"></div></div>
 <div id="editor" class="hidden">
+  <header id="edHead"><span class="shTitle">积木代码</span></header>
   <div id="edTabs"><div id="catBar"></div><div id="flyHead"><button id="flyBack" data-icon="arrow-left"><span class="lb">返回</span></button><span id="flyTitle"></span></div><button id="edClose" data-icon="check" class="primary"><span class="lb">完成</span></button></div>
   <div id="blocklyDiv"><div id="edTools"><button id="edUndo" data-icon="arrow-back-up" title="撤销"></button><button id="edRedo" data-icon="arrow-forward-up" title="重做"></button><button id="edHist" data-icon="history" title="历史版本"></button><button id="edPreview" data-icon="eye" title="预览"></button><button id="edZin" data-icon="zoom-in"></button><button id="edZout" data-icon="zoom-out"></button><button id="edCenter" data-icon="focus-centered"></button><button id="edTrash" data-icon="trash"></button></div></div>
 </div>

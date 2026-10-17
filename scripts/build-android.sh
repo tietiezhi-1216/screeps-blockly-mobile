@@ -81,6 +81,9 @@ public class MainActivity extends BridgeActivity {
     private void hideSystemBars() {
         WindowInsetsControllerCompat c = WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
         c.setSystemBarsBehavior(WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+        // 与 StatusBar 插件设置一致：状态栏透明覆盖在页面上、浅色图标；底下由标题栏的安全区内边距用主题色填满
+        getWindow().setStatusBarColor(android.graphics.Color.TRANSPARENT);
+        c.setAppearanceLightStatusBars(false);
         c.hide(WindowInsetsCompat.Type.systemBars());
     }
 

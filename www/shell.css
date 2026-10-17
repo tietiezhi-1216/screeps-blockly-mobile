@@ -1,6 +1,6 @@
 /* Screeps World 应用外壳 + 全局扁平按钮规范（参考 screeps.com 网页客户端）
    纯色、1px 细边框、无渐变无阴影、小号大写标签、单行不换行 */
-:root{--sw-bg:#1e1e1e;--sw-panel:#2b2b2b;--sw-row:#262626;--sw-line:#3a3a3a;--sw-text:#d8d8d8;--sw-muted:#8c8c8c;--sw-acc:#5973ff;--sw-acc-dn:#4a62db;--sw-blue:#87bdee;--sw-red:#d65d5d;
+:root{--sw-bg:#1e1e1e;--sw-panel:#2b2b2b;--sw-row:#262626;--sw-line:#3a3a3a;--sw-text:#d8d8d8;--sw-muted:#8c8c8c;--sw-acc:var(--theme-primary);--sw-acc-dn:var(--theme-primary-dn);--sw-blue:#87bdee;--sw-red:#d65d5d;
   --panel:var(--sw-panel);--btn:#333;--primary:var(--sw-acc);--danger:#5a2a2a;--muted:var(--sw-muted);--accent:var(--sw-acc)}
 /* ---------- 全局按钮 / 面板 ---------- */
 .panel{background:var(--sw-panel)!important;border:1px solid var(--sw-line)!important;border-radius:4px!important}
@@ -15,7 +15,7 @@
 /* 底栏 */
 #bar{background:#1e1e1e!important;border-top:1px solid var(--sw-line)!important}
 #bar button{border-radius:3px!important;color:#bdbdbd!important;font-size:11px!important}
-#bar button.on{color:var(--sw-acc)!important;background:#5973ff22!important}
+#bar button.on{color:var(--sw-acc)!important;background:var(--theme-primary-a)!important}
 #hud{background:#1e1e1ee6!important;border-bottom:1px solid var(--sw-line)}
 .chip{border-radius:3px!important;background:#ffffff0f!important}
 #inspect{background:#2b2b2bf2!important;border:1px solid var(--sw-line)!important;border-radius:4px!important}
@@ -86,9 +86,9 @@
 .acct .acHead{display:flex;align-items:center;gap:14px;padding:14px 2px 12px}
 .acct .acHead .pc{flex:1;min-width:0}.acct .pn{font-size:20px;font-weight:600;color:#eee;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .gcl{display:flex;align-items:center;gap:8px;margin-top:8px;font-size:12px;color:#999;white-space:nowrap}.gcl b{color:#fff}
-.gbar,.rbar{flex:1;height:6px;background:#2b2b2b;border-radius:3px;overflow:hidden}.gbar i,.rbar i{display:block;height:100%;background:#5973ff}
+.gbar,.rbar{flex:1;height:6px;background:#2b2b2b;border-radius:3px;overflow:hidden}.gbar i,.rbar i{display:block;height:100%;background:var(--theme-primary)}
 .tabs{display:flex;border-bottom:1px solid #2e2e2e;margin:4px 0 12px}.tab{flex:1;background:none;border:0;border-bottom:2px solid transparent;color:#999;font-size:14px;padding:10px 0;border-radius:0}
-.tab.on{color:#fff!important;border-bottom:2px solid #5973ff!important}
+.tab.on{color:#fff!important;border-bottom:2px solid var(--theme-primary)!important}
 .grid .cell .k .ic{display:inline-block;width:12px;height:12px;margin-right:4px;vertical-align:-1px;opacity:.7}
 .rlist .rrow{display:grid;grid-template-columns:1fr auto;gap:6px 10px;background:#1e1e1e;padding:10px 12px;margin-bottom:6px;border-radius:4px}
 .rrow .rn{color:#eee;font-weight:600}.rrow .rl{color:#999;font-size:12px}.rrow .rbar{grid-column:1/3}.rrow .rs{grid-column:1/3;color:#888;font-size:12px}
@@ -133,7 +133,7 @@ body.barMin{--lbar:0px}
   #start.shell .shBody,#start.shell .shHead,#start.shell .home{padding-left:max(20px,var(--sal));padding-right:max(20px,var(--sar))}
 }
 @media (orientation:portrait){#barTog{display:none}}
-.shToGame{margin-left:auto;display:inline-flex;align-items:center;gap:4px;height:32px;padding:0 12px;border:0;border-radius:3px;background:#5973ff;color:#fff;font-size:13px}
+.shToGame{margin-left:auto;display:inline-flex;align-items:center;gap:4px;height:32px;padding:0 12px;border:0;border-radius:3px;background:var(--theme-primary);color:#fff;font-size:13px}
 /* v1.8.0 横屏：工具栏移到右侧（避开左侧挖孔），所有展开面板统一从右侧、紧贴工具栏左边展开；HUD 只留运行状态 / tick / 能量 / creep */
 @media (orientation:landscape){
   #bar{left:auto!important;right:0!important;width:calc(var(--lbar) + var(--sar))!important;padding:4px calc(3px + var(--sar)) 4px 3px!important;border-right:0!important;border-left:1px solid var(--sw-line)}
@@ -221,3 +221,46 @@ body.barMin{--lbar:0px}
 /* 积木页里的全屏浮层：历史版本 / 代码预览 */
 #histP .hh,#prevP .hh{padding-top:calc(8px + var(--sfT))!important;padding-left:calc(12px + var(--sfL))!important;padding-right:calc(12px + var(--sfR))!important}
 #histP .hl{padding-left:calc(12px + var(--sfL));padding-right:calc(12px + var(--sfR))}
+/* v2.0.2 主题：所有页面的标题栏 = 主题色（--theme-bar）通栏，连上方状态栏/挖孔安全区一起填满；文字图标 = --theme-on-bar。
+   安全区是标题栏自己的内边距，所以底色天然覆盖到屏幕顶边（横屏时也覆盖左右挖孔）。 */
+.shHead,#start.shell .shHead{background:var(--theme-bar)!important;color:var(--theme-on-bar)!important;border-bottom:0!important}
+.shHead .shTitle,.shHead .shBack,.shHead .ic,.shHead .lb{color:var(--theme-on-bar)!important}
+.shHead .shBack{background:transparent!important;border:0!important}
+.shHead .shBack:active{background:rgba(255,255,255,.16)!important}
+.shHead .shToGame{background:rgba(255,255,255,.18)!important;color:var(--theme-on-bar)!important}
+#wmap .wmHead{background:var(--theme-bar);color:var(--theme-on-bar);border-bottom:0}
+#wmap .wmHead span,#wmap .wmHead button,#wmap .wmHead .ic{color:var(--theme-on-bar)!important;background:transparent!important}
+#histP .hh,#prevP .hh{background:var(--theme-bar);color:var(--theme-on-bar);border-bottom:0}
+#histP .hh button,#prevP .hh button{background:rgba(255,255,255,.18)!important;color:var(--theme-on-bar)!important}
+#prevP .hh .seg button.on{background:var(--theme-on-bar)!important;color:var(--theme-bar)!important}
+/* 游戏页顶栏 */
+#hud{background:var(--theme-bar)!important;color:var(--theme-on-bar);border-bottom:0!important}
+#hud .chip{color:var(--theme-on-bar);background:rgba(255,255,255,.14)!important}
+@media (orientation:landscape){
+  #hud{top:0!important;left:0!important;height:calc(28px + var(--sat))!important;padding:var(--sat) 6px 0 calc(6px + var(--sfL))!important;box-sizing:border-box}
+  #hud .chip{background:transparent!important}
+  #panel,#inspect,#buildPick,#flagPick{padding-top:0!important}
+  #panel .pnHead{padding-top:var(--sat)}
+}
+/* 控制台 / 房间面板、检查器的标题栏 */
+.pnHead{background:var(--theme-bar);border-bottom:0!important}
+.pnTabs button{color:rgba(255,255,255,.72)!important}
+.pnTabs button.on{color:var(--theme-on-bar)!important;border-bottom-color:var(--theme-on-bar)!important}
+.pnHead button,.pnHead .ic{color:var(--theme-on-bar)!important}
+/* 主题选择（设置） */
+.thPick{display:flex;flex-wrap:wrap;gap:10px;padding:10px 4px 6px}
+.thPick button{display:flex;flex-direction:column;align-items:center;gap:6px;width:56px;padding:0;background:transparent!important;border:0!important;color:var(--sw-muted);font-size:12px}
+.thPick button i{display:block;width:36px;height:36px;border-radius:50%;box-sizing:border-box;border:2px solid transparent}
+.thPick button.on{color:var(--sw-text)}
+.thPick button.on i{border-color:#fff;box-shadow:inset 0 0 0 3px var(--sw-bg)}
+@media (orientation:landscape){
+  /* 横屏：标题栏通栏铺满（含左右挖孔），里面的内容仍和下面 720px 内容列对齐 */
+  #start.shell .shHead{max-width:none!important;margin-left:0!important;margin-right:0!important;padding-left:max(calc(8px + var(--sfL)),calc(50vw - 352px))!important;padding-right:max(calc(8px + var(--sfR)),calc(50vw - 352px))!important}
+}
+/* v2.0.2 积木页也有主题色标题栏（通栏，含挖孔安全区）；工作区从标题栏下方开始，操作按钮在工作区左上 */
+#editor #edHead{order:0;flex:0 0 auto;display:flex;align-items:center;gap:8px;height:calc(44px + var(--sfT));padding:var(--sfT) calc(12px + var(--sfR)) 0 calc(12px + var(--sfL));box-sizing:border-box;background:var(--theme-bar);color:var(--theme-on-bar);z-index:21}
+#editor #edHead .shTitle{color:var(--theme-on-bar)}
+#edTools{top:8px!important;left:calc(8px + var(--sfL))!important;max-height:calc(100% - 16px)!important}
+/* 分段筛选、原生勾选/滑块也跟主题 */
+.cnFilter button.on{background:var(--theme-primary)!important;color:var(--theme-on-primary)!important}
+html{accent-color:var(--theme-primary)}

@@ -8,6 +8,11 @@
   "plugins": {
     "SplashScreen": {
       "backgroundColor": "#1C2533"
+    },
+    "StatusBar": {
+      "overlaysWebView": true,
+      "style": "DARK",
+      "backgroundColor": "#00000000"
     }
   }
 }

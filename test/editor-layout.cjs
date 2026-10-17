@@ -16,11 +16,11 @@ async function run(b, vw, vh, tag) {
     const sb = [...document.querySelectorAll('.blocklyMainWorkspaceScrollbar')].filter(e => getComputedStyle(e).display !== 'none').length;
     const bs = [...document.querySelectorAll('#edTools button')].filter(b => b.offsetParent).map(R);
     const pr = document.createElement('div'); pr.style.cssText = 'position:fixed;top:var(--sfT);left:var(--sfL)'; document.body.appendChild(pr); const pb = pr.getBoundingClientRect(); pr.remove(); const sf = { t: Math.round(pb.top), l: Math.round(pb.left) };
-    return { sf, blockly: R($('blocklyDiv')), tabs: R($('edTabs')), tools: R($('edTools')), btn: bs[0], gap: bs[1] ? bs[1][1] - bs[0][1] - bs[0][3] : 0, n: bs.length, cat: R(document.querySelector('#catBar .cat')), done: R($('edClose')), sb,
+    return { sf, head: R($('edHead')), blockly: R($('blocklyDiv')), tabs: R($('edTabs')), tools: R($('edTools')), btn: bs[0], gap: bs[1] ? bs[1][1] - bs[0][1] - bs[0][3] : 0, n: bs.length, cat: R(document.querySelector('#catBar .cat')), done: R($('edClose')), sb,
       border: getComputedStyle($('blocklyDiv')).borderTopWidth + '/' + getComputedStyle(document.querySelector('.injectionDiv')).outlineStyle }; });
   console.log(tag, JSON.stringify(m));
-  ok(m.blockly[0] === 0 && m.blockly[2] === vw && m.blockly[1] === 0, tag + ' 工作区满屏无边距');
-  ok(m.sb === 0, tag + ' 工作区滚动条隐藏'); ok(m.tabs[1] + m.tabs[3] === vh, tag + ' 分类栏在最底部'); ok(m.tools[0] <= 8 + m.sf.l + 4 && m.tools[1] >= m.sf.t && m.tools[1] <= 8 + m.sf.t + 4, tag + ' 操作按钮在左上（避开顶部/左侧安全区）' + JSON.stringify(m.sf));
+  ok(m.head[1] === 0 && m.head[0] === 0 && m.head[2] === vw && m.head[3] >= 44 + m.sf.t - 1, tag + ' 顶部主题色标题栏通栏（含安全区）'); ok(m.blockly[0] === 0 && m.blockly[2] === vw && m.blockly[1] === m.head[1] + m.head[3], tag + ' 工作区紧接标题栏、左右无边距');
+  ok(m.sb === 0, tag + ' 工作区滚动条隐藏'); ok(m.tabs[1] + m.tabs[3] === vh, tag + ' 分类栏在最底部'); ok(m.tools[0] <= 8 + m.sf.l + 4 && m.tools[1] >= m.blockly[1] && m.tools[1] <= m.blockly[1] + 8 + 4, tag + ' 操作按钮在左上（避开顶部/左侧安全区）' + JSON.stringify(m.sf));
   const cr = await pg.evaluate(() => { const cb = $('catBar').getBoundingClientRect(), clip = r => r.left >= cb.left && r.right <= cb.right ? r : { left: Math.max(r.left, cb.left), right: Math.min(r.right, cb.right), bottom: r.bottom }; // 分类多时分类栏可横向滑动，只算看得见的部分
     const bs = [...document.querySelectorAll('#edTabs button')].filter(b => b.offsetParent).map(b => b.getBoundingClientRect()).map(r => r.left >= cb.right || r.right <= cb.left ? clip({ left: cb.left, right: cb.left, bottom: r.bottom }) : clip(r)), cs = getComputedStyle($('edTabs'));
     return { l: Math.min(...bs.map(r => r.left)), r: Math.max(...bs.map(r => r.right)), pb: parseFloat(cs.paddingBottom), bot: Math.max(...bs.map(r => r.bottom)) }; });

@@ -1,5 +1,5 @@
 /* 系列通用更新弹窗：只需改 --uu-acc（World #5973FF / Arena #E5484D） */
-.uu{--uu-acc:#5973FF;--uu-bg:#1b1d22;--uu-line:#33363d;--uu-text:#e6e8eb;--uu-sub:#8b93a1;--uu-btn:#2a2d33;--uu-r:3px;--uu-pad:16px;--uu-gap:10px;
+.uu{--uu-acc:var(--theme-primary,#5973FF);--uu-bg:#1b1d22;--uu-line:#33363d;--uu-text:#e6e8eb;--uu-sub:#8b93a1;--uu-btn:#2a2d33;--uu-r:3px;--uu-pad:16px;--uu-gap:10px;
   position:fixed;inset:0;z-index:2147483000;display:flex;align-items:center;justify-content:center;background:#000a;padding:max(12px,env(safe-area-inset-top)) 12px max(12px,env(safe-area-inset-bottom))}
 .uu.hidden{display:none}
 .uuBox{width:min(440px,100%);max-height:100%;display:flex;flex-direction:column;background:var(--uu-bg);border:1px solid var(--uu-line);border-radius:var(--uu-r);padding:var(--uu-pad);gap:var(--uu-gap);color:var(--uu-text);font-size:14px;box-sizing:border-box}
